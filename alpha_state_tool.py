@@ -5,7 +5,7 @@ Alpha: load unified game-state CSV, show summary + tick simulation.
 - Default: **GUI** (tkinter).
 - Terminal: ``python alpha_state_tool.py --cli [csv] [prestige_hours]``
 
-**Booster (ohne Cards):** Pro Booster-Typ ist der **Effekt je Kauf** (`*_base_gain`) **konstant**; je weiterem Kauf ändern sich **nur** die **Gem-Kosten** (`*_next_cost` / `*_cost_increase`). CSV = Snapshot; Basis-Simulation ohne Käufe. **GUI:** editierbares Gem-Budget + **Greedy-Tabelle** (Booster- und Card-Schritte nach `ln(ΔCells)/Gem`).
+**CSV (Gem-relevant):** Pro Booster/Generator nur der **aktuelle Preis fürs nächste Upgrade** (`*_next_cost` bzw. `mkN_cost`). Anstiege/Multiplikatoren: **Konstanten im Code**. **Karten:** feste Gem-Preise (`GAME_CARD_COST_GEMS`); CSV nur `cost=owned` vs. nicht, plus Effekt-Attribute (`cells=`, `mk2=`, …). Optional kann `cost=` in der CSV noch stehen — **wird für Gems ignoriert**, wenn die Karte im Konstanten-Dict steht.
 
 Data format: section,key,value,extra1,extra2,extra3
 Card rows use key=value tokens across value + extras (e.g. cost=1500, cells=2.3).
@@ -23,6 +23,41 @@ from pathlib import Path
 
 DEFAULT_CSV = Path(__file__).resolve().parent / "data" / "sample_game_state.csv"
 DEFAULT_PRESTIGE_HOURS = 4.0
+
+# --- Spielkonstanten (nicht aus CSV): Gem-Preis pro weiterem Kauf ---
+# mk4/mk5/cells wie in generator_optimizer_gui_spec.md; übrige Werte Platzhalter → bei Bedarf anpassen.
+GAME_BOOSTER_COST_INCREASE_GEMS: dict[str, float] = {
+    "mk1": 2.0,
+    "mk2": 2.0,
+    "mk3": 3.0,
+    "mk4": 4.0,
+    "mk5": 5.0,
+    "cells": 1.0,
+    "mp": 5.0,
+    "shards": 5.0,
+}
+# Nach +1 owned: ``mk{tier}_cost += GAME_GENERATOR_COST_INCREASE_GEMS[tier]`` (Gems).
+# Nicht verwechseln mit ``GAME_BOOSTER_COST_INCREASE_GEMS`` (Booster-Shop, siehe Spec).
+# Werte 0 = kein Greedy-Generator-Kauf für diese Stufe (Preiskurve steht nicht in der Spec).
+GAME_GENERATOR_COST_INCREASE_GEMS: dict[int, float] = {
+    1: 0.0,
+    2: 0.0,
+    3: 0.0,
+    4: 0.0,
+    5: 0.0,
+}
+
+# Feste Gem-Preise pro Karte (einmalig kaufbar). CSV muss keine Kosten mehr liefern (außer cost=owned).
+GAME_CARD_COST_GEMS: dict[str, int] = {
+    "delta": 1500,
+    "epsilon": 1500,
+    "fenix": 1500,
+    "gamma": 2000,
+    "helion": 2000,
+    "ixion": 2000,
+    "juno": 2500,
+    "lyra": 2500,
+}
 
 
 def _num(s: str) -> float:
@@ -56,8 +91,14 @@ class CardRow:
 
     @property
     def purchase_cost(self) -> int | None:
+        if self.owned:
+            return None
+        if self.name in GAME_CARD_COST_GEMS:
+            return int(GAME_CARD_COST_GEMS[self.name])
         c = self.attrs.get("cost", "")
         if c.lower() == "owned":
+            return None
+        if not c.strip():
             return None
         return int(float(c))
 
@@ -86,7 +127,8 @@ def load_game_state(path: Path) -> GameState:
             if not row.get("section"):
                 continue
             sec = row["section"].strip().lower()
-            key = (row.get("key") or "").strip()
+            raw_key = (row.get("key") or "").strip().lstrip("\ufeff")
+            key = raw_key.lower()
             parts = [
                 row.get("value") or "",
                 row.get("extra1") or "",
@@ -95,12 +137,18 @@ def load_game_state(path: Path) -> GameState:
             ]
             if sec == "card":
                 attrs = _parse_kv_parts(parts)
-                state.cards.append(CardRow(name=key.lower(), attrs=attrs))
+                cname = key.lower()
+                co = attrs.get("cost", "").lower()
+                if co != "owned" and cname in GAME_CARD_COST_GEMS:
+                    attrs.pop("cost", None)
+                state.cards.append(CardRow(name=cname, attrs=attrs))
                 continue
             val = (parts[0] or "").strip()
             if not key:
                 continue
             if sec == "generator":
+                if key.endswith("_cost_increase"):
+                    continue
                 # e.g. mk2_target -> mk1 ("mk1" is not .isalpha() because of the digit)
                 if key.endswith("target"):
                     state.generator[key] = val.lower()
@@ -109,6 +157,8 @@ def load_game_state(path: Path) -> GameState:
             elif sec == "config":
                 state.config[key] = _num(val) if val else 0.0
             elif sec == "booster":
+                if key.endswith("_cost_increase"):
+                    continue
                 state.booster[key] = _num(val) if val else 0.0
     _finalize_r1_anchor(state)
     return state
@@ -231,7 +281,7 @@ def apply_booster_buy(state: GameState, prefix: str) -> None:
         return
     gain = float(state.booster[gain_k])
     state.booster[mult_k] = float(state.booster[mult_k]) * (1.0 + gain)
-    inc = float(state.booster.get(f"{prefix}_cost_increase", 0))
+    inc = float(GAME_BOOSTER_COST_INCREASE_GEMS.get(prefix, 0.0))
     state.booster[cost_k] = float(state.booster[cost_k]) + inc
 
 
@@ -251,10 +301,40 @@ def booster_next_cost(state: GameState, prefix: str) -> int | None:
     return int(float(state.booster[k]))
 
 
-def greedy_purchase_steps(state: GameState, hours: float, gems_budget: int) -> list[dict[str, object]]:
+def apply_generator_buy(state: GameState, tier: int) -> int:
+    """+1 owned; ``mk{tier}_cost`` += ``GAME_GENERATOR_COST_INCREASE_GEMS[tier]``. Rückgabe: gezahlte Gems."""
+    pref = f"mk{tier}"
+    ok, ck = f"{pref}_owned", f"{pref}_cost"
+    if ok not in state.generator or ck not in state.generator:
+        return -1
+    inc = float(GAME_GENERATOR_COST_INCREASE_GEMS.get(tier, 0.0))
+    if inc <= 0.0:
+        return -1
+    paid = int(float(state.generator[ck]))
+    state.generator[ok] = float(state.generator[ok]) + 1.0
+    state.generator[ck] = float(state.generator[ck]) + inc
+    return paid
+
+
+def generator_buy_cost(state: GameState, tier: int) -> int | None:
+    ck = f"mk{tier}_cost"
+    if ck not in state.generator:
+        return None
+    return int(float(state.generator[ck]))
+
+
+def greedy_purchase_steps(
+    state: GameState,
+    hours: float,
+    gems_budget: int,
+    skip_cards: frozenset[str] | set[str] | None = None,
+) -> list[dict[str, object]]:
     """
-    Greedy: max ln(cells_end / cells_end_before) / gem_cost pro Schritt; Booster + Cards (einmalig).
+    Greedy: max ln(cells_end / cells_end_before) / gem_cost pro Schritt.
+    Booster: ``next_cost += GAME_BOOSTER_COST_INCREASE_GEMS``. Generatoren: ``mkN_cost += GAME_GENERATOR_COST_INCREASE_GEMS[N]`` (falls > 0).
+    Cards: fester Preis; ``skip_cards``: Kartennamen ohne Haken → nicht als Kauf-Option.
     """
+    skip = frozenset(skip_cards) if skip_cards is not None else frozenset()
     working = copy_state(state)
     gems_left = int(gems_budget)
     steps: list[dict[str, object]] = []
@@ -287,8 +367,31 @@ def greedy_purchase_steps(state: GameState, hours: float, gems_budget: int) -> l
                     "cost": cost,
                 }
 
+        for tier in (1, 2, 3, 4, 5):
+            cost_g = generator_buy_cost(working, tier)
+            if cost_g is None or cost_g <= 0 or cost_g > gems_left:
+                continue
+            trial = copy_state(working)
+            paid = apply_generator_buy(trial, tier)
+            if paid < 0 or paid != cost_g:
+                continue
+            out1 = simulate_ticks(trial, hours)[0]
+            if out1 <= out0 or not math.isfinite(out1):
+                continue
+            ratio = out1 / out0
+            score = math.log(ratio) / float(cost_g)
+            if best is None or score > float(best["score"]):
+                best = {
+                    "score": score,
+                    "kind": "generator",
+                    "name": f"mk{tier}",
+                    "cost": cost_g,
+                }
+
         for c in working.cards:
             if c.owned:
+                continue
+            if c.name in skip:
                 continue
             pc = c.purchase_cost
             if pc is None or pc <= 0 or pc > gems_left:
@@ -313,6 +416,8 @@ def greedy_purchase_steps(state: GameState, hours: float, gems_budget: int) -> l
 
         if best["kind"] == "booster":
             apply_booster_buy(working, str(best["name"]))
+        elif best["kind"] == "generator":
+            apply_generator_buy(working, int(str(best["name"])[2:]))
         else:
             apply_card_buy(working, str(best["name"]))
 
@@ -385,13 +490,18 @@ def build_report_text(state: GameState, hours: float, gems_budget_display: int |
     return buf.getvalue()
 
 
-def run_analysis(path: Path, hours: float, gems_budget: int | None = None) -> tuple[str, list[dict[str, object]]]:
+def run_analysis(
+    path: Path,
+    hours: float,
+    gems_budget: int | None = None,
+    skip_cards: frozenset[str] | set[str] | None = None,
+) -> tuple[str, list[dict[str, object]]]:
     if not path.is_file():
         raise FileNotFoundError(f"Datei nicht gefunden: {path}")
     state = load_game_state(path)
     g = gems_budget if gems_budget is not None else int(state.config.get("gems", 0))
     text = build_report_text(state, hours, gems_budget_display=g)
-    plan = greedy_purchase_steps(state, hours, g)
+    plan = greedy_purchase_steps(state, hours, g, skip_cards)
     return text, plan
 
 
@@ -496,6 +606,52 @@ def main_gui() -> None:
     ttk.Label(top, text="Gem-Budget:").grid(row=1, column=2, sticky=tk.W, padx=(16, 0), pady=(8, 0))
     ttk.Entry(top, textvariable=gems_var, width=10).grid(row=1, column=3, sticky=tk.W, pady=(8, 0))
 
+    cards_outer = ttk.LabelFrame(root, text="Karten im Greedy (Haken = kaufen erlauben)")
+    cards_outer.pack(fill=tk.X, padx=8, pady=(0, 2))
+    card_inner = ttk.Frame(cards_outer)
+    card_inner.pack(fill=tk.X, padx=4, pady=4)
+    card_toggle_vars: dict[str, tk.BooleanVar] = {}
+
+    def rebuild_card_toggles(st: GameState, path_changed: bool) -> None:
+        prev: dict[str, bool] = {}
+        if not path_changed and card_toggle_vars:
+            prev = {n: v.get() for n, v in card_toggle_vars.items()}
+        for w in card_inner.winfo_children():
+            w.destroy()
+        card_toggle_vars.clear()
+        purch = [c for c in st.cards if not c.owned and c.purchase_cost is not None]
+        if not purch:
+            ttk.Label(
+                card_inner,
+                text="Keine kaufbaren Karten im State.",
+                style="Dim.TLabel",
+            ).pack(anchor=tk.W)
+            return
+        ttk.Label(
+            card_inner,
+            text="Ohne Haken: Karte wird im Greedy-Pfad übersprungen.",
+            style="Dim.TLabel",
+        ).pack(anchor=tk.W)
+        rowf = ttk.Frame(card_inner)
+        rowf.pack(fill=tk.X, pady=(4, 0))
+        for i, c in enumerate(sorted(purch, key=lambda x: x.name)):
+            pc = c.purchase_cost
+            var = tk.BooleanVar(value=prev.get(c.name, True))
+            card_toggle_vars[c.name] = var
+            r, col = divmod(i, 4)
+            cb = tk.Checkbutton(
+                rowf,
+                text=f"{c.name} ({pc} G)",
+                variable=var,
+                bg=BG,
+                fg=FG,
+                selectcolor=INPUT_BG,
+                activebackground=BG,
+                activeforeground=FG,
+                highlightthickness=0,
+            )
+            cb.grid(row=r, column=col, sticky=tk.W, padx=6, pady=2)
+
     body = ttk.Frame(root)
     body.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
@@ -527,7 +683,7 @@ def main_gui() -> None:
                 highlightthickness=0,
             )
 
-    tbl = ttk.LabelFrame(body, text="Greedy-Kaufpfad (Booster + Cards, finanzierbar)")
+    tbl = ttk.LabelFrame(body, text="Greedy-Kaufpfad (Booster + Generatoren + Karten)")
     tbl.pack(fill=tk.BOTH, expand=False, padx=8, pady=(2, 6))
 
     cols = ("step", "kind", "name", "cost", "gems", "score", "cells_end")
@@ -578,17 +734,20 @@ def main_gui() -> None:
         try:
             p = Path(csv_var.get().strip()).expanduser().resolve()
             key = str(p)
-            if path_memento["v"] != key:
+            path_changed = path_memento["v"] != key
+            st = load_game_state(p)
+            if path_changed:
                 path_memento["v"] = key
-                seed = load_game_state(p)
-                gems_var.set(str(int(seed.config.get("gems", 0))))
+                gems_var.set(str(int(st.config.get("gems", 0))))
+            rebuild_card_toggles(st, path_changed)
             h = float(hours_var.get().replace(",", "."))
             gs = gems_var.get().strip()
             if not gs:
-                gb = int(load_game_state(p).config.get("gems", 0))
+                gb = int(st.config.get("gems", 0))
             else:
                 gb = int(float(gs.replace(",", ".")))
-            text, plan = run_analysis(p, h, gb)
+            skip = frozenset(n for n, v in card_toggle_vars.items() if not v.get())
+            text, plan = run_analysis(p, h, gb, skip)
             set_out(text)
             fill_tree(plan)
             status_var.set(f"OK — {p.name} · {len(plan)} Käufe")

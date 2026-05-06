@@ -112,6 +112,8 @@ MK5: 1.02e102
 
 *(Separat: **Generator-Käufe** (MK1–MK5) erhöhen `owned` und haben eigene Preiskurve — das ist kein fester „× pro Kauf“-Booster-Schritt wie oben.)*
 
+**Nicht verwechseln:** Die `cost_increase`-Werte in den Booster-JSON-Beispielen (z. B. MK4 +4, MK5 +5, Cells +1 Gems) beschreiben nur die **lineare Gem-Erhöhung pro weiterem Booster-Kauf** im Booster-Shop. Sie gelten **nicht** für „wie viele Gems teurer wird der nächste **Generator**-Kauf (MK1–MK5 Einheit)?“ — letzteres ist eine **eigene** Spielregel und in diesem Dokument **nicht** mit denselben Zahlen festgelegt.
+
 Für reine Cell-Prestige-Optimierung sind primär relevant:
 
 ```text

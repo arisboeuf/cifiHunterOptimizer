@@ -1,80 +1,73 @@
-# CSV-Export für CIFI Alpha (`alpha_state_tool.py`)
+# CIFI-Spielzustand → eine CSV-Datei
 
-Den folgenden Block kannst du **1:1 in ChatGPT** (o. ä.) einfügen. Ziel: Das Modell erzeugt **eine CSV-Datei**, die unser Tool **ohne Anpassung** einlesen kann.
+Du bekommst in derselben Nachricht **Screenshots und/oder abgeschriebenen Text** aus dem Spiel. Erzeuge daraus **genau eine** CSV-Datei, die ein externes Tool unverändert einlesen kann.
 
----
+## Ausgabe (wichtig)
 
-## Prompt für das LLM (kopieren ab hier)
+- **Nur** der CSV-Text: beginnt mit der Header-Zeile, danach Datenzeilen.
+- **Keine** Einleitung („Hier ist…“), **keine** Schlussbemerkung, **keine** Markdown-Codefences um die Ausgabe, **keine** nummerierten Listen außerhalb der CSV.
 
-Du sollst aus Screenshots / Spieltext einen **einzigen CSV-Export** erzeugen.
-
-### Strikte Vorgaben
+## Strikte Vorgaben für die CSV
 
 1. **Kodierung:** UTF-8.  
 2. **Trennzeichen:** Komma `,`.  
 3. **Erste Zeile (Header) — exakt so, keine anderen Spaltennamen:**
 
-   ```text
-   section,key,value,extra1,extra2,extra3
-   ```
+   `section,key,value,extra1,extra2,extra3`
 
-4. Jede **weitere Zeile** hat genau diese sechs Spalten (leere Spalten sind erlaubt, aber die Kommas müssen stimmen).
+4. Jede **weitere Zeile** hat genau **sechs** Spalten (leere Spalten erlaubt; Kommas müssen stimmen).
 
-5. Spalte **`section`** ist immer einer von: `config` | `generator` | `booster` | `card` (kleingeschrieben).
+5. **`section`** nur: `config` | `generator` | `booster` | `card` (alles kleingeschrieben).  
+   **`key`:** kleinschreiben (`mk3_next_cost`). BOM am Dateianfang vermeiden.
 
-6. **`config` und `generator` und `booster`:** Spalte **`value`** enthält den Hauptwert; `extra1`–`extra3` werden für diese Sections **nicht** genutzt (leer lassen).
+6. **`config`**, **`generator`**, **`booster`:** Hauptwert in **`value`**; `extra1`–`extra3` **leer** lassen.
 
-7. **`generator` — Keys mit Text statt Zahl:**  
-   Zeilen mit Key `mk2_target`, `mk3_target`, … enthalten in **`value`** das Ziel als Kleinbuchstaben-String (`mk1`, `mk2`, …), **keine** wissenschaftliche Zahl.
+7. **`generator`:** Keys `mk2_target` … `mk5_target`: in **`value`** nur Kleinbuchstaben-String (`mk1`, `mk2`, …), **keine** wissenschaftliche Zahl.  
+   Kette: mk2→mk1, mk3→mk2, mk4→mk3, mk5→mk4.
 
-8. **`card`:** Spalte **`key`** = **Karten-ID** (ein Wort, z. B. `delta`, `gamma`; kleinschreiben).  
-   In **`value`**, **`extra1`**, **`extra2`**, **`extra3`** stehen nur **Paare** der Form `attribut=wert`, durch Komma getrennt **nicht** nötig — jedes Paar in **einer** der vier Spalten; das Tool liest alle vier Spalten zusammen.  
-   Erlaubte Attribute u. a.: `cost`, `cells`, `mk1`, `mk2`, `mk3`, `mk4`, `mk5`, `mp`, `shards`.  
-   - **`cost=owned`** = Karte ist **schon gekauft** (nur für Stat-Anzeige; kein erneuter Kauf).  
-   - **`cost=1500`** (Zahl) = noch kaufbar für 1500 Gems.  
-   - Fehlende Multiplikatoren weglassen (Tool behandelt fehlend wie Faktor 1, sofern nicht anders implementiert — für Konsistenz fehlende Stats als `mk4=1` setzen, wenn du sicher gehen willst).
+8. **`card`:** **`key`** = Karten-ID (`delta`, …, klein). In **`value`** … **`extra3`** nur Tokens **`attribut=wert`** (`cells=`, `mk2=`, …).  
+   - **`cost=owned`** nur wenn die Karte **bereits gekauft** ist.  
+   - **Kein** `cost=<zahl>` für kaufbare Karten — Gem-Preise kommen im Tool aus festen Konstanten, nicht aus der CSV.  
+   - Fehlende Multiplikatoren weglassen (= Faktor 1 im Tool).
 
-9. Zahlen: **Punkt** als Dezimaltrenner; wissenschaftliche Notation erlaubt (`3.32e102`, `265.25e21`).
+9. Zahlen: **Punkt** als Dezimaltrenner; wissenschaftliche Notation erlaubt (`3.32e102`).
 
-10. **Keine** Markdown-Codefences um die ganze Datei im Chat — nur **reiner CSV-Text** ausgeben, den man speichern kann.
+10. **`booster`:** Gem-Anstieg pro weiterem Kauf (`cost_increase`) muss **nicht** in die CSV — das Tool nutzt eigene Konstanten. Nur **`{prefix}_multiplier`**, **`{prefix}_next_cost`**, **`{prefix}_base_gain`** wie unten.
 
-### Pflicht-Zeilen (Reihenfolge egal, alle müssen vorkommen)
+## Pflicht-Zeilen (Reihenfolge egal; alle genannten Keys müssen vorkommen)
 
-**`config`** (alle `key` wie unten; Werte aus dem Spiel ersetzen):
+**`config`**
 
 | key | Bedeutung |
 |-----|-----------|
-| `level` | Spielerlevel (Zahl) |
-| `gems` | Verfügbare Gems (Zahl) |
+| `level` | Spielerlevel |
+| `gems` | Verfügbare Gems |
 | `tick_seconds` | Tick-Dauer in Sekunden |
 | `cells_per_tick` | Angezeigte Cells pro Tick |
-| `current_cells` | Aktuelle Cells (Stand) |
+| `current_cells` | Aktuelle Cells |
 
-**`generator`** — pro Stufe `mk1` … `mk5`:
+**`generator`** — pro Stufe mk1 … mk5
 
-| key | value-Typ |
-|-----|-----------|
+| key | value |
+|-----|--------|
 | `mkN_owned` | Zahl |
 | `mkN_cost` | Zahl |
-| `mkN_prod` | Zahl (nur **mk2**–**mk5**: Produktion „nach unten“ pro Tick aus UI; **mk1** hat keine `mk1_prod`-Zeile nötig) |
-| `mkN_target` | Text: `mk1` … `mk4` (mk1-Ziel = `cells` gibt es nicht als Zeile — bei mk2 target = `mk1`, … mk5 target = `mk4`) |
+| `mkN_prod` | Zahl (nur **mk2–mk5**: Produktion pro Tick Richtung untere Stufe laut UI; **mk1_prod** nicht nötig) |
+| `mkN_target` | nur mk2–mk5: Text `mk1` … `mk4` wie oben |
 
-**`booster`** — pro Booster-Prefix `mk1` … `mk5`, `cells`, optional `mp`, `shards`:
+**`booster`** — pro Prefix `mk1` … `mk5`, `cells`; **`mp`** und **`shards`** nur wenn im Spiel sichtbar, sonst Zeilen weglassen
 
 | key | Bedeutung |
 |-----|-----------|
 | `{prefix}_multiplier` | Aktueller Gesamt-Multiplikator |
 | `{prefix}_next_cost` | Nächster Kaufpreis in Gems |
-| `{prefix}_base_gain` | Bonus **pro Kauf**, für diesen Booster **konstant** (dezimal, z. B. `0.08` → Faktor ×1,08 pro Kauf; nicht kaufabhängig absinkend) |
-| `{prefix}_cost_increase` | **Einziges** sich änderndes Nicht-Card-Feld je Kauf: lineare **Gem**-Kostensteigerung zum nächsten Kauf (`0` wenn keine) |
+| `{prefix}_base_gain` | Bonus **pro Kauf**, für diesen Booster konstant (z. B. `0.08` → ×1,08 pro Kauf) |
 
-**`card`** — eine Zeile pro Karte; `key` = Kartenname; in value/extras nur `attr=wert`-Tokens, mindestens **`cost=…`**.
+**`card`** — eine Zeile pro sichtbarer Karte; bis zu vier `attr=wert`-Tokens auf `value` + `extra1` + `extra2` + `extra3` verteilen.
 
----
+## Vollständige Zeilenliste (Platzhalter durch echte Werte ersetzen)
 
-## Skelett (Platzhalter — Struktur 1:1 beibehalten)
-
-```csv
+```
 section,key,value,extra1,extra2,extra3
 config,level,<LEVEL>
 config,gems,<GEMS>
@@ -102,46 +95,36 @@ generator,mk5_target,mk4
 booster,mk1_multiplier,<M>
 booster,mk1_next_cost,<GEMS>
 booster,mk1_base_gain,<GAIN>
-booster,mk1_cost_increase,<INC>
 booster,mk2_multiplier,<M>
 booster,mk2_next_cost,<GEMS>
 booster,mk2_base_gain,<GAIN>
-booster,mk2_cost_increase,<INC>
 booster,mk3_multiplier,<M>
 booster,mk3_next_cost,<GEMS>
 booster,mk3_base_gain,<GAIN>
-booster,mk3_cost_increase,<INC>
 booster,mk4_multiplier,<M>
 booster,mk4_next_cost,<GEMS>
 booster,mk4_base_gain,<GAIN>
-booster,mk4_cost_increase,<INC>
 booster,mk5_multiplier,<M>
 booster,mk5_next_cost,<GEMS>
 booster,mk5_base_gain,<GAIN>
-booster,mk5_cost_increase,<INC>
 booster,cells_multiplier,<M>
 booster,cells_next_cost,<GEMS>
 booster,cells_base_gain,<GAIN>
-booster,cells_cost_increase,<INC>
 booster,mp_multiplier,<M>
 booster,mp_next_cost,<GEMS>
 booster,mp_base_gain,<GAIN>
-booster,mp_cost_increase,<INC>
 booster,shards_multiplier,<M>
 booster,shards_next_cost,<GEMS>
 booster,shards_base_gain,<GAIN>
-booster,shards_cost_increase,<INC>
 card,<card_id>,cost=owned,<attr>=<mult>,,
-card,<card_id>,cost=<GEMS>,<attr>=<mult>,<attr>=<mult>,<attr>=<mult>
+card,<card_id>,<attr>=<mult>,<attr>=<mult>,<attr>=<mult>,
 ```
 
-**Hinweis zu `card`:** Pro Karte bis zu **vier** `attr=wert`-Tokens auf `value` + `extra1` + `extra2` + `extra3` verteilen (z. B. `card,delta,cost=1500,cells=2.3,mk2=1.14,mk3=1.14` — eine Spalte pro Token reicht).
+Die letzten beiden `card`-Zeilen sind **Muster**: pro echter Karte **eine** Zeile; nicht vorhandene Karten weglassen.
 
----
+## Format-Referenz (nur Struktur; nicht 1:1 wiederholen)
 
-## Mini-Beispiel (fertig ausgefüllt, zum Testen)
-
-```csv
+```
 section,key,value,extra1,extra2,extra3
 config,level,1
 config,gems,100
@@ -169,42 +152,27 @@ generator,mk5_target,mk4
 booster,mk1_multiplier,1
 booster,mk1_next_cost,10
 booster,mk1_base_gain,0.01
-booster,mk1_cost_increase,0
 booster,mk2_multiplier,1
 booster,mk2_next_cost,10
 booster,mk2_base_gain,0.01
-booster,mk2_cost_increase,0
 booster,mk3_multiplier,1
 booster,mk3_next_cost,10
 booster,mk3_base_gain,0.01
-booster,mk3_cost_increase,0
 booster,mk4_multiplier,1
 booster,mk4_next_cost,10
 booster,mk4_base_gain,0.01
-booster,mk4_cost_increase,0
 booster,mk5_multiplier,1
 booster,mk5_next_cost,10
 booster,mk5_base_gain,0.01
-booster,mk5_cost_increase,0
 booster,cells_multiplier,1
 booster,cells_next_cost,10
 booster,cells_base_gain,0.01
-booster,cells_cost_increase,0
 booster,mp_multiplier,1
 booster,mp_next_cost,10
 booster,mp_base_gain,0.01
-booster,mp_cost_increase,0
 booster,shards_multiplier,1
 booster,shards_next_cost,10
 booster,shards_base_gain,0.01
-booster,shards_cost_increase,0
 card,alpha,cost=owned,cells=1.1,,
-card,delta,cost=99,cells=1.5,mk2=1.1,
+card,delta,cells=1.5,mk2=1.1,,
 ```
-
----
-Gib mir die passende .csv bitte :-)
-
-## Ende Prompt (bis hier kopieren)
-
-Referenz im Projekt: `data/sample_game_state.csv` und Parser in `alpha_state_tool.py` → `load_game_state`.

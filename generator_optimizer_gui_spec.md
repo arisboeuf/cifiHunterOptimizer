@@ -61,6 +61,8 @@ Verfügbare Gems im Screenshot: 369
 MK5 → MK4 → MK3 → MK2 → MK1 → Cells
 ```
 
+**Rollen:** **MK1** ist der **Basisgenerator** und erzeugt **Cells**. **MK2–MK5** verstärken die Wirtschaft **nur indirekt**, indem sie **ausschließlich die Generatorstufe direkt darunter** pro Tick produzieren (MK2 liefert MK1, MK3 liefert MK2, usw.). Booster/Cards mit „MKk Gen Output“ beziehen sich auf den **Output dieser einen Stufe**; der Effekt auf Cells entsteht über diese Kette.
+
 ### Aktueller Generator-State, grob aus Screenshot
 
 ```text

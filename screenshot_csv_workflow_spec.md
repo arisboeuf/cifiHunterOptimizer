@@ -216,15 +216,22 @@ Für jeden Kauf:
 
 # Generator-Chain-Modell
 
-Beispiel:
+**Produktion (Generatoren):**
 
-MK5 → bufft MK4
-MK4 → bufft MK3
-MK3 → bufft MK2
-MK2 → bufft MK1
-MK1 → erzeugt Cells
+* **MK1** ist der **Basisgenerator**: er erzeugt **Cells** (einzige direkte Cells-Quelle in dieser Kette).
+* **MK2 bis MK5** erzeugen **nur** die Stufe **direkt darunter** — nichts anderes:
+  * MK2 → MK1
+  * MK3 → MK2
+  * MK4 → MK3
+  * MK5 → MK4
 
-Dadurch propagiert ein MK5 Buff exponentiell durch die gesamte Kette.
+Leserichtung zum Spielende hin:
+
+```text
+MK5 → MK4 → MK3 → MK2 → MK1 → Cells
+```
+
+**Booster** (separates Konzept): ein „MKk Booster“ multipliziert den **Output von MKk**; weil MKk nur die Stufe darunter speist, wirkt das **indirekt** bis zu Cells — deshalb kann sich ein hoher MK-Buff „durch die ganze Kette“ auswirken, ohne dass MK5 z. B. MK3 „direkt bufft“.
 
 ---
 

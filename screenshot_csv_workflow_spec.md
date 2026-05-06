@@ -32,6 +32,7 @@ Der Workflow soll so funktionieren:
 - **Gems** und sonstige **Gem-Upgrades**, falls du sie modellierst
 - **MK-Booster** (Cells/MK1–MK5 usw.): Multiplikatoren, nächste Kosten, Level, Kostensteigerung — alles, was sich über Booster-**Gem**-Käufe ändert
 - **Generator-Setup MK1–MK5**: owned, Kaufpreise, Produktion pro Tick
+- **Bereits gekaufte Cards:** jede Card nur **einmal** kaufbar; der Optimizer darf sie nicht doppelt vorschlagen (`owned` in `cards.csv` oder separater State)
 
 Kurz: Screenshots liefern vor allem **State + Booster**; **Cards** sind Konfiguration, kein täglicher OCR-Input.
 
@@ -168,16 +169,19 @@ Erklärung:
 
 # cards.csv
 
+Definitionen aller Cards (statisch). Optionaler Run-State: Spalte **`owned`** (0 = noch nicht gekauft, 1 = schon gekauft, dann nie wieder wählbar).
+
 ```csv
-card,cost,cells,mk1,mk2,mk3,mk4,mk5,shards,mp
-gamma,2000,2.4,1,1,1.34,1,1.34,1,1
-ixion,2000,1,1,1,1,1.64,1.52,1,1.16
-lyra,2500,1,1,2.16,1,1,2.12,1.5,1
+card,cost,cells,mk1,mk2,mk3,mk4,mk5,shards,mp,owned
+gamma,2000,2.4,1,1,1.34,1,1.34,1,1,0
+ixion,2000,1,1,1,1,1.64,1.52,1,1.16,0
+lyra,2500,1,1,2.16,1,1,2.12,1.5,1,0
 ```
 
 Regel:
 
 * nicht vorhandene Werte = 1.0
+* **`owned=1`:** Card aus Optimierung ausschließen (im Spiel nicht nochmal kaufbar)
 
 ---
 
@@ -250,7 +254,7 @@ NICHT linear:
 1 + 8*0.08
 ```
 
-Cards stacken ebenfalls multiplikativ.
+Verschiedene Cards (jeweils einmal gekauft) **multiplizieren** sich untereinander; dieselbe Card **nicht** zweimal.
 
 ---
 

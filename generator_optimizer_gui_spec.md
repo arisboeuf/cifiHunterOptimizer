@@ -42,6 +42,8 @@ welche Reihenfolge aus Boostern und Cards ist mit meinem Gem-Budget optimal?
 
 Der Optimizer kombiniert damit weiterhin **Booster- und Card-Käufe** in einer Sequenz — nur die **Card-Definitionen** sind keine freien Parameter pro Sitzung.
 
+**Card-Käufe im Spiel:** Jede Card ist **höchstens einmal** kaufbar. Nach dem Kauf verschwindet sie aus dem Shop — der Optimizer muss jede Card also als **0/1-Entscheidung** behandeln und sie nach Kauf **nicht** erneut in die Kandidatenliste aufnehmen.
+
 ---
 
 ## Aktuelles Setup aus deinen Screenshots
@@ -378,7 +380,8 @@ Items = Booster und Cards
 Jedes Item hat:
 - Kosten
 - Effekt
-- eventuell steigende Folgekosten
+- eventuell steigende Folgekosten (typisch Booster)
+- Cards: pro Card-ID maximal ein Kauf (danach ausgeschlossen)
 ```
 
 Gesucht:
@@ -387,7 +390,7 @@ Gesucht:
 beste Kaufsequenz unter Budget
 ```
 
-Das ist wie ein dynamisches Knapsack-/Search-Problem, aber mit Zustandsänderungen, weil Boosterpreise steigen.
+Das ist wie ein dynamisches Knapsack-/Search-Problem, aber mit Zustandsänderungen, weil Boosterpreise steigen und **Card-Käufe nicht wiederholbar** sind.
 
 ---
 
@@ -411,6 +414,7 @@ Wiederhole, solange Gems übrig sind:
    - Multiplikator
    - Booster-Level
    - nächste Kosten
+   - bei **Card-Kauf:** diese Card dauerhaft aus den Kandidaten streichen
 
 5. Wiederhole
 ```
@@ -443,7 +447,7 @@ Ablauf:
 
 ```text
 1. Starte mit leerer Kaufsequenz
-2. Erzeuge alle möglichen nächsten Käufe
+2. Erzeuge alle möglichen nächsten Käufe (nur Booster, die bezahlbar sind, und Cards, die noch nicht gekauft wurden)
 3. Behalte nur die besten z. B. 50 Sequenzen
 4. Wiederhole bis kein Kauf mehr möglich
 5. Wähle Sequenz mit höchstem simuliertem Output
@@ -765,6 +769,7 @@ Effect 1 target + multiplier
 Effect 2 target + multiplier
 Effect 3 target + multiplier
 Enabled yes/no
+Already purchased yes/no   (im Spiel: jede Card höchstens einmal; gekauft = nicht mehr wählbar)
 ```
 
 ### Tab 5: Results

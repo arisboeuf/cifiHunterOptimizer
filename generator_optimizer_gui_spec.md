@@ -108,6 +108,10 @@ MK5: 1.02e102
 | MP Booster | x1.14 | x1.07 MP gained | 320 Gems |
 | Shards Booster | x1.07 | x1.07 Shards gained | 420 Gems |
 
+**Modellannahme fürs Tool (Booster, nicht Cards):** Der **Effekt pro einzelnem Booster-Kauf** (z. B. ×1,02 auf MK1-Output pro MK1-Booster-Kauf) ist im Spiel **pro Booster-Typ konstant**. **Pro weiterem Booster-Kauf** ändert sich für dich praktisch **nur** die **Gem-Kosten** (`next_cost` + lineare `cost_increase`); der Multiplikator-Schritt (`base_gain`) bleibt gleich, der **Gesamt-Multi** wächst weiter **multiplikativ** (z. B. `1.02^level`). Die CSV-Spalte `base_gain` ist genau dieser **feste Schritt**; schlechtere „Effizienz pro Gem“ kommt nur durch **teurere nächste Käufe**, nicht durch schwächer werdenden Effekt pro Kauf.
+
+*(Separat: **Generator-Käufe** (MK1–MK5) erhöhen `owned` und haben eigene Preiskurve — das ist kein fester „× pro Kauf“-Booster-Schritt wie oben.)*
+
 Für reine Cell-Prestige-Optimierung sind primär relevant:
 
 ```text

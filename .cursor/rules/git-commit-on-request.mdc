@@ -1,0 +1,10 @@
+---
+description: Keine Git-Commits ohne ausdrückliche Aufforderung des Nutzers
+alwaysApply: true
+---
+
+# Git: nur committen auf Wunsch
+
+- **`git commit` nicht ausführen**, solange der Nutzer das **nicht ausdrücklich** verlangt (z. B. „commit das“, „bitte committen“, „mach einen commit“).
+- Änderungen **vorbereiten** (`git add`, Dateien schreiben) ist in Ordnung; **Commit und Push** nur auf **explizite Bitte**.
+- Wenn ein Commit sinnvoll wäre: kurz **vorschlagen**, der Nutzer entscheidet.

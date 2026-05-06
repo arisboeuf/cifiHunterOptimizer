@@ -162,8 +162,8 @@ Erklärung:
 
 * current_multiplier → aktueller Gesamtwert
 * next_cost → nächster Kaufpreis
-* base_gain → Bonus pro Kauf
-* cost_increase → linearer Kostenanstieg
+* base_gain → Bonus **pro Kauf**, im Spiel für diesen Booster-Typ **konstant** (z. B. `0.02` → Faktor ×1,02 pro Kauf); nicht „pro Stufe schwächer werdend“
+* cost_increase → **Nur** die Gem-Kosten steigen je weiterem Kauf linear um diesen Betrag; **kein** anderes Nicht-Card-Attribut ändert sich pro Kauf
 
 ---
 

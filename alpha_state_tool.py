@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Alpha: load unified game-state CSV, print summary, run a short discrete tick simulation.
 
@@ -91,10 +92,12 @@ def load_game_state(path: Path) -> GameState:
             val = (parts[0] or "").strip()
             if not key:
                 continue
-            if sec == "generator" and val.isalpha() and key.endswith("target"):
-                state.generator[key] = val.lower()
-            elif sec == "generator":
-                state.generator[key] = _num(val) if val else 0.0
+            if sec == "generator":
+                # e.g. mk2_target -> mk1 ("mk1" is not .isalpha() because of the digit)
+                if key.endswith("target"):
+                    state.generator[key] = val.lower()
+                else:
+                    state.generator[key] = _num(val) if val else 0.0
             elif sec == "config":
                 state.config[key] = _num(val) if val else 0.0
             elif sec == "booster":

@@ -7,9 +7,9 @@ Du willst ein Tool, in dem du eingibst:
 ```text
 - verfügbare Gems
 - geplante Prestige-Dauer, z. B. 2h, 4h, 8h
-- aktueller Generator-State
-- aktuelle Booster-Kosten und Multiplikatoren
-- verfügbare Cards
+- aktueller Generator-State (MK1–MK5)
+- aktuelle Booster-Kosten und Multiplikatoren (Gem-Booster-Upgrades)
+- Card-Pool (fix; nur bei Spiel-Patch aktualisieren)
 ```
 
 und das Tool soll berechnen:
@@ -29,6 +29,18 @@ sondern:
 ```text
 welche Reihenfolge aus Boostern und Cards ist mit meinem Gem-Budget optimal?
 ```
+
+### Was sich zwischen Prestiges ändert (und was nicht)
+
+**Cards** sind im Spiel **immer gleich** (feste Kosten und Multiplikatoren). Die Card-Liste pflegst du **einmal** im Tool oder in einer statischen `cards.json` / `cards.csv`; pro Run musst du sie nicht neu erfassen.
+
+**Pro Run wechselnd** (kommen aus Screenshots / Eingabe):
+
+- verfügbare **Gems** und **Gem-Upgrades**, sofern du sie im Modell abbildest
+- **MK-Booster**: Multiplikatoren, nächste Kosten, Kostensteigerung (alles, was sich über Booster-Gem-Käufe ändert)
+- **Generator-Setup MK1–MK5**: Bestände, Kaufpreise, Produktion pro Tick / Rates
+
+Der Optimizer kombiniert damit weiterhin **Booster- und Card-Käufe** in einer Sequenz — nur die **Card-Definitionen** sind keine freien Parameter pro Sitzung.
 
 ---
 

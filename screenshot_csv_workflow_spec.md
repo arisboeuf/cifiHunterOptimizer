@@ -23,6 +23,20 @@ Der Workflow soll so funktionieren:
 
 ---
 
+## Was fest vs. variabel ist
+
+**Fest (spielweit gleich):** alle **Cards** — Kosten und Multiplikatoren ändern sich nicht zwischen deinen Runs. Im Tool reicht eine **statische `cards.csv`** (oder eingebaute Tabelle); du musst den Cards-Screen **nicht** bei jedem Export neu auswerten, höchstens nach einem **Balance-Patch** des Spiels.
+
+**Variabel pro Run / Screenshot-Export:**
+
+- **Gems** und sonstige **Gem-Upgrades**, falls du sie modellierst
+- **MK-Booster** (Cells/MK1–MK5 usw.): Multiplikatoren, nächste Kosten, Level, Kostensteigerung — alles, was sich über Booster-**Gem**-Käufe ändert
+- **Generator-Setup MK1–MK5**: owned, Kaufpreise, Produktion pro Tick
+
+Kurz: Screenshots liefern vor allem **State + Booster**; **Cards** sind Konfiguration, kein täglicher OCR-Input.
+
+---
+
 # Benötigte Screenshots
 
 ## 1. Generator Screen
@@ -33,6 +47,7 @@ Muss enthalten:
 
 * current cells/tick
 * tick duration
+* MK1 owned + cost (mit in den Export aufnehmen)
 * MK2 owned + cost
 * MK3 owned + cost
 * MK4 owned + cost
@@ -70,11 +85,13 @@ Für:
 
 ## 3. Cards Screen
 
-Pflicht.
+**Einmalig** (oder nach Spiel-Update): ja — um `cards.csv` zu befüllen oder zu prüfen.
 
-Muss enthalten:
+**Bei jedem typischen Run:** nein — Card-Stats sind **konstant**; das Tool nutzt die gespeicherte `cards.csv`.
 
-* alle verfügbaren Cards
+Wenn du doch einen Screenshot hast, soll er enthalten:
+
+* alle Cards
 * Kosten
 * Multiplikatoren
 
@@ -110,6 +127,7 @@ Die CSV besteht aus mehreren Tabellen.
 
 ```csv
 generator,owned,cost,production,target
+mk1,8.69e60,5.65e100,<cells_per_tick>,cells
 mk2,1.34e40,2.17e102,9.59e58,mk1
 mk3,6.348e76,1.13e102,1.28e38,mk2
 mk4,1.526e10,1.16e101,430.8e15,mk3
@@ -121,7 +139,9 @@ Erklärung:
 * owned → wie viele existieren
 * cost → aktueller Kaufpreis
 * production → Produktion pro Tick
-* target → welche Stufe gebufft wird
+* target → welche Stufe gebufft wird (`mk1` → Ziel `cells`)
+
+Platzhalter `<cells_per_tick>`: aus UI oder aus Kette ableiten, je nachdem was du im Screenshot hast.
 
 ---
 

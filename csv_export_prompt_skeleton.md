@@ -1,6 +1,6 @@
 # CIFI-Spielzustand → eine CSV-Datei
 
-Du bekommst in derselben Nachricht **Screenshots und/oder abgeschriebenen Text** aus dem Spiel. Erzeuge daraus **genau eine** CSV-Datei, die ein externes Tool unverändert einlesen kann.
+Du bekommst in derselben Nachricht **Screenshots und/oder abgeschriebenen Text** aus dem Spiel. Erzeuge daraus **genau eine** CSV-Datei zum RUNTERLADEN <- WICHTIG>, die ein externes Tool unverändert einlesen kann.
 
 ## Ausgabe (wichtig)
 

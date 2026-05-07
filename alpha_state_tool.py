@@ -3,7 +3,7 @@
 Alpha: load unified game-state CSV, show summary + tick simulation.
 
 - Default: **GUI** (tkinter).
-- Terminal: ``python alpha_state_tool.py --cli [csv] [prestige_hours]``
+- Terminal: ``python alpha_state_tool.py --cli [csv] [prestige_hours]`` (Standard-Prestige: 8 h)
 
 **CSV (Gem-relevant):** Pro Booster/Generator nur der **aktuelle Preis fürs nächste Upgrade** (`*_next_cost` bzw. `mkN_cost`). Anstiege/Multiplikatoren: **Konstanten im Code**. **Karten:** feste Gem-Preise (`GAME_CARD_COST_GEMS`); CSV nur `cost=owned` vs. nicht, plus Effekt-Attribute (`cells=`, `mk2=`, …). Optional kann `cost=` in der CSV noch stehen — **wird für Gems ignoriert**, wenn die Karte im Konstanten-Dict steht.
 
@@ -16,13 +16,14 @@ from __future__ import annotations
 import csv
 import math
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
 
 
 DEFAULT_CSV = Path(__file__).resolve().parent / "data" / "sample_game_state.csv"
-DEFAULT_PRESTIGE_HOURS = 4.0
+DEFAULT_PRESTIGE_HOURS = 8.0
 
 # --- Spielkonstanten (nicht aus CSV): Gem-Preis pro weiterem Kauf ---
 # mk4/mk5/cells wie in generator_optimizer_gui_spec.md; übrige Werte Platzhalter → bei Bedarf anpassen.
@@ -38,7 +39,7 @@ GAME_BOOSTER_COST_INCREASE_GEMS: dict[str, float] = {
 }
 # Nach +1 owned: ``mk{tier}_cost += GAME_GENERATOR_COST_INCREASE_GEMS[tier]`` (Gems).
 # Nicht verwechseln mit ``GAME_BOOSTER_COST_INCREASE_GEMS`` (Booster-Shop, siehe Spec).
-# Werte 0 = kein Greedy-Generator-Kauf für diese Stufe (Preiskurve steht nicht in der Spec).
+# Werte 0 = kein Generator-Kauf im Kaufpfad für diese Stufe (Preiskurve steht nicht in der Spec).
 GAME_GENERATOR_COST_INCREASE_GEMS: dict[int, float] = {
     1: 0.0,
     2: 0.0,
@@ -58,6 +59,11 @@ GAME_CARD_COST_GEMS: dict[str, int] = {
     "juno": 2500,
     "lyra": 2500,
 }
+
+# Kaufpfad-Planung: Beam-Search (mehrere Teilpfade parallel), Ziel max. cells_end nach Prestige.
+# Kein vollständiges globales Optimum (diskret, Reihenfolge wirkt auf Preise); breiterer Beam ~ bessere Näherung.
+PURCHASE_PLAN_BEAM_WIDTH = 48
+PURCHASE_PLAN_MAX_DEPTH = 250
 
 
 def _num(s: str) -> float:
@@ -323,120 +329,231 @@ def generator_buy_cost(state: GameState, tier: int) -> int | None:
     return int(float(state.generator[ck]))
 
 
-def greedy_purchase_steps(
+def _qf(x: float) -> float:
+    """Stable-enough float for plan-state deduplication keys."""
+    return float(f"{float(x):.12g}")
+
+
+def _plan_state_key(state: GameState, gems_left: int) -> tuple[object, ...]:
+    row: list[object] = []
+    for p in BOOSTER_PREFIXES:
+        mk = f"{p}_multiplier"
+        if mk not in state.booster:
+            continue
+        row.append(
+            (
+                p,
+                _qf(float(state.booster[mk])),
+                _qf(float(state.booster.get(f"{p}_next_cost", 0.0))),
+            )
+        )
+    for i in range(1, 6):
+        row.append(
+            (
+                i,
+                _qf(float(state.generator.get(f"mk{i}_owned", 0.0))),
+                _qf(float(state.generator.get(f"mk{i}_cost", 0.0))),
+            )
+        )
+    row.append(tuple((c.name, c.owned) for c in sorted(state.cards, key=lambda x: x.name)))
+    row.append(int(gems_left))
+    return tuple(row)
+
+
+def _plan_state_sim_key(state: GameState) -> tuple[object, ...]:
+    """Spielzustand ohne Gems — ``cells_end`` der Simulation hängt davon ab."""
+    row: list[object] = []
+    for p in BOOSTER_PREFIXES:
+        mk = f"{p}_multiplier"
+        if mk not in state.booster:
+            continue
+        row.append(
+            (
+                p,
+                _qf(float(state.booster[mk])),
+                _qf(float(state.booster.get(f"{p}_next_cost", 0.0))),
+            )
+        )
+    for i in range(1, 6):
+        row.append(
+            (
+                i,
+                _qf(float(state.generator.get(f"mk{i}_owned", 0.0))),
+                _qf(float(state.generator.get(f"mk{i}_cost", 0.0))),
+            )
+        )
+    row.append(tuple((c.name, c.owned) for c in sorted(state.cards, key=lambda x: x.name)))
+    return tuple(row)
+
+
+def _apply_purchase_by_kind(state: GameState, kind: str, name: str) -> None:
+    if kind == "booster":
+        apply_booster_buy(state, str(name))
+    elif kind == "generator":
+        apply_generator_buy(state, int(str(name)[2:]))
+    else:
+        apply_card_buy(state, str(name))
+
+
+def _purchase_benefit_index(ratio: float, cost: float) -> float:
+    """
+    +% Zuwachs pro Kauf / Gem (linear, ohne Log): ``((ratio - 1) * 100) / cost``.
+    """
+    if cost <= 0 or not math.isfinite(ratio) or not math.isfinite(cost) or ratio <= 1.0:
+        return 0.0
+    return ((ratio - 1.0) * 100.0) / float(cost)
+
+
+def _legal_purchase_edges(
+    state: GameState,
+    gems_left: int,
+    skip: frozenset[str],
+    cells_fn: Callable[[GameState], float],
+) -> list[tuple[str, str, int]]:
+    """Alle legalen Ein-Kauf-Kanten (kind, name, cost) mit strikt steigendem cells_end."""
+    sc = cells_fn
+    out0 = float(sc(state))
+    if out0 <= 0 or not math.isfinite(out0):
+        return []
+    edges: list[tuple[str, str, int]] = []
+    for prefix in BOOSTER_PREFIXES:
+        cost = booster_next_cost(state, prefix)
+        if cost is None or cost <= 0 or cost > gems_left:
+            continue
+        trial = copy_state(state)
+        apply_booster_buy(trial, prefix)
+        out1 = float(sc(trial))
+        if out1 <= out0 or not math.isfinite(out1):
+            continue
+        edges.append(("booster", prefix, cost))
+    for tier in (1, 2, 3, 4, 5):
+        cost_g = generator_buy_cost(state, tier)
+        if cost_g is None or cost_g <= 0 or cost_g > gems_left:
+            continue
+        trial = copy_state(state)
+        paid = apply_generator_buy(trial, tier)
+        if paid < 0 or paid != cost_g:
+            continue
+        out1 = float(sc(trial))
+        if out1 <= out0 or not math.isfinite(out1):
+            continue
+        edges.append(("generator", f"mk{tier}", cost_g))
+    for c in state.cards:
+        if c.owned or c.name in skip:
+            continue
+        pc = c.purchase_cost
+        if pc is None or pc <= 0 or pc > gems_left:
+            continue
+        trial = copy_state(state)
+        apply_card_buy(trial, c.name)
+        out1 = float(sc(trial))
+        if out1 <= out0 or not math.isfinite(out1):
+            continue
+        edges.append(("card", c.name, pc))
+    return edges
+
+
+def plan_purchase_steps(
     state: GameState,
     hours: float,
     gems_budget: int,
     skip_cards: frozenset[str] | set[str] | None = None,
 ) -> list[dict[str, object]]:
     """
-    Greedy: max ln(cells_end / cells_end_before) / gem_cost pro Schritt.
-    Booster: ``next_cost += GAME_BOOSTER_COST_INCREASE_GEMS``. Generatoren: ``mkN_cost += GAME_GENERATOR_COST_INCREASE_GEMS[N]`` (falls > 0).
-    Cards: fester Preis; ``skip_cards``: Kartennamen ohne Haken → nicht als Kauf-Option.
+    Beam-Search über Kauffolgen (Booster + Generatoren + Karten) unter dem Gem-Budget.
+
+    Zielfunktion: ``simulate_ticks(state, hours)[0]`` am Endzustand; Tie-Break: mehr übrige Gems.
+    Kaufreihenfolge wirkt auf die Gesamtkosten (Booster-``next_cost``-Kette); Beam hält die
+    besten Teillösungen parallel (kein garantiert globales Optimum).
+
+    ``skip_cards``: Karten ohne GUI-Haken werden nicht gekauft.
     """
     skip = frozenset(skip_cards) if skip_cards is not None else frozenset()
-    working = copy_state(state)
-    gems_left = int(gems_budget)
-    steps: list[dict[str, object]] = []
-    max_rounds = 500
+    beam_w = max(1, int(PURCHASE_PLAN_BEAM_WIDTH))
+    max_d = max(1, int(PURCHASE_PLAN_MAX_DEPTH))
 
-    for _ in range(max_rounds):
-        base = copy_state(working)
-        out0 = simulate_ticks(base, hours)[0]
-        if out0 <= 0 or not math.isfinite(out0):
+    sim_cache: dict[tuple[object, ...], float] = {}
+
+    def sim_cells(st: GameState) -> float:
+        k = _plan_state_sim_key(st)
+        hit = sim_cache.get(k)
+        if hit is not None:
+            return hit
+        v = float(simulate_ticks(st, hours)[0])
+        sim_cache[k] = v
+        return v
+
+    s0 = copy_state(state)
+    c0 = sim_cells(s0)
+    if not math.isfinite(c0) or c0 <= 0:
+        return []
+
+    frontier: list[tuple[float, int, GameState, list[dict[str, object]]]] = [
+        (float(c0), int(gems_budget), s0, [])
+    ]
+    best_terminal: tuple[float, int, list[dict[str, object]]] | None = None
+
+    def consider_terminal(cells_t: float, gems_t: int, path_t: list[dict[str, object]]) -> None:
+        nonlocal best_terminal
+        if best_terminal is None:
+            best_terminal = (cells_t, gems_t, path_t)
+            return
+        bc, bg, _bp = best_terminal
+        if cells_t > bc or (cells_t == bc and gems_t > bg):
+            best_terminal = (cells_t, gems_t, path_t)
+
+    for _depth in range(max_d):
+        children_raw: list[tuple[float, int, GameState, list[dict[str, object]]]] = []
+        for cells_par, gl, st, path in frontier:
+            edges = _legal_purchase_edges(st, gl, skip, sim_cells)
+            if not edges:
+                consider_terminal(cells_par, gl, path)
+                continue
+            for kind, name, cost in edges:
+                st2 = copy_state(st)
+                _apply_purchase_by_kind(st2, kind, name)
+                gl2 = gl - cost
+                new_c = sim_cells(st2)
+                if not math.isfinite(new_c) or new_c <= cells_par:
+                    continue
+                ratio = new_c / cells_par if cells_par > 0 else float("inf")
+                sc = _purchase_benefit_index(ratio, float(cost))
+                step: dict[str, object] = {
+                    "step": len(path) + 1,
+                    "kind": kind,
+                    "name": name,
+                    "cost": int(cost),
+                    "gems_left": int(gl2),
+                    "pct_per_gem": float(sc),
+                    "cells_end": float(new_c),
+                }
+                children_raw.append((float(new_c), int(gl2), st2, path + [step]))
+
+        if not children_raw:
             break
 
-        best: dict[str, object] | None = None
+        merged: dict[tuple[object, ...], tuple[float, int, GameState, list[dict[str, object]]]] = {}
+        for new_c, gl2, st2, path_full in children_raw:
+            key = _plan_state_key(st2, gl2)
+            old = merged.get(key)
+            if old is None or new_c > old[0] or (new_c == old[0] and gl2 > old[1]):
+                merged[key] = (new_c, gl2, st2, path_full)
 
-        for prefix in BOOSTER_PREFIXES:
-            cost = booster_next_cost(working, prefix)
-            if cost is None or cost <= 0 or cost > gems_left:
-                continue
-            trial = copy_state(working)
-            apply_booster_buy(trial, prefix)
-            out1 = simulate_ticks(trial, hours)[0]
-            if out1 <= out0 or not math.isfinite(out1):
-                continue
-            ratio = out1 / out0
-            score = math.log(ratio) / float(cost)
-            if best is None or score > float(best["score"]):
-                best = {
-                    "score": score,
-                    "kind": "booster",
-                    "name": prefix,
-                    "cost": cost,
-                }
+        ranked = sorted(merged.values(), key=lambda x: (x[0], x[1]), reverse=True)
+        frontier = ranked[:beam_w]
 
-        for tier in (1, 2, 3, 4, 5):
-            cost_g = generator_buy_cost(working, tier)
-            if cost_g is None or cost_g <= 0 or cost_g > gems_left:
-                continue
-            trial = copy_state(working)
-            paid = apply_generator_buy(trial, tier)
-            if paid < 0 or paid != cost_g:
-                continue
-            out1 = simulate_ticks(trial, hours)[0]
-            if out1 <= out0 or not math.isfinite(out1):
-                continue
-            ratio = out1 / out0
-            score = math.log(ratio) / float(cost_g)
-            if best is None or score > float(best["score"]):
-                best = {
-                    "score": score,
-                    "kind": "generator",
-                    "name": f"mk{tier}",
-                    "cost": cost_g,
-                }
+    for cells_par, gl, _st, path in frontier:
+        consider_terminal(cells_par, gl, path)
 
-        for c in working.cards:
-            if c.owned:
-                continue
-            if c.name in skip:
-                continue
-            pc = c.purchase_cost
-            if pc is None or pc <= 0 or pc > gems_left:
-                continue
-            trial = copy_state(working)
-            apply_card_buy(trial, c.name)
-            out1 = simulate_ticks(trial, hours)[0]
-            if out1 <= out0 or not math.isfinite(out1):
-                continue
-            ratio = out1 / out0
-            score = math.log(ratio) / float(pc)
-            if best is None or score > float(best["score"]):
-                best = {
-                    "score": score,
-                    "kind": "card",
-                    "name": c.name,
-                    "cost": pc,
-                }
-
-        if best is None:
-            break
-
-        if best["kind"] == "booster":
-            apply_booster_buy(working, str(best["name"]))
-        elif best["kind"] == "generator":
-            apply_generator_buy(working, int(str(best["name"])[2:]))
-        else:
-            apply_card_buy(working, str(best["name"]))
-
-        cost_i = int(best["cost"])
-        gems_left -= cost_i
-        end_c = simulate_ticks(copy_state(working), hours)[0]
-        steps.append(
-            {
-                "step": len(steps) + 1,
-                "kind": best["kind"],
-                "name": best["name"],
-                "cost": cost_i,
-                "gems_left": gems_left,
-                "score": float(best["score"]),
-                "cells_end": end_c,
-            }
-        )
-
-    return steps
+    if best_terminal is None:
+        return []
+    _bc, _bg, best_path = best_terminal
+    out: list[dict[str, object]] = []
+    for i, step in enumerate(best_path, start=1):
+        d = dict(step)
+        d["step"] = i
+        out.append(d)
+    return out
 
 
 def build_report_text(state: GameState, hours: float, gems_budget_display: int | None = None) -> str:
@@ -501,7 +618,7 @@ def run_analysis(
     state = load_game_state(path)
     g = gems_budget if gems_budget is not None else int(state.config.get("gems", 0))
     text = build_report_text(state, hours, gems_budget_display=g)
-    plan = greedy_purchase_steps(state, hours, g, skip_cards)
+    plan = plan_purchase_steps(state, hours, g, skip_cards)
     return text, plan
 
 
@@ -606,7 +723,7 @@ def main_gui() -> None:
     ttk.Label(top, text="Gem-Budget:").grid(row=1, column=2, sticky=tk.W, padx=(16, 0), pady=(8, 0))
     ttk.Entry(top, textvariable=gems_var, width=10).grid(row=1, column=3, sticky=tk.W, pady=(8, 0))
 
-    cards_outer = ttk.LabelFrame(root, text="Karten im Greedy (Haken = kaufen erlauben)")
+    cards_outer = ttk.LabelFrame(root, text="Karten im Kaufpfad (Haken = kaufen erlauben)")
     cards_outer.pack(fill=tk.X, padx=8, pady=(0, 2))
     card_inner = ttk.Frame(cards_outer)
     card_inner.pack(fill=tk.X, padx=4, pady=4)
@@ -629,7 +746,7 @@ def main_gui() -> None:
             return
         ttk.Label(
             card_inner,
-            text="Ohne Haken: Karte wird im Greedy-Pfad übersprungen.",
+            text="Ohne Haken: Karte wird im Beam-Kaufpfad übersprungen.",
             style="Dim.TLabel",
         ).pack(anchor=tk.W)
         rowf = ttk.Frame(card_inner)
@@ -683,10 +800,19 @@ def main_gui() -> None:
                 highlightthickness=0,
             )
 
-    tbl = ttk.LabelFrame(body, text="Greedy-Kaufpfad (Booster + Generatoren + Karten)")
+    tbl = ttk.LabelFrame(body, text="Kaufpfad — Beam-Search, volles Budget (Booster + Generatoren + Karten)")
     tbl.pack(fill=tk.BOTH, expand=False, padx=8, pady=(2, 6))
+    ttk.Label(
+        tbl,
+        text=(
+            "Spalte „+%/Gem“: pro Kauf der prozentuale Zuwachs am End-Output geteilt durch die Gem-Kosten "
+            "dieses Schritts. Hoeher ist besser."
+        ),
+        style="Dim.TLabel",
+        wraplength=920,
+    ).pack(anchor=tk.W, padx=6, pady=(0, 2))
 
-    cols = ("step", "kind", "name", "cost", "gems", "score", "cells_end")
+    cols = ("step", "kind", "name", "cost", "gems", "pct_per_gem", "cells_end")
     tree = ttk.Treeview(tbl, columns=cols, show="headings", height=9)
     headings = (
         ("step", "#", 36),
@@ -694,7 +820,7 @@ def main_gui() -> None:
         ("name", "Name", 88),
         ("cost", "Kosten", 64),
         ("gems", "Gems übrig", 88),
-        ("score", "Score lnΔ/Gem", 112),
+        ("pct_per_gem", "+%/Gem", 104),
         ("cells_end", "Cells Ende", 120),
     )
     for cid, title, w in headings:
@@ -717,7 +843,7 @@ def main_gui() -> None:
                     row["name"],
                     row["cost"],
                     row["gems_left"],
-                    f'{float(row["score"]):.6e}',
+                    f'{float(row["pct_per_gem"]):.4f}',
                     ce_s,
                 ),
             )
@@ -759,7 +885,15 @@ def main_gui() -> None:
     bar.pack(fill=tk.X, **pad)
     ttk.Button(bar, text="Auswerten", command=run_clicked).pack(side=tk.LEFT)
     ttk.Label(bar, textvariable=status_var, style="Dim.TLabel").pack(side=tk.LEFT, padx=12)
-    root.geometry("920x720")
+
+    def _start_maximized() -> None:
+        try:
+            root.state("zoomed")
+        except tk.TclError:
+            sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+            root.geometry(f"{sw}x{sh}+0+0")
+
+    root.after(0, _start_maximized)
     root.after(120, run_clicked)
     root.mainloop()
 

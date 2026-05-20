@@ -35,6 +35,7 @@ GAME_BOOSTER_COST_INCREASE_GEMS: dict[str, float] = {
     "mk3": 3.0,
     "mk4": 4.0,
     "mk5": 5.0,
+    "mk6": 6.0,
     "cells": 1.0,
     "mp": 5.0,
     "shards": 5.0,
@@ -48,7 +49,10 @@ GAME_GENERATOR_COST_INCREASE_GEMS: dict[int, float] = {
     3: 0.0,
     4: 0.0,
     5: 0.0,
+    6: 0.0,
 }
+
+MAX_MK_TIER = 6
 
 # Feste Gem-Preise pro Karte (einmalig kaufbar). CSV muss keine Kosten mehr liefern (außer cost=owned).
 GAME_CARD_COST_GEMS: dict[str, int] = {
@@ -60,6 +64,7 @@ GAME_CARD_COST_GEMS: dict[str, int] = {
     "ixion": 2000,
     "juno": 2500,
     "lyra": 2500,
+    "kappa": 2500,
 }
 
 # Feste Karten-Effekte (für Manual-Input-Modus ohne CSV).
@@ -75,6 +80,7 @@ GAME_CARD_ATTRS: dict[str, dict[str, float]] = {
     "ixion": {"mk4": 1.64, "mk5": 1.52, "mp": 1.16},
     "juno": {"cells": 1.65, "shards": 1.45, "mp": 1.25},
     "lyra": {"mk2": 2.16, "mk5": 2.12, "shards": 1.5},
+    "kappa": {"mk1": 2.84, "mk6": 1.92},
 }
 
 # Kaufpfad-Planung: Beam-Search (mehrere Teilpfade parallel), Ziel max. cells_end nach Prestige.
@@ -184,7 +190,7 @@ class GameState:
     generator: dict[str, float | str] = field(default_factory=dict)
     booster: dict[str, float] = field(default_factory=dict)
     cards: list[CardRow] = field(default_factory=list)
-    #: cells_per_tick = r1_anchor * G1 * m_cells * m_mk1 (t=0); bleibt bei Booster-/Card-Käufen fix (MK2–MK5-Mults nur in der Tick-Schleife).
+    #: cells_per_tick = r1_anchor * G1 * m_cells * m_mk1 (t=0); bleibt bei Booster-/Card-Käufen fix (MK2–MK6-Mults nur in der Tick-Schleife).
     r1_anchor: float | None = None
 
 
@@ -274,6 +280,7 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
         G2 += r3 * G3 * m_mk3
         G3 += r4 * G4 * m_mk4
         G4 += r5 * G5 * m_mk5
+        G5 += r6 * G6 * m_mk6
 
     mk{k}_prod from CSV = total shown output/tick for that tier -> r_k = P_k / G_k.
     Mit gesetztem ``r1_anchor`` (nach ``load_game_state``): fester MK1→Cells-Rohfaktor;
@@ -288,12 +295,14 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
     G2 = float(state.generator["mk2_owned"])
     G3 = float(state.generator["mk3_owned"])
     G4 = float(state.generator["mk4_owned"])
-    G5 = float(state.generator["mk5_owned"])
+    G5 = float(state.generator.get("mk5_owned", 0.0))
+    G6 = float(state.generator.get("mk6_owned", 0.0))
 
-    P2 = float(state.generator["mk2_prod"])
-    P3 = float(state.generator["mk3_prod"])
-    P4 = float(state.generator["mk4_prod"])
-    P5 = float(state.generator["mk5_prod"])
+    P2 = float(state.generator.get("mk2_prod", 0.0))
+    P3 = float(state.generator.get("mk3_prod", 0.0))
+    P4 = float(state.generator.get("mk4_prod", 0.0))
+    P5 = float(state.generator.get("mk5_prod", 0.0))
+    P6 = float(state.generator.get("mk6_prod", 0.0))
 
     m_cells_b = _booster_mult(state, "cells")
     m1b = _booster_mult(state, "mk1")
@@ -301,6 +310,7 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
     m3b = _booster_mult(state, "mk3")
     m4b = _booster_mult(state, "mk4")
     m5b = _booster_mult(state, "mk5")
+    m6b = _booster_mult(state, "mk6")
 
     mc_cells = _card_mult_product(state.cards, "cells")
     mc_mk1 = _card_mult_product(state.cards, "mk1")
@@ -308,6 +318,7 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
     mc_mk3 = _card_mult_product(state.cards, "mk3")
     mc_mk4 = _card_mult_product(state.cards, "mk4")
     mc_mk5 = _card_mult_product(state.cards, "mk5")
+    mc_mk6 = _card_mult_product(state.cards, "mk6")
 
     m_cells = m_cells_b * mc_cells
     m_mk1 = m1b * mc_mk1
@@ -315,6 +326,7 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
     m_mk3 = m3b * mc_mk3
     m_mk4 = m4b * mc_mk4
     m_mk5 = m5b * mc_mk5
+    m_mk6 = m6b * mc_mk6
 
     if state.r1_anchor is not None:
         r1 = float(state.r1_anchor)
@@ -325,6 +337,7 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
     r3 = P3 / G3 if G3 > 0 else 0.0
     r4 = P4 / G4 if G4 > 0 else 0.0
     r5 = P5 / G5 if G5 > 0 else 0.0
+    r6 = P6 / G6 if G6 > 0 else 0.0
 
     C = float(state.config.get("current_cells", 0.0))
 
@@ -334,11 +347,12 @@ def simulate_ticks(state: GameState, prestige_hours: float) -> tuple[float, int]
         G2 += r3 * G3 * m_mk3
         G3 += r4 * G4 * m_mk4
         G4 += r5 * G5 * m_mk5
+        G5 += r6 * G6 * m_mk6
 
     return C, ticks
 
 
-BOOSTER_PREFIXES = ("mk1", "mk2", "mk3", "mk4", "mk5", "cells", "mp", "shards")
+BOOSTER_PREFIXES = ("mk1", "mk2", "mk3", "mk4", "mk5", "mk6", "cells", "mp", "shards")
 
 
 def apply_booster_buy(state: GameState, prefix: str) -> None:
@@ -409,7 +423,7 @@ def _plan_state_key(state: GameState, gems_left: int) -> tuple[object, ...]:
                 _qf(float(state.booster.get(f"{p}_next_cost", 0.0))),
             )
         )
-    for i in range(1, 6):
+    for i in range(1, MAX_MK_TIER + 1):
         row.append(
             (
                 i,
@@ -436,7 +450,7 @@ def _plan_state_sim_key(state: GameState) -> tuple[object, ...]:
                 _qf(float(state.booster.get(f"{p}_next_cost", 0.0))),
             )
         )
-    for i in range(1, 6):
+    for i in range(1, MAX_MK_TIER + 1):
         row.append(
             (
                 i,
@@ -488,7 +502,7 @@ def _legal_purchase_edges(
         if out1 <= out0 or not math.isfinite(out1):
             continue
         edges.append(("booster", prefix, cost))
-    for tier in (1, 2, 3, 4, 5):
+    for tier in range(1, MAX_MK_TIER + 1):
         cost_g = generator_buy_cost(state, tier)
         if cost_g is None or cost_g <= 0 or cost_g > gems_left:
             continue
@@ -646,7 +660,7 @@ def build_report_text(state: GameState, hours: float, gems_budget_display: int |
         else:
             ln(f"  {k}: {v}")
     ln("\n=== boosters (multipliers) ===")
-    for name in ("mk1", "mk2", "mk3", "mk4", "mk5", "cells", "mp", "shards"):
+    for name in ("mk1", "mk2", "mk3", "mk4", "mk5", "mk6", "cells", "mp", "shards"):
         m = _booster_mult(state, name)
         ln(f"  {name}: x{m}")
     ln("\n=== cards ===")
@@ -708,19 +722,23 @@ def build_manual_state(
         "mk3_owned": float(values["mk3_owned"]),
         "mk4_owned": float(values["mk4_owned"]),
         "mk5_owned": float(values["mk5_owned"]),
+        "mk6_owned": float(values.get("mk6_owned", 0.0)),
         "mk1_cost": 1e30,
         "mk2_cost": 1e30,
         "mk3_cost": 1e30,
         "mk4_cost": 1e30,
         "mk5_cost": 1e30,
+        "mk6_cost": 1e30,
         "mk2_prod": float(values["mk2_prod"]),
         "mk3_prod": float(values["mk3_prod"]),
         "mk4_prod": float(values["mk4_prod"]),
         "mk5_prod": float(values["mk5_prod"]),
+        "mk6_prod": float(values.get("mk6_prod", 0.0)),
         "mk2_target": "mk1",
         "mk3_target": "mk2",
         "mk4_target": "mk3",
         "mk5_target": "mk4",
+        "mk6_target": "mk5",
     }
     st.booster = {
         "mk1_multiplier": 1.0,
@@ -728,18 +746,21 @@ def build_manual_state(
         "mk3_multiplier": 1.0,
         "mk4_multiplier": 1.0,
         "mk5_multiplier": 1.0,
+        "mk6_multiplier": 1.0,
         "cells_multiplier": 1.0,
         "mk1_next_cost": float(values["mk1_next_cost"]),
         "mk2_next_cost": float(values["mk2_next_cost"]),
         "mk3_next_cost": float(values["mk3_next_cost"]),
         "mk4_next_cost": float(values["mk4_next_cost"]),
         "mk5_next_cost": float(values["mk5_next_cost"]),
+        "mk6_next_cost": float(values.get("mk6_next_cost", 0.0)),
         "cells_next_cost": float(values["cells_next_cost"]),
         "mk1_base_gain": 0.02,
         "mk2_base_gain": 0.04,
         "mk3_base_gain": 0.06,
         "mk4_base_gain": 0.08,
         "mk5_base_gain": 0.10,
+        "mk6_base_gain": 0.12,
         "cells_base_gain": 0.25,
     }
     cards: list[CardRow] = []
@@ -837,10 +858,41 @@ def main_gui() -> None:
     split = ttk.Panedwindow(root, orient=tk.HORIZONTAL)
     split.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-    left = ttk.Frame(split)
+    left_outer = ttk.Frame(split)
     right = ttk.Frame(split)
-    split.add(left, weight=3)
+    split.add(left_outer, weight=3)
     split.add(right, weight=5)
+
+    left_canvas = tk.Canvas(
+        left_outer,
+        bg=BG,
+        highlightthickness=0,
+        bd=0,
+    )
+    left_scroll = ttk.Scrollbar(left_outer, orient=tk.VERTICAL, command=left_canvas.yview)
+    left_canvas.configure(yscrollcommand=left_scroll.set)
+    left_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    left = ttk.Frame(left_canvas)
+    left_canvas_win = left_canvas.create_window((0, 0), window=left, anchor="nw")
+
+    def _left_update_scrollregion(_evt: object | None = None) -> None:
+        left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+
+    def _left_fit_inner_width(evt: object) -> None:
+        w = getattr(evt, "width", 0)
+        if w and isinstance(w, int):
+            left_canvas.itemconfigure(left_canvas_win, width=w)
+
+    def _left_wheel(evt: object) -> None:
+        d = getattr(evt, "delta", 0)
+        if isinstance(d, int) and d != 0:
+            left_canvas.yview_scroll(int(-d / 120), "units")
+
+    left.bind("<Configure>", _left_update_scrollregion)
+    left_canvas.bind("<Configure>", _left_fit_inner_width)
+    left_canvas.bind("<Enter>", lambda _e: left_canvas.bind_all("<MouseWheel>", _left_wheel))
+    left_canvas.bind("<Leave>", lambda _e: left_canvas.unbind_all("<MouseWheel>"))
 
     vars_num: dict[str, tk.StringVar] = {
         "tick_seconds": tk.StringVar(value="4.9"),
@@ -850,6 +902,7 @@ def main_gui() -> None:
         "mk3_next_cost": tk.StringVar(value="42"),
         "mk4_next_cost": tk.StringVar(value="72"),
         "mk5_next_cost": tk.StringVar(value="100"),
+        "mk6_next_cost": tk.StringVar(value="120"),
         "cells_next_cost": tk.StringVar(value="203"),
     }
     sci_vars: dict[str, tuple[tk.StringVar, tk.StringVar]] = {
@@ -858,11 +911,13 @@ def main_gui() -> None:
         "mk3_owned": (tk.StringVar(value="1"), tk.StringVar(value="0")),
         "mk4_owned": (tk.StringVar(value="1"), tk.StringVar(value="0")),
         "mk5_owned": (tk.StringVar(value="1"), tk.StringVar(value="0")),
+        "mk6_owned": (tk.StringVar(value="1"), tk.StringVar(value="0")),
         "cells_per_tick": (tk.StringVar(value="1"), tk.StringVar(value="6")),
         "mk2_prod": (tk.StringVar(value="1"), tk.StringVar(value="2")),
         "mk3_prod": (tk.StringVar(value="1"), tk.StringVar(value="1")),
         "mk4_prod": (tk.StringVar(value="1"), tk.StringVar(value="0")),
         "mk5_prod": (tk.StringVar(value="1"), tk.StringVar(value="-1")),
+        "mk6_prod": (tk.StringVar(value="1"), tk.StringVar(value="-2")),
     }
     sci_preview_vars: dict[str, tk.StringVar] = {k: tk.StringVar(value="") for k in sci_vars}
     sci_exp_entries: dict[str, ttk.Entry] = {}
@@ -976,11 +1031,13 @@ def main_gui() -> None:
     add_row_sci(f_rates, 2, "MK3 owned", "mk3_owned")
     add_row_sci(f_rates, 3, "MK4 owned", "mk4_owned")
     add_row_sci(f_rates, 4, "MK5 owned", "mk5_owned")
-    add_row_sci(f_rates, 5, "MK1 = Cells/tick (gesamt)", "cells_per_tick")
-    add_row_sci(f_rates, 6, "MK2 -> MK1 /tick", "mk2_prod")
-    add_row_sci(f_rates, 7, "MK3 -> MK2 /tick", "mk3_prod")
-    add_row_sci(f_rates, 8, "MK4 -> MK3 /tick", "mk4_prod")
-    add_row_sci(f_rates, 9, "MK5 -> MK4 /tick", "mk5_prod")
+    add_row_sci(f_rates, 5, "MK6 owned", "mk6_owned")
+    add_row_sci(f_rates, 6, "MK1 = Cells/tick (gesamt)", "cells_per_tick")
+    add_row_sci(f_rates, 7, "MK2 -> MK1 /tick", "mk2_prod")
+    add_row_sci(f_rates, 8, "MK3 -> MK2 /tick", "mk3_prod")
+    add_row_sci(f_rates, 9, "MK4 -> MK3 /tick", "mk4_prod")
+    add_row_sci(f_rates, 10, "MK5 -> MK4 /tick", "mk5_prod")
+    add_row_sci(f_rates, 11, "MK6 -> MK5 /tick", "mk6_prod")
     f_rates.columnconfigure(1, weight=1)
     for m, e in sci_vars.values():
         m.trace_add("write", lambda *_: refresh_sci_preview())
@@ -994,10 +1051,45 @@ def main_gui() -> None:
     add_row(f_cost, 2, "MK3", "mk3_next_cost")
     add_row(f_cost, 3, "MK4", "mk4_next_cost")
     add_row(f_cost, 4, "MK5", "mk5_next_cost")
-    add_row(f_cost, 5, "Cells", "cells_next_cost")
+    add_row(f_cost, 5, "MK6", "mk6_next_cost")
+    add_row(f_cost, 6, "Cells", "cells_next_cost")
     f_cost.columnconfigure(1, weight=1)
 
-    f_cards = ttk.LabelFrame(left, text="Cards vorhanden (abhaken)")
+    def show_cards_info_popup() -> None:
+        pop = tk.Toplevel(root)
+        pop.title("Cards - Effekte")
+        pop.configure(bg=BG)
+        pop.transient(root)
+        pop.geometry("760x420")
+
+        frm = ttk.Frame(pop)
+        frm.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        cols_i = ("name", "cost", "effects", "owned")
+        tree_i = ttk.Treeview(frm, columns=cols_i, show="headings", height=14)
+        for cid, title, w in (
+            ("name", "Card", 120),
+            ("cost", "Kosten", 90),
+            ("effects", "Effekte", 420),
+            ("owned", "Vorhanden", 90),
+        ):
+            tree_i.heading(cid, text=title)
+            tree_i.column(cid, width=w, stretch=True)
+        tree_i.pack(fill=tk.BOTH, expand=True)
+
+        for name in sorted(GAME_CARD_ATTRS):
+            effects = ", ".join(f"{k} x{v}" for k, v in sorted(GAME_CARD_ATTRS[name].items()))
+            cost = str(GAME_CARD_COST_GEMS.get(name, "-"))
+            own_var = owned_vars.get(name)
+            own = "ja" if (own_var is not None and own_var.get()) else "nein"
+            tree_i.insert("", tk.END, values=(name, cost, effects, own))
+
+    cards_hdr = ttk.Frame(left)
+    cards_hdr.pack(fill=tk.X, padx=4, pady=(2, 0))
+    ttk.Label(cards_hdr, text="Cards vorhanden (abhaken)", style="Dim.TLabel").pack(side=tk.LEFT)
+    ttk.Button(cards_hdr, text="Cards-Info", command=show_cards_info_popup).pack(side=tk.RIGHT)
+
+    f_cards = ttk.LabelFrame(left, text="")
     f_cards.pack(fill=tk.X, padx=4, pady=2)
     card_grid = ttk.Frame(f_cards)
     card_grid.pack(fill=tk.X, padx=2, pady=2)

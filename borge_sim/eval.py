@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import copy
 import statistics
-from collections import Counter, defaultdict
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import timedelta
 from math import floor
-from typing import Any, Callable
+from typing import Callable, Literal
 
 from .engine import Borge, Simulation, ensure_path
+
+EngineName = Literal["auto", "wasm", "python"]
 
 
 def clamp_levels(config: dict) -> dict:
@@ -88,6 +90,9 @@ class SimResult:
     boss_hp_pct: float = 0.0  # placeholder; hunter-sim does not expose remaining boss HP
     combat_avgs: dict[str, float] = field(default_factory=dict)
     build_stats: dict[str, float] = field(default_factory=dict)
+    engine: str = "python"
+    mats: dict[str, float] = field(default_factory=dict)
+    xp: float = 0.0
 
 
 def compute_build_stats(config: dict) -> dict[str, float]:
@@ -186,17 +191,129 @@ def _aggregate(runs: list[dict], config: dict) -> SimResult:
     )
 
 
+def _odds_from_counts(counts: dict[int, int]) -> dict[int, float]:
+    n = sum(counts.values())
+    if not n or not counts:
+        return {}
+    lo, hi = min(counts), max(counts)
+    odds: dict[int, float] = {}
+    for s in range(lo, hi + 1):
+        odds[s] = sum(c for stage, c in counts.items() if stage >= s) / n
+    return odds
+
+
+def _expand_stages(counts: dict[int, int]) -> list[int]:
+    out: list[int] = []
+    for stage, count in sorted(counts.items()):
+        out.extend([int(stage)] * int(count))
+    return out
+
+
+def _wasm_to_sim_result(wasm_res, repetitions: int) -> SimResult:
+    counts = {int(k): int(v) for k, v in wasm_res.stage_counts.items()}
+    stages = _expand_stages(counts)
+    n = sum(counts.values()) or repetitions
+    avg_time = float(wasm_res.avg_time)
+    loot_per_min = float(wasm_res.loot_per_min)
+    loot_per_hour = loot_per_min * 60.0
+    # Online "Loot Score" is the EVALBORGE_WASM return value (loot/min).
+    loot_score = round(loot_per_min, 1)
+    avg_loot = loot_per_min * (avg_time / 60.0) if avg_time > 0 else 0.0
+    runs_per_day = (86400.0 / avg_time) if avg_time > 0 else 0.0
+    median = float(floor(statistics.median(stages))) if stages else 0.0
+    return SimResult(
+        n=n,
+        stages=stages,
+        elapsed=[avg_time] * n,
+        loot=[avg_loot] * n,
+        revive_logs=[],
+        enrage_logs=[],
+        avg_stage=float(wasm_res.avg_stage),
+        min_stage=float(wasm_res.min_stage),
+        max_stage=float(wasm_res.max_stage),
+        median_stage=median,
+        stage_counts=dict(sorted(counts.items())),
+        stage_odds=_odds_from_counts(counts),
+        avg_time_s=avg_time,
+        runs_per_day=runs_per_day,
+        avg_loot=avg_loot,
+        loot_per_hour=loot_per_hour,
+        loot_score=loot_score,
+        first_revive=Counter(wasm_res.first_revive),
+        second_revive=Counter(wasm_res.second_revive),
+        boss_kill_rate=float(wasm_res.boss_kill_rate),
+        boss_hp_pct=float(wasm_res.boss_hp_percent),
+        combat_avgs={
+            "mat1": float(wasm_res.mat1),
+            "mat2": float(wasm_res.mat2),
+            "mat3": float(wasm_res.mat3),
+            "xp": float(wasm_res.xp),
+        },
+        build_stats=dict(wasm_res.build_stats),
+        engine="wasm",
+        mats={
+            "mat1": float(wasm_res.mat1),
+            "mat2": float(wasm_res.mat2),
+            "mat3": float(wasm_res.mat3),
+        },
+        xp=float(wasm_res.xp),
+    )
+
+
+def resolve_engine(engine: EngineName = "auto") -> str:
+    if engine == "python":
+        return "python"
+    if engine == "wasm":
+        from .wasm_engine import wasm_available
+
+        if not wasm_available():
+            raise RuntimeError(
+                "WASM engine unavailable. Install wasmtime and ensure "
+                "vendor/cifi_wasm/release.wasm exists (see scripts/fetch_cifi_wasm.py)."
+            )
+        return "wasm"
+    # auto
+    try:
+        from .wasm_engine import wasm_available
+
+        if wasm_available():
+            return "wasm"
+    except Exception:
+        pass
+    return "python"
+
+
 def run_sims(
     config: dict,
     repetitions: int = 100,
     processes: int = -1,
     progress: Callable[[int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    engine: EngineName = "auto",
 ) -> SimResult:
-    """Run ``repetitions`` simulations of ``config`` and aggregate results."""
+    """Run ``repetitions`` simulations of ``config`` and aggregate results.
+
+    ``engine``:
+      - ``auto`` (default): prefer cifi-tools WASM when available
+      - ``wasm``: online-identical EVALBORGE_WASM (requires wasmtime + release.wasm)
+      - ``python``: vendored hunter-sim Monte-Carlo
+    """
     ensure_path()
     if repetitions < 1:
         raise ValueError("repetitions must be >= 1")
+
+    chosen = resolve_engine(engine)
+    if chosen == "wasm":
+        from .wasm_engine import WasmBorgeEngine
+
+        if progress:
+            progress(0, repetitions)
+        if cancel_check and cancel_check():
+            raise RuntimeError("Simulation cancelled")
+        wasm_res = WasmBorgeEngine().evaluate(config, repetitions)
+        if progress:
+            progress(repetitions, repetitions)
+        return _wasm_to_sim_result(wasm_res, repetitions)
 
     runs: list[dict] = []
     if processes and processes > 0 and repetitions > 1:
@@ -222,7 +339,9 @@ def run_sims(
 
     if not runs:
         raise RuntimeError("No simulation runs completed")
-    return _aggregate(runs, config)
+    result = _aggregate(runs, config)
+    result.engine = "python"
+    return result
 
 
 def format_duration(seconds: float) -> str:
@@ -323,6 +442,8 @@ def point_budgets(level: int) -> tuple[int, int]:
 
 def validate_budgets(config: dict) -> tuple[bool, str]:
     ensure_path()
+    from .attr_rules import attributes_tree_valid
+
     config = sanitize_config(config)
     level = int(config["meta"]["level"])
     tal_cap, attr_cap = point_budgets(level)
@@ -332,7 +453,6 @@ def validate_budgets(config: dict) -> tuple[bool, str]:
     _attr_spent, _attr_avail, invalid, _tal_spent, _tal_avail = b.validate_build()
     if invalid:
         return False, f"Over max level: {', '.join(sorted(invalid))}"
-    # Explicit inscryption max check (also covered by validate_build now)
     over_insc = []
     for key, lvl in config.get("inscryptions", {}).items():
         meta = Borge.costs["inscryptions"].get(key)
@@ -344,17 +464,9 @@ def validate_budgets(config: dict) -> tuple[bool, str]:
         return False, f"Talents {tal}/{tal_cap} (Level {level} → {tal_cap} Punkte)"
     if attr > attr_cap:
         return False, f"Attributes {attr}/{attr_cap} (Level {level} → {attr_cap} Path Points)"
-    # unlock gates for late-game souls
-    for key, meta in Borge.costs["attributes"].items():
-        unlock = meta.get("unlock_spent")
-        if not unlock:
-            continue
-        lvl = int(config["attributes"].get(key, 0))
-        if lvl <= 0:
-            continue
-        others = attribute_points_spent(config) - lvl * int(meta["cost"])
-        if others < int(unlock):
-            return False, f"{key} needs {unlock} other path points spent (have {others})"
+    ok_tree, tree_msg = attributes_tree_valid(config.get("attributes", {}), attr_cap)
+    if not ok_tree:
+        return False, tree_msg
     unused_t = tal_cap - tal
     unused_a = attr_cap - attr
     return (

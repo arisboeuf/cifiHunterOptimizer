@@ -3,3 +3,4 @@ matplotlib>=3.8
 tqdm>=4.66
 rich>=13.0
 customtkinter>=5.2
+wasmtime>=25.0

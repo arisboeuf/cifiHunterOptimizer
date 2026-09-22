@@ -3,13 +3,14 @@
 Borge Simulator — local twin of https://cifi-tools.com/borge
 
 Edit build (stats / talents / attributes / inscryptions / gems / relics),
-run N Monte-Carlo combat sims, inspect stage distribution / odds / revives / build stats.
-
-Optimizer for talent/attribute redistribution can layer on top of ``borge_sim.eval`` later.
+run N Monte-Carlo combat sims via cifi-tools WASM, inspect stage / loot / revives.
+Optimize talent/attribute redistribution within level budgets.
 
 Usage:
   python borge_sim_tool.py
+  python borge_sim_tool.py --maximized
   python borge_sim_tool.py --cli builds/borge_lvl14_example.yaml 200
+  python borge_sim_tool.py --cli builds/borge_lvl14_example.yaml 200 wasm
 """
 
 from __future__ import annotations
@@ -38,10 +39,13 @@ from borge_sim.eval import (
     format_duration,
     inscription_label,
     point_budgets,
+    resolve_engine,
     run_sims,
     talent_points_spent,
     validate_budgets,
 )
+from borge_sim.optimize import OptimizeConfig, optimize_build
+from borge_sim.wasm_engine import wasm_available
 
 DEFAULT_BUILD = ROOT / "builds" / "borge_lvl14_example.yaml"
 UI_STATE_PATH = ROOT / "data" / "borge_sim_ui_state.json"
@@ -83,7 +87,6 @@ STAT_ORDER = [
     "highest_stage_reached",
 ]
 
-# Display order matching cifi-tools.com/borge Build Creator
 TALENT_ORDER = [
     "death_is_my_companion",
     "life_of_the_hunt",
@@ -132,7 +135,7 @@ INSC_ORDER = [
 ]
 
 
-def main_cli(path: Path, n: int) -> None:
+def main_cli(path: Path, n: int, engine: str = "auto") -> None:
     ensure_path()
     with path.open(encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -140,18 +143,28 @@ def main_cli(path: Path, n: int) -> None:
     print(msg)
     if not ok:
         sys.exit(1)
-    print(f"Running {n} sims…")
-    res = run_sims(cfg, repetitions=n, processes=-1, progress=lambda d, t: print(f"\r{d}/{t}", end="", flush=True))
+    chosen = resolve_engine(engine)  # type: ignore[arg-type]
+    print(f"Running {n} sims via {chosen}…")
+    res = run_sims(
+        cfg,
+        repetitions=n,
+        processes=-1,
+        engine=engine,  # type: ignore[arg-type]
+        progress=lambda d, t: print(f"\r{d}/{t}", end="", flush=True),
+    )
     print()
+    print(f"Engine:  {res.engine}")
     print(f"Ø Stage: {res.avg_stage:.1f}  ({res.min_stage:.0f}–{res.max_stage:.0f})")
     print(f"Ø Time:  {format_duration(res.avg_time_s)}  ({res.runs_per_day:.1f} runs/d)")
     print(f"Loot/h:  {res.loot_per_hour:.1f}  (score {res.loot_score})")
-    print(f"Boss kill rate (stage>100): {res.boss_kill_rate:.1%}")
+    print(f"Boss kill rate: {res.boss_kill_rate:.1%}  (boss HP {res.boss_hp_pct:.1f}%)")
+    if res.mats:
+        print(f"Mats:    {res.mats}  XP {res.xp:.2f}")
     print("Build stats:", json.dumps(res.build_stats, indent=2))
     print("Stage counts:", res.stage_counts)
 
 
-def main_gui() -> None:
+def main_gui(*, maximized: bool = False) -> None:
     try:
         import customtkinter as ctk
     except ImportError:
@@ -183,19 +196,33 @@ def main_gui() -> None:
     ctk.set_default_color_theme("dark-blue")
 
     ensure_path()
+    if not wasm_available():
+        messagebox.showerror(
+            "WASM missing",
+            "cifi-tools WASM engine is required.\n\n"
+            "pip install wasmtime\n"
+            "python scripts/fetch_cifi_wasm.py",
+        )
+        return
 
     root = ctk.CTk()
     root.title("CIFI — Borge Simulator")
     root.minsize(1180, 740)
     root.geometry("1280x820")
+    if maximized:
+        root.after(0, lambda: root.state("zoomed"))
 
     state: dict = {
         "config": None,
         "result": None,
         "cancel": False,
+        "opt_cancel": False,
         "vars": {},
         "clamping": False,
         "section_titles": {},
+        "traced_vars": set(),
+        "talent_win": None,
+        "opt_running": False,
     }
 
     STAT_KEYS = [k for k in STAT_ORDER if k in Borge.load_dummy()["stats"]]
@@ -237,11 +264,7 @@ def main_gui() -> None:
             if label:
                 cfg = copy.deepcopy(cfg)
                 cfg["build_name"] = label
-            payload = {
-                "config": cfg,
-                "reps": int(reps_var.get()),
-                "procs": int(procs_var.get()),
-            }
+            payload = {"config": cfg, "reps": int(reps_var.get())}
             UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
             UI_STATE_PATH.write_text(
                 json.dumps(payload, ensure_ascii=True, indent=2),
@@ -351,14 +374,24 @@ def main_gui() -> None:
             tal_cap, attr_cap = point_budgets(level)
             tal = talent_points_spent(cfg)
             attr = attribute_points_spent(cfg)
-            if "tal" in state["section_titles"]:
-                state["section_titles"]["tal"].configure(
-                    text=f"Talents  ({tal}/{tal_cap}  ·  Level gibt {tal_cap})"
-                )
-            if "attr" in state["section_titles"]:
-                state["section_titles"]["attr"].configure(
-                    text=f"Attributes  ({attr}/{attr_cap} Path Points  ·  Level×3 = {attr_cap})"
-                )
+
+            def _safe_title(key: str, text: str) -> None:
+                lbl = state["section_titles"].get(key)
+                if lbl is None:
+                    return
+                try:
+                    if lbl.winfo_exists():
+                        lbl.configure(text=text)
+                    else:
+                        state["section_titles"].pop(key, None)
+                except Exception:
+                    state["section_titles"].pop(key, None)
+
+            _safe_title("tal", f"Talents  ({tal}/{tal_cap}  ·  Level gibt {tal_cap})")
+            _safe_title(
+                "attr",
+                f"Attributes  ({attr}/{attr_cap} Path Points  ·  Level×3 = {attr_cap})",
+            )
             ok, msg = validate_budgets(cfg)
             budget_var.set(msg)
             budget_lbl.configure(text_color="#4ade80" if ok else "#f87171")
@@ -386,11 +419,9 @@ def main_gui() -> None:
     name_var = ctk.StringVar(value="Borge")
     level_var = ctk.IntVar(value=14)
     reps_var = ctk.IntVar(value=200)
-    procs_var = ctk.IntVar(value=-1)
     budget_var = ctk.StringVar(value="")
     preview_var = ctk.StringVar(value="")
     status_var = ctk.StringVar(value="Bereit.")
-    progress_var = ctk.DoubleVar(value=0.0)
 
     ctk.CTkLabel(top, text="Build", text_color=DIM).pack(side="left", padx=(0, 6))
     ctk.CTkEntry(top, textvariable=name_var, width=140, fg_color=INPUT).pack(side="left", padx=(0, 10))
@@ -400,9 +431,7 @@ def main_gui() -> None:
         side="left", padx=(0, 14)
     )
     ctk.CTkLabel(top, text="Sims", text_color=DIM).pack(side="left", padx=(0, 6))
-    ctk.CTkEntry(top, textvariable=reps_var, width=64, fg_color=INPUT).pack(side="left", padx=(0, 10))
-    ctk.CTkLabel(top, text="Procs", text_color=DIM).pack(side="left", padx=(0, 6))
-    ctk.CTkEntry(top, textvariable=procs_var, width=52, fg_color=INPUT).pack(side="left", padx=(0, 10))
+    ctk.CTkEntry(top, textvariable=reps_var, width=64, fg_color=INPUT).pack(side="left", padx=(0, 14))
 
     def do_import() -> None:
         p = filedialog.askopenfilename(
@@ -449,6 +478,352 @@ def main_gui() -> None:
         side="left", padx=3
     )
 
+    def open_talent_window() -> None:
+        existing = state.get("talent_win")
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.deiconify()
+                    existing.lift()
+                    existing.focus_force()
+                    existing.after(0, lambda: existing.state("zoomed"))
+                    return
+            except Exception:
+                pass
+
+        win = ctk.CTkToplevel(root)
+        win.title("Talents & Attributes — Optimizer")
+        win.minsize(900, 640)
+        win.geometry("1100x740")
+        state["talent_win"] = win
+
+        def _focus_max() -> None:
+            try:
+                win.deiconify()
+                win.lift()
+                win.focus_force()
+                win.state("zoomed")
+                win.attributes("-topmost", True)
+                win.after(200, lambda: win.attributes("-topmost", False))
+            except Exception:
+                pass
+
+        win.after(0, _focus_max)
+
+        def on_talent_close() -> None:
+            state["section_titles"].pop("tal", None)
+            state["section_titles"].pop("attr", None)
+            state["talent_win"] = None
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", on_talent_close)
+
+        def show_opt_dialog(
+            *,
+            title: str,
+            body: str,
+            show_apply: bool,
+            on_apply=None,
+        ) -> None:
+            dlg = ctk.CTkToplevel(win)
+            dlg.title(title)
+            dlg.geometry("460x280")
+            dlg.resizable(False, False)
+            dlg.transient(win)
+            dlg.grab_set()
+            dlg.lift()
+            dlg.focus_force()
+
+            frame = ctk.CTkFrame(dlg, fg_color=CARD, corner_radius=12)
+            frame.pack(fill="both", expand=True, padx=14, pady=14)
+            ctk.CTkLabel(
+                frame, text=title, font=ctk.CTkFont(size=16, weight="bold"), text_color=FG, anchor="w"
+            ).pack(fill="x", padx=16, pady=(14, 8))
+            ctk.CTkLabel(
+                frame, text=body, text_color=DIM, justify="left", anchor="w", wraplength=400
+            ).pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+            btns = ctk.CTkFrame(frame, fg_color="transparent")
+            btns.pack(fill="x", padx=16, pady=(0, 14))
+
+            def close_dlg() -> None:
+                try:
+                    dlg.grab_release()
+                except Exception:
+                    pass
+                dlg.destroy()
+
+            if show_apply:
+                ctk.CTkButton(
+                    btns,
+                    text="Übernehmen",
+                    width=120,
+                    fg_color=ACCENT,
+                    hover_color=ACCENT_HOVER,
+                    command=lambda: (close_dlg(), on_apply() if on_apply else None),
+                ).pack(side="right", padx=(6, 0))
+                ctk.CTkButton(
+                    btns, text="Behalten", width=100, fg_color=INPUT, hover_color="#3f3f46", command=close_dlg
+                ).pack(side="right")
+            else:
+                ctk.CTkButton(
+                    btns, text="OK", width=90, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=close_dlg
+                ).pack(side="right")
+
+        bar = ctk.CTkFrame(win, fg_color="transparent")
+        bar.pack(fill="x", padx=12, pady=(12, 6))
+        opt_status = ctk.StringVar(value="Optimize sucht von 0 — Vergleich erst danach mit aktuellem Build.")
+        ctk.CTkLabel(bar, textvariable=opt_status, text_color=DIM, anchor="w").pack(side="left", fill="x", expand=True)
+
+        restrict_row = ctk.CTkFrame(win, fg_color="transparent")
+        restrict_row.pack(fill="x", padx=12, pady=(0, 6))
+        force_timeless_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            restrict_row,
+            text="Timeless Mastery 5 Pflicht  (Optimizer hält Attribute immer auf 5)",
+            variable=force_timeless_var,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            text_color=FG,
+        ).pack(anchor="w")
+
+        def stop_optimize() -> None:
+            state["opt_cancel"] = True
+
+        def start_optimize() -> None:
+            if state.get("opt_running"):
+                return
+            cfg = config_from_vars()
+            ok, msg = validate_budgets(cfg)
+            if not ok:
+                show_opt_dialog(title="Ungültiger Build", body=msg, show_apply=False)
+                return
+            state["opt_cancel"] = False
+            state["opt_running"] = True
+            opt_btn.configure(state="disabled")
+            opt_status.set("Optimizing…")
+            force_tm = bool(force_timeless_var.get())
+            n_base = max(1, int(reps_var.get()))
+
+            def worker() -> None:
+                try:
+                    def prog(msg, done, total, loot, stage):
+                        def ui():
+                            frac = done / total if total else 0
+                            opt_progress.set(frac)
+                            if stage is not None and loot is not None and stage >= 0:
+                                opt_status.set(
+                                    f"{msg}  ·  best Ø stage {stage:.2f} / loot {loot:.1f}"
+                                )
+                            else:
+                                opt_status.set(msg)
+
+                        root.after(0, ui)
+
+                    result = optimize_build(
+                        cfg,
+                        OptimizeConfig(
+                            n_search=250,
+                            n_refine=1000,
+                            n_baseline=n_base,
+                            max_evals=200,
+                            restarts=8,
+                            stagnation_limit=18,
+                            top_k=5,
+                            force_timeless_mastery_5=force_tm,
+                        ),
+                        progress=prog,
+                        cancel_check=lambda: state["opt_cancel"],
+                    )
+
+                    def finish() -> None:
+                        b_stage, b_loot = result.baseline_score
+                        n_stage, n_loot = result.best_score
+                        d_stage = n_stage - b_stage
+                        d_loot = n_loot - b_loot
+                        opt_progress.set(1.0)
+
+                        if result.baseline_eval is None or b_stage < 0:
+                            show_opt_dialog(
+                                title="Optimize Fehler",
+                                body="Aktueller Build konnte nicht simuliert werden.",
+                                show_apply=False,
+                            )
+                            opt_status.set("Fehler bei Baseline-Simulation.")
+                            return
+
+                        if not result.improved:
+                            opt_status.set(
+                                f"Kein Vorteil  ·  aktuell Ø stage {b_stage:.2f} / loot {b_loot:.1f} "
+                                f"({result.evals} evals)"
+                            )
+                            status_var.set("Optimize: kein besserer Build — unverändert.")
+                            show_opt_dialog(
+                                title="Kein Vorteil",
+                                body=(
+                                    f"Suche von 0 hat keinen besseren Build gefunden "
+                                    f"({result.evals} evals).\n\n"
+                                    f"Aktueller Build ({n_base} sims):\n"
+                                    f"  Ø Stage {b_stage:.2f}  ·  Loot {b_loot:.1f}\n\n"
+                                    f"Build wurde nicht geändert."
+                                ),
+                                show_apply=False,
+                            )
+                            return
+
+                        opt_status.set(
+                            f"Vorschlag  ·  Ø stage {n_stage:.2f} ({d_stage:+.2f})  ·  "
+                            f"loot {n_loot:.1f} ({d_loot:+.1f})"
+                        )
+
+                        def do_apply() -> None:
+                            load_config_into_vars(result.best_config)
+                            status_var.set(
+                                f"Optimize übernommen — Ø stage {n_stage:.2f} ({d_stage:+.2f})"
+                            )
+                            if result.best_eval is not None:
+                                state["result"] = result.best_eval
+                                state["config"] = result.best_config
+                                on_result(result.best_eval)
+                            opt_status.set(
+                                f"Übernommen  ·  Ø stage {n_stage:.2f} / loot {n_loot:.1f}"
+                            )
+
+                        def on_keep() -> None:
+                            status_var.set("Optimize: Vorschlag verworfen — Build unverändert.")
+                            opt_status.set(
+                                f"Verworfen  ·  aktuell Ø stage {b_stage:.2f} / loot {b_loot:.1f}"
+                            )
+
+                        dlg = ctk.CTkToplevel(win)
+                        dlg.title("Vorteil gefunden")
+                        dlg.geometry("480x300")
+                        dlg.resizable(False, False)
+                        dlg.transient(win)
+                        dlg.grab_set()
+                        dlg.lift()
+                        frame = ctk.CTkFrame(dlg, fg_color=CARD, corner_radius=12)
+                        frame.pack(fill="both", expand=True, padx=14, pady=14)
+                        ctk.CTkLabel(
+                            frame,
+                            text="Besserer Build gefunden",
+                            font=ctk.CTkFont(size=16, weight="bold"),
+                            anchor="w",
+                        ).pack(fill="x", padx=16, pady=(14, 8))
+                        ctk.CTkLabel(
+                            frame,
+                            text=(
+                                f"{result.evals} evals  ·  Baseline {n_base} sims\n\n"
+                                f"Aktuell:    Ø Stage {b_stage:.2f}  ·  Loot {b_loot:.1f}\n"
+                                f"Vorschlag:  Ø Stage {n_stage:.2f}  ({d_stage:+.2f})\n"
+                                f"            Loot {n_loot:.1f}  ({d_loot:+.1f})\n\n"
+                                f"Vorschlag übernehmen?"
+                            ),
+                            text_color=DIM,
+                            justify="left",
+                            anchor="w",
+                        ).pack(fill="both", expand=True, padx=16, pady=(0, 12))
+                        btns = ctk.CTkFrame(frame, fg_color="transparent")
+                        btns.pack(fill="x", padx=16, pady=(0, 14))
+
+                        def close_and(fn) -> None:
+                            try:
+                                dlg.grab_release()
+                            except Exception:
+                                pass
+                            dlg.destroy()
+                            fn()
+
+                        ctk.CTkButton(
+                            btns,
+                            text="Übernehmen",
+                            width=120,
+                            fg_color=ACCENT,
+                            hover_color=ACCENT_HOVER,
+                            command=lambda: close_and(do_apply),
+                        ).pack(side="right", padx=(6, 0))
+                        ctk.CTkButton(
+                            btns,
+                            text="Behalten",
+                            width=100,
+                            fg_color=INPUT,
+                            hover_color="#3f3f46",
+                            command=lambda: close_and(on_keep),
+                        ).pack(side="right")
+
+                    root.after(0, finish)
+                except Exception as e:
+                    err = str(e) or traceback.format_exc()
+                    root.after(
+                        0,
+                        lambda: show_opt_dialog(title="Optimize Fehler", body=err, show_apply=False),
+                    )
+                finally:
+
+                    def done_ui() -> None:
+                        state["opt_running"] = False
+                        opt_btn.configure(state="normal")
+
+                    root.after(0, done_ui)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        opt_btn = ctk.CTkButton(
+            bar,
+            text="Optimize",
+            width=90,
+            height=28,
+            command=start_optimize,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+        )
+        opt_btn.pack(side="right", padx=(6, 0))
+        ctk.CTkButton(
+            bar, text="Stop", width=60, height=28, command=stop_optimize, fg_color=CARD, hover_color="#3f3f46"
+        ).pack(side="right")
+
+        opt_progress = ctk.CTkProgressBar(win, progress_color=ACCENT)
+        opt_progress.pack(fill="x", padx=12, pady=(0, 8))
+        opt_progress.set(0)
+
+        scroll = ctk.CTkScrollableFrame(win, fg_color=PANEL, corner_radius=12)
+        scroll.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        sec_tal = _section(scroll, "Talents", "tal")
+        for k in TALENT_KEYS:
+            mx = Borge.costs["talents"][k]["max"]
+            _spin_row(sec_tal, TALENT_LABELS.get(k, k), state["vars"][f"tal.{k}"], mx)
+
+        sec_attr = _section(scroll, "Attributes", "attr")
+        from borge_sim.attr_rules import ATTRIBUTE_DEPENDENCIES as ATTR_DEPS
+        from borge_sim.attr_rules import ATTRIBUTE_MIN_VALUE as ATTR_MIN
+
+        for k in ATTR_KEYS:
+            meta = Borge.costs["attributes"][k]
+            label = ATTRIBUTE_LABELS.get(k, k)
+            cost = meta["cost"]
+            mx = meta["max"]
+            bits = [f"cost {cost}"]
+            parents = ATTR_DEPS.get(k)
+            if parents:
+                bits.append("needs " + "+".join(ATTRIBUTE_LABELS.get(p, p) for p in parents))
+            need = ATTR_MIN.get(k, 0)
+            if need:
+                bits.append(f"min spent {need}")
+            suffix = "  (" + ", ".join(bits) + ")"
+            _spin_row(sec_attr, label + suffix, state["vars"][f"attr.{k}"], mx)
+
+        refresh_budget()
+
+    ctk.CTkButton(
+        top,
+        text="Talents & Attributes…",
+        width=160,
+        command=open_talent_window,
+        fg_color=ACCENT,
+        hover_color=ACCENT_HOVER,
+    ).pack(side="left", padx=(10, 3))
+
     budget_lbl = ctk.CTkLabel(root, textvariable=budget_var, text_color=DIM, anchor="w")
     budget_lbl.pack(fill="x", padx=14)
     ctk.CTkLabel(root, textvariable=preview_var, text_color=DIM, anchor="w", font=ctk.CTkFont(size=12)).pack(
@@ -461,8 +836,26 @@ def main_gui() -> None:
     body.grid_columnconfigure(1, weight=3)
     body.grid_rowconfigure(0, weight=1)
 
-    left = ctk.CTkScrollableFrame(body, fg_color=PANEL, corner_radius=12)
-    left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+    left_tabs = ctk.CTkTabview(
+        body,
+        fg_color=PANEL,
+        segmented_button_selected_color=ACCENT,
+        segmented_button_selected_hover_color=ACCENT_HOVER,
+        segmented_button_unselected_color=CARD,
+        segmented_button_unselected_hover_color="#3f3f46",
+    )
+    left_tabs.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+    tab_stats_in = left_tabs.add("Stats")
+    tab_insc = left_tabs.add("Inscryptions")
+    tab_relics = left_tabs.add("Relics / Gems")
+
+    left_stats = ctk.CTkScrollableFrame(tab_stats_in, fg_color="transparent")
+    left_stats.pack(fill="both", expand=True)
+    left_insc = ctk.CTkScrollableFrame(tab_insc, fg_color="transparent")
+    left_insc.pack(fill="both", expand=True)
+    left_misc = ctk.CTkScrollableFrame(tab_relics, fg_color="transparent")
+    left_misc.pack(fill="both", expand=True)
+
     right = ctk.CTkFrame(body, fg_color="transparent")
     right.grid(row=0, column=1, sticky="nsew")
 
@@ -500,7 +893,6 @@ def main_gui() -> None:
             refresh_budget()
             refresh_preview_stats()
 
-        # Layout:  -  ZAHL  +  [Max]
         ctrls = ctk.CTkFrame(row, fg_color="transparent")
         ctrls.pack(side="right")
         ctk.CTkButton(
@@ -521,10 +913,19 @@ def main_gui() -> None:
                 hover_color=ACCENT_HOVER,
                 font=ctk.CTkFont(size=11, weight="bold"),
             ).pack(side="left", padx=(4, 0))
-        var.trace_add("write", lambda *_: (refresh_budget(), refresh_preview_stats()))
+        # One write-trace per variable — reopening the talent window must not stack more.
+        var_id = str(var)
+        if var_id not in state["traced_vars"]:
+            state["traced_vars"].add(var_id)
+            var.trace_add("write", lambda *_: (refresh_budget(), refresh_preview_stats()))
 
-    # sections
-    sec_stats = _section(left, "Borge Stats")
+    # Create vars for talents/attrs even though controls live in the subwindow
+    for k in TALENT_KEYS:
+        _ivar(f"tal.{k}")
+    for k in ATTR_KEYS:
+        _ivar(f"attr.{k}")
+
+    sec_stats = _section(left_stats, "Borge Stats")
     for k in STAT_KEYS:
         mx = STAT_MAX.get(k, 9999)
         label = STAT_LABELS.get(k, k)
@@ -532,25 +933,7 @@ def main_gui() -> None:
             label = f"{label}  /{mx}"
         _spin_row(sec_stats, label, _ivar(f"stat.{k}"), mx)
 
-    sec_tal = _section(left, "Talents", "tal")
-    for k in TALENT_KEYS:
-        mx = Borge.costs["talents"][k]["max"]
-        _spin_row(sec_tal, TALENT_LABELS.get(k, k), _ivar(f"tal.{k}"), mx)
-
-    sec_attr = _section(left, "Attributes", "attr")
-    for k in ATTR_KEYS:
-        meta = Borge.costs["attributes"][k]
-        label = ATTRIBUTE_LABELS.get(k, k)
-        cost = meta["cost"]
-        mx = meta["max"]
-        unlock = meta.get("unlock_spent")
-        suffix = f"  (cost {cost}"
-        if unlock:
-            suffix += f", unlock {unlock}"
-        suffix += ")"
-        _spin_row(sec_attr, label + suffix, _ivar(f"attr.{k}"), mx)
-
-    sec_insc = _section(left, "Inscryptions")
+    sec_insc = _section(left_insc, "Inscryptions")
     insc_actions = ctk.CTkFrame(sec_insc, fg_color="transparent")
     insc_actions.pack(fill="x", pady=(0, 6))
 
@@ -589,7 +972,7 @@ def main_gui() -> None:
         mx = Borge.costs["inscryptions"][k]["max"]
         _spin_row(sec_insc, inscription_label(k), _ivar(f"insc.{k}"), mx)
 
-    sec_misc = _section(left, "Relics / Gems / Mods")
+    sec_misc = _section(left_misc, "Relics / Gems / Mods")
     for k in RELIC_KEYS:
         _spin_row(sec_misc, k, _ivar(f"relic.{k}"), 20)
     for k in GEM_KEYS:
@@ -617,21 +1000,21 @@ def main_gui() -> None:
             messagebox.showerror("Invalid build", msg)
             return
         n = max(1, int(reps_var.get()))
-        procs = int(procs_var.get())
         state["cancel"] = False
         run_btn.configure(state="disabled")
-        status_var.set(f"Running {n} sims…")
+        status_var.set(f"Running {n} sims (wasm)…")
         progress_bar.set(0)
 
         def worker() -> None:
             try:
+
                 def prog(d, t):
-                    root.after(0, lambda: progress_bar.set(d / t))
+                    root.after(0, lambda: progress_bar.set(d / t if t else 0))
 
                 res = run_sims(
                     cfg,
                     repetitions=n,
-                    processes=procs,
+                    engine="wasm",
                     progress=prog,
                     cancel_check=lambda: state["cancel"],
                 )
@@ -679,17 +1062,23 @@ def main_gui() -> None:
         f = ctk.CTkFrame(cards, fg_color=CARD, corner_radius=10)
         f.grid(row=0, column=col, sticky="nsew", padx=3)
         ctk.CTkLabel(f, text=title, text_color=DIM, font=ctk.CTkFont(size=11)).pack(anchor="w", padx=12, pady=(10, 0))
-        ctk.CTkLabel(f, textvariable=var, font=ctk.CTkFont(size=18, weight="bold")).pack(anchor="w", padx=12, pady=(2, 12))
+        ctk.CTkLabel(f, textvariable=var, font=ctk.CTkFont(size=18, weight="bold")).pack(
+            anchor="w", padx=12, pady=(2, 12)
+        )
 
     make_card("LOOT SCORE", card_vars["loot"], 0)
     make_card("Ø STAGE (RANGE)", card_vars["stage"], 1)
     make_card("Ø TIME (RUNS/D)", card_vars["time"], 2)
     make_card("BOSS KILL %", card_vars["boss"], 3)
 
-    tabs = ctk.CTkTabview(right, fg_color=PANEL, segmented_button_selected_color=ACCENT,
-                          segmented_button_selected_hover_color=ACCENT_HOVER,
-                          segmented_button_unselected_color=CARD,
-                          segmented_button_unselected_hover_color="#3f3f46")
+    tabs = ctk.CTkTabview(
+        right,
+        fg_color=PANEL,
+        segmented_button_selected_color=ACCENT,
+        segmented_button_selected_hover_color=ACCENT_HOVER,
+        segmented_button_unselected_color=CARD,
+        segmented_button_unselected_hover_color="#3f3f46",
+    )
     tabs.pack(fill="both", expand=True)
     tab_dist = tabs.add("Stage Distribution")
     tab_odds = tabs.add("Stage Odds")
@@ -800,7 +1189,7 @@ def main_gui() -> None:
         min_var.set(f"{res.min_stage:.1f}")
         avg_var.set(f"{res.avg_stage:.1f}")
         max_var.set(f"{res.max_stage:.1f}")
-        status_var.set(f"Done — {res.n} runs")
+        status_var.set(f"Done — {res.n} runs ({res.engine})")
         progress_bar.set(1.0)
 
         ax_dist.clear()
@@ -861,7 +1250,15 @@ def main_gui() -> None:
     level_var.trace_add("write", lambda *_: (refresh_budget(), refresh_preview_stats()))
 
     def on_close() -> None:
+        state["cancel"] = True
+        state["opt_cancel"] = True
         save_ui_state()
+        tw = state.get("talent_win")
+        if tw is not None:
+            try:
+                tw.destroy()
+            except Exception:
+                pass
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
@@ -870,7 +1267,6 @@ def main_gui() -> None:
     if saved and isinstance(saved.get("config"), dict):
         try:
             reps_var.set(int(saved.get("reps", 200)))
-            procs_var.set(int(saved.get("procs", -1)))
             load_config_into_vars(saved["config"])
             status_var.set(f"Restored last session ({UI_STATE_PATH.name})")
         except Exception:
@@ -890,9 +1286,10 @@ def main() -> None:
     if len(sys.argv) >= 2 and sys.argv[1] == "--cli":
         path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_BUILD
         n = int(sys.argv[3]) if len(sys.argv) > 3 else 50
-        main_cli(path, n)
+        eng = sys.argv[4] if len(sys.argv) > 4 else "auto"
+        main_cli(path, n, eng)
     else:
-        main_gui()
+        main_gui(maximized="--maximized" in sys.argv)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,78 @@
+meta:
+  hunter: Borge
+  level: 14
+
+stats:
+  # Borge Stats upgrade levels (same order/labels as cifi-tools.com/borge)
+  hp: 109                    # MAX HP
+  power: 86                  # ATK Power
+  regen: 52                  # HP Regen
+  damage_reduction: 19       # DMG Reduction /40
+  evade_chance: 20           # Evade Chance /50
+  effect_chance: 19          # Effect Chance /50
+  special_chance: 29         # Crit Chance /100
+  special_damage: 25         # Crit Power /100
+  speed: 14                  # ATK Speed /100
+  highest_stage_reached: 46  # Highest Stage Reached
+
+talents:
+  death_is_my_companion: 2
+  life_of_the_hunt: 5
+  unfair_advantage: 4
+  impeccable_impacts: 1
+  omen_of_defeat: 0
+  call_me_lucky_loot: 1
+  presence_of_god: 1
+  fires_of_war: 0
+
+attributes:
+  soul_of_ares: 1
+  essence_of_ylith: 3
+  spartan_lineage: 1
+  timeless_mastery: 5
+  book_of_baal: 1
+  superior_sensors: 6
+  helltouch_barrier: 1
+  lifedrain_inhalers: 2
+  explosive_punches: 0
+  atlas_protocol: 0
+  weakspot_analysis: 0
+  born_for_battle: 0
+  soul_of_the_minotaur: 0
+  soul_of_hermes: 0
+  soul_of_athena: 0
+
+inscryptions:
+  i3: 0
+  i4: 0
+  i11: 0
+  i13: 0
+  i14: 0
+  i23: 0
+  i24: 0
+  i27: 0
+  i44: 0
+  i60: 0
+  i80: 0
+  i84: 0
+  i87: 0
+  i88: 0
+  i89: 0
+  i91: 0
+  i103: 0
+
+mods:
+  trample: false
+
+relics:
+  disk_of_dawn: 0
+  long_range_artillery_crawler: 0
+
+gems:
+  attraction_gem: 0
+  attraction_catch-up: 0
+  attraction_node_#3: 0
+  innovation_node_#3: 0
+  creation_node_#1: 0
+  creation_node_#2: 0
+  creation_node_#3: 0

@@ -1118,8 +1118,9 @@ def main_gui() -> None:
     ttk.Label(
         tbl,
         text=(
-            "Spalte „+%/Gem“: pro Kauf der prozentuale Zuwachs am End-Output geteilt durch die Gem-Kosten "
-            "dieses Schritts. Hoeher ist besser."
+            "Reihenfolge = empfohlene Kaufsequenz (Schritt 1 zuerst), optimiert auf maximales „Cells Ende“ "
+            "nach Prestige (Beam-Search), nicht sortiert nach +%/Gem. Spalte +%/Gem: Effizienz nur dieses "
+            "einzelnen Schritts im jeweiligen Zwischenzustand — Werte zwischen Zeilen nicht vergleichen."
         ),
         style="PanelDim.TLabel",
         wraplength=700,

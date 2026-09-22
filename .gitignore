@@ -1,3 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local UI persistence
+data/*_ui_state.json
+logs/
+
 # Gradle
 .gradle/
 build/

@@ -1,6 +1,7 @@
 import {
   ATTRIBUTE_COSTS,
   ATTRIBUTE_LABELS,
+  ATTRIBUTE_TIPS,
   ATTR_ORDER,
   GEM_KEYS,
   INSC_ORDER,
@@ -12,6 +13,7 @@ import {
   STAT_ORDER,
   TALENT_COSTS,
   TALENT_LABELS,
+  TALENT_TIPS,
   TALENT_ORDER,
 } from "./hunters/borge/costs.js";
 import {
@@ -34,19 +36,67 @@ const state = {
   optimizing: false,
   optCancel: false,
   lastResult: null,
+  hideMaxed: true,
 };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
-function spinRow(parent, { key, label, hint, value, max, onChange, depth = 0, locked = false }) {
+function isCappedMax(value, hi) {
+  return hi < 9999 && Number(value) >= hi;
+}
+
+function applyHideMaxed() {
+  const hide = !!state.hideMaxed;
+  const hideEl = $("#hideMaxed");
+  if (hideEl) hideEl.checked = hide;
+  // Only left-panel lists (stats / insc / relics-gems) — not talents/attributes
+  for (const listId of ["statsList", "inscList", "miscList"]) {
+    $$(`#${listId} .spin[data-can-max='1']`).forEach((row) => {
+      const maxed = row.dataset.maxed === "1";
+      row.hidden = hide && maxed;
+    });
+  }
+  // Clear hide on talent/attr rows if any were marked
+  for (const listId of ["talentList", "attrList"]) {
+    $$(`#${listId} .spin`).forEach((row) => {
+      row.hidden = false;
+    });
+  }
+}
+
+function setHideMaxed(on) {
+  state.hideMaxed = !!on;
+  applyHideMaxed();
+}
+
+function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 0, locked = false }) {
   const row = document.createElement("div");
   row.className = "spin";
   if (depth > 0) row.classList.add("spin-nested");
   if (locked) row.classList.add("spin-locked");
   row.dataset.key = key;
   row.style.setProperty("--spin-depth", String(depth));
+  if (tip) {
+    row.dataset.tip = tip;
+    row.setAttribute("aria-label", `${label}. ${tip}`);
+  }
   const hi = max === Infinity ? 9999 : Number(max);
+  const canMax = hi < 9999;
+  if (canMax) row.dataset.canMax = "1";
+  const markMaxed = (n) => {
+    if (!canMax) {
+      row.classList.remove("spin-maxed");
+      return;
+    }
+    const maxed = isCappedMax(n, hi);
+    row.dataset.maxed = maxed ? "1" : "0";
+    row.classList.toggle("spin-maxed", maxed);
+    const inLeft =
+      parent?.id === "statsList" || parent?.id === "inscList" || parent?.id === "miscList";
+    row.hidden = inLeft && state.hideMaxed && maxed;
+  };
+  markMaxed(value);
   row.innerHTML = `
     <div class="label">${label}${hint ? `<span class="hint">${hint}</span>` : ""}</div>
     <div class="spin-controls">
@@ -55,13 +105,14 @@ function spinRow(parent, { key, label, hint, value, max, onChange, depth = 0, lo
       <button type="button" class="btn btn-sm" data-act="+" ${locked ? "disabled" : ""}>+</button>
     </div>
     <div class="spin-max">
-      ${hi < 9999 ? `<button type="button" class="btn btn-primary btn-sm" data-act="max" ${locked ? "disabled" : ""}>Max</button>` : ""}
+      ${canMax ? `<button type="button" class="btn btn-primary btn-sm" data-act="max" ${locked ? "disabled" : ""}>Max</button>` : ""}
     </div>`;
   const input = row.querySelector("input");
   const setVal = (v) => {
     if (locked) return;
     const n = Math.max(0, Math.min(hi, Number(v) || 0));
     input.value = String(n);
+    markMaxed(n);
     onChange(n);
   };
   row.querySelector('[data-act="-"]').addEventListener("click", () => setVal(Number(input.value) - 1));
@@ -143,6 +194,7 @@ function buildLeftLists() {
     spinRow(talentList, {
       key: `tal.${k}`,
       label: TALENT_LABELS[k],
+      tip: TALENT_TIPS[k],
       hint: `max ${TALENT_COSTS[k].max}`,
       value: state.build.talents[k] ?? 0,
       max: TALENT_COSTS[k].max,
@@ -158,6 +210,7 @@ function buildLeftLists() {
   $("#trample").checked = !!state.build.mods?.trample;
   $("#buildName").value = state.build.build_name || "";
   $("#level").value = String(state.build.meta?.level ?? 0);
+  applyHideMaxed();
 }
 
 function buildAttrList() {
@@ -176,6 +229,7 @@ function buildAttrList() {
     spinRow(attrList, {
       key: `attr.${k}`,
       label: ATTRIBUTE_LABELS[k],
+      tip: ATTRIBUTE_TIPS[k],
       hint: hints.join(" · "),
       value: attrs[k] ?? 0,
       max: cost.max,
@@ -189,6 +243,7 @@ function buildAttrList() {
       },
     });
   }
+  applyHideMaxed();
 }
 
 function syncMetaFromInputs() {
@@ -220,7 +275,10 @@ function saveState() {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ config: state.build, reps: Number($("#reps").value) || 6000 }),
+      JSON.stringify({
+        config: state.build,
+        reps: Number($("#reps").value) || 6000,
+      }),
     );
   } catch {
     /* ignore quota */
@@ -244,6 +302,8 @@ function loadState() {
     if (data?.config && typeof data.config === "object") {
       state.build = { ...defaultBuild(), ...data.config };
       if (data.reps) $("#reps").value = String(data.reps);
+      // Always start with "Gemaxte ausblenden" on (ignore older saved false).
+      state.hideMaxed = true;
       return true;
     }
   } catch {
@@ -432,6 +492,7 @@ async function init() {
     buildLeftLists();
     onBuildChanged();
   });
+  $("#hideMaxed").addEventListener("change", (e) => setHideMaxed(e.target.checked));
   $("#btnTalents").addEventListener("click", () => {
     $("#talentModal").hidden = false;
   });

@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Borge Simulator</title>
-    <meta name="description" content="Local twin of cifi-tools Borge sim — WASM combat, stage distribution, loot score." />
+    <title>Hunter Sim</title>
+    <meta name="description" content="Hunter simulator & optimizer for CIFI — WASM combat, stage distribution, loot score." />
     <link rel="stylesheet" href="./css/app.css" />
   </head>
   <body>
     <header class="app-header">
       <div class="wrap" style="padding-top: 0; padding-bottom: 0">
-        <h1>Borge Simulator</h1>
-        <p>Compare builds and optimize your performance — same WASM engine as cifi-tools.com/borge</p>
+        <h1>Hunter Sim</h1>
+        <p>Compare builds and optimize your performance — same WASM engine as cifi-tools</p>
       </div>
     </header>
 
@@ -46,7 +46,7 @@
           </div>
           <div class="tab-panels">
             <div class="tab-panel" data-panel="stats">
-              <h3 class="section-title">Borge Stats</h3>
+              <h3 class="section-title">Stats</h3>
               <div id="statsList" class="spin-list"></div>
             </div>
             <div class="tab-panel" data-panel="insc" hidden>
@@ -108,23 +108,15 @@
       <p class="status" id="status">Initializing WASM…</p>
       <p class="footer-note">
         Combat via <code>release.wasm</code> (same engine as
-        <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools.com/borge</a>).
-        Builds persist in this browser (localStorage).
+        <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).
+        Currently: <strong>Borge</strong>. Builds persist in this browser (localStorage).
       </p>
     </main>
 
     <div class="modal-backdrop" id="talentModal" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="talentTitle">
         <h2 id="talentTitle">Talents &amp; Attributes</h2>
-        <div class="tabs" role="tablist">
-          <button class="tab" data-mtab="tal" aria-selected="true">Talents</button>
-          <button class="tab" data-mtab="attr" aria-selected="false">Attributes</button>
-        </div>
-        <div style="margin-top: 0.75rem">
-          <div data-mpanel="tal"><div id="talentList" class="spin-list"></div></div>
-          <div data-mpanel="attr" hidden><div id="attrList" class="spin-list"></div></div>
-        </div>
-        <div class="opt-panel">
+        <div class="opt-panel opt-panel-top">
           <div class="opt-row">
             <button type="button" class="btn btn-primary" id="btnOptimize">Optimize (WASM)</button>
             <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
@@ -134,10 +126,29 @@
             </label>
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
-          <p class="opt-status" id="optStatus">Sucht Talent/Attribute-Verteilung für max. Ø Stage (wie altes Py-Tool).</p>
+          <p class="opt-status" id="optStatus">Sucht Talent/Attribute-Verteilung für max. Ø Stage.</p>
+        </div>
+        <div class="tabs" role="tablist">
+          <button class="tab" data-mtab="tal" aria-selected="true">Talents</button>
+          <button class="tab" data-mtab="attr" aria-selected="false">Attributes</button>
+        </div>
+        <div style="margin-top: 0.75rem">
+          <div data-mpanel="tal"><div id="talentList" class="spin-list"></div></div>
+          <div data-mpanel="attr" hidden><div id="attrList" class="spin-list"></div></div>
         </div>
         <div class="modal-actions">
           <button type="button" class="btn btn-primary" id="btnTalentClose">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop confirm-backdrop" id="optConfirmModal" hidden>
+      <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="optConfirmTitle">
+        <h2 id="optConfirmTitle">Optimizer-Ergebnis übernehmen?</h2>
+        <p class="opt-confirm-body" id="optConfirmBody"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btnOptDiscard">Verwerfen</button>
+          <button type="button" class="btn btn-primary" id="btnOptApply">Übernehmen</button>
         </div>
       </div>
     </div>

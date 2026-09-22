@@ -13,18 +13,19 @@ import {
   TALENT_COSTS,
   TALENT_LABELS,
   TALENT_ORDER,
-} from "./costs.js";
+} from "./hunters/borge/costs.js";
 import {
   attributeTreeEntries,
   attributeUnlockState,
   zeroOrphanDependents,
-} from "./attr-rules.js";
+} from "./hunters/borge/attr-rules.js";
 import { defaultBuild, downloadJson, formatDuration, validateBudgets } from "./build.js";
 import { optimizeBuild } from "./optimize.js";
-import { WasmBorgeEngine, wasmToSimResult } from "./wasm-engine.js";
+import { WasmBorgeEngine, wasmToSimResult } from "./hunters/borge/wasm-engine.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
-const STORAGE_KEY = "borge_sim_web_state_v1";
+const STORAGE_KEY = "hunter_sim_web_state_v1";
+const LEGACY_STORAGE_KEYS = ["borge_sim_web_state_v1"];
 
 const state = {
   build: defaultBuild(),
@@ -228,7 +229,16 @@ function saveState() {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      for (const key of LEGACY_STORAGE_KEYS) {
+        raw = localStorage.getItem(key);
+        if (raw) {
+          localStorage.setItem(STORAGE_KEY, raw);
+          break;
+        }
+      }
+    }
     if (!raw) return false;
     const data = JSON.parse(raw);
     if (data?.config && typeof data.config === "object") {
@@ -357,7 +367,7 @@ async function runSim() {
 
 function exportBuild() {
   syncMetaFromInputs();
-  const name = (state.build.build_name || "borge_build").replace(/[^\w.-]+/g, "_");
+  const name = (state.build.build_name || "hunter_build").replace(/[^\w.-]+/g, "_");
   downloadJson(`${name}.json`, state.build);
 }
 
@@ -454,6 +464,30 @@ async function init() {
   }
 }
 
+async function askApplyOptimize({ baseAvg, bestAvg, baseLoot, bestLoot, evals }) {
+  const modal = $("#optConfirmModal");
+  $("#optConfirmBody").textContent =
+    `Ø Stage ${bestAvg} (war ${baseAvg})\nLoot ${bestLoot} (war ${baseLoot})\n${evals} evals\n\nTalents & Attributes übernehmen?`;
+  modal.hidden = false;
+  return new Promise((resolve) => {
+    const finish = (ok) => {
+      modal.hidden = true;
+      $("#btnOptApply").removeEventListener("click", onApply);
+      $("#btnOptDiscard").removeEventListener("click", onDiscard);
+      modal.removeEventListener("click", onBackdrop);
+      resolve(ok);
+    };
+    const onApply = () => finish(true);
+    const onDiscard = () => finish(false);
+    const onBackdrop = (e) => {
+      if (e.target === modal) finish(false);
+    };
+    $("#btnOptApply").addEventListener("click", onApply);
+    $("#btnOptDiscard").addEventListener("click", onDiscard);
+    modal.addEventListener("click", onBackdrop);
+  });
+}
+
 async function runOptimize() {
   if (!state.engine || state.running || state.optimizing) return;
   syncMetaFromInputs();
@@ -505,23 +539,41 @@ async function runOptimize() {
     const bestLoot = result.bestScore[1].toFixed(1);
 
     if (result.improved) {
-      state.build = {
-        ...state.build,
-        talents: { ...result.bestConfig.talents },
-        attributes: { ...result.bestConfig.attributes },
-      };
-      buildLeftLists();
-      onBuildChanged();
-      if (result.bestEval) showResult(result.bestEval);
       $("#optStatus").textContent =
-        `Verbessert · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals — angewandt`;
-      $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg})`;
+        `Verbessert · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals — wartet auf Bestätigung`;
+      $("#optProgressBar").style.width = "100%";
+
+      const apply = await askApplyOptimize({
+        baseAvg,
+        bestAvg,
+        baseLoot,
+        bestLoot,
+        evals: result.evals,
+      });
+
+      if (apply) {
+        state.build = {
+          ...state.build,
+          talents: { ...result.bestConfig.talents },
+          attributes: { ...result.bestConfig.attributes },
+        };
+        buildLeftLists();
+        onBuildChanged();
+        if (result.bestEval) showResult(result.bestEval);
+        $("#optStatus").textContent =
+          `Übernommen · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals`;
+        $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg}) — übernommen`;
+      } else {
+        $("#optStatus").textContent =
+          `Verworfen · Vorschlag Ø ${bestAvg} (aktuell ${baseAvg}) · ${result.evals} evals`;
+        $("#status").textContent = `Optimizer: Vorschlag verworfen (Ø ${bestAvg})`;
+      }
     } else {
       $("#optStatus").textContent =
         `Keine Verbesserung · Ø ${bestAvg} (Baseline ${baseAvg}) · ${result.evals} evals`;
       $("#status").textContent = `Optimizer: keine Verbesserung (Ø ${baseAvg})`;
+      $("#optProgressBar").style.width = "100%";
     }
-    $("#optProgressBar").style.width = "100%";
   } catch (err) {
     console.error(err);
     $("#optStatus").textContent = `Optimizer-Fehler: ${err.message || err}`;

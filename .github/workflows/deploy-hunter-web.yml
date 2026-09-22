@@ -1,11 +1,11 @@
-name: Deploy Borge Web App
+name: Deploy Hunter Sim
 
 on:
   push:
     branches: [main, master]
     paths:
       - "web/**"
-      - ".github/workflows/deploy-borge-web.yml"
+      - ".github/workflows/deploy-hunter-web.yml"
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages-borge
+  group: pages-hunter-sim
   cancel-in-progress: true
 
 jobs:

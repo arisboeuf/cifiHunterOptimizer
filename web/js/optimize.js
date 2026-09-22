@@ -1,19 +1,19 @@
-/** Monte-Carlo local search over talent/attribute budgets (WASM eval). Port of borge_sim/optimize.py */
+/** Monte-Carlo local search over talent/attribute budgets (WASM eval). */
 import {
   ATTRIBUTE_COSTS,
   ATTR_ORDER,
   TALENT_COSTS,
   TALENT_ORDER,
-} from "./costs.js";
+} from "./hunters/borge/costs.js";
 import {
   attrSpent,
   attributesTreeValid,
   canIncreaseAttribute,
   dependentsOf,
   zeroOrphanDependents,
-} from "./attr-rules.js";
+} from "./hunters/borge/attr-rules.js";
 import { pointBudgets, validateBudgets } from "./build.js";
-import { wasmToSimResult } from "./wasm-engine.js";
+import { wasmToSimResult } from "./hunters/borge/wasm-engine.js";
 
 export const DEFAULT_OPTIMIZE = {
   nSearch: 250,
@@ -210,7 +210,7 @@ function applyPoints(base, talents, attrs) {
 
 /**
  * @param {object} baseConfig
- * @param {import('./wasm-engine.js').WasmBorgeEngine} engine
+ * @param {import('./hunters/borge/wasm-engine.js').WasmBorgeEngine} engine
  * @param {Partial<typeof DEFAULT_OPTIMIZE>} [optIn]
  * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
  */

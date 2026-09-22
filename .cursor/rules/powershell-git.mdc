@@ -1,0 +1,47 @@
+---
+description: Git- und Shell-Befehle unter Windows PowerShell (kein Bash-HEREDOC)
+alwaysApply: true
+---
+
+# PowerShell-Git (Windows)
+
+Dieses Repo läuft in **PowerShell**, nicht Bash. Shell-Befehle entsprechend schreiben.
+
+## Commit-Messages
+
+**Nie** Bash-HEREDOC (`cat <<'EOF' … EOF`) — schlägt in PowerShell fehl.
+
+Stattdessen PowerShell-Here-String oder `` `n ``:
+
+```powershell
+git add path/a path/b
+git commit -m @"
+Subject line here.
+
+Optional body explaining why.
+"@
+git status
+```
+
+Kurz (eine Zeile + Body):
+
+```powershell
+git commit -m "Subject line.`n`nBody with why."
+```
+
+## Standard-Ablauf bei Commits (wenn der Nutzer committen will)
+
+1. Parallel bzw. nacheinander: `git status`, `git diff`, `git diff --staged`, `git log -8 --oneline`
+2. `git add …` (nur relevante Dateien)
+3. `git commit -m @"… "@` wie oben
+4. `git status` zur Verifikation
+
+## Verkettung
+
+- Prefer `;` zwischen Befehlen, wenn die Shell `&&` zickt.
+- In PowerShell 7+ ist `&&` ok; HEREDOC bleibt trotzdem verboten.
+- Keine `export VAR=…` / `$(cmd)`-Bash-Annahmen — in PS: `$env:VAR`, `$(…)`.
+
+## Push / Amend
+
+Weiterhin nur auf **explizite** Nutzerbitte (siehe `git-commit-on-request`).

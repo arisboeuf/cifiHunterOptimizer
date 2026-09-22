@@ -1,4 +1,4 @@
-/** Borge talent / attribute / inscryption costs (from hunter-sim Borge.costs). */
+/** Borge talent / attribute / inscryption costs. */
 export const TALENT_COSTS = {
   death_is_my_companion: { cost: 1, max: 2 },
   life_of_the_hunt: { cost: 1, max: 5 },

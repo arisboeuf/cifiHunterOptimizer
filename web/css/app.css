@@ -490,6 +490,15 @@ body {
   gap: 0.45rem;
 }
 
+.opt-panel-top {
+  margin-top: 0;
+  margin-bottom: 0.85rem;
+  padding-top: 0;
+  padding-bottom: 0.75rem;
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+
 .opt-row {
   display: flex;
   flex-wrap: wrap;
@@ -517,6 +526,23 @@ body {
   font-size: 0.82rem;
   color: var(--muted);
   line-height: 1.35;
+}
+
+.confirm-backdrop {
+  z-index: 50;
+}
+
+.confirm-modal {
+  width: min(420px, 100%);
+  max-height: none;
+}
+
+.opt-confirm-body {
+  margin: 0 0 0.25rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  white-space: pre-line;
 }
 
 .footer-note {

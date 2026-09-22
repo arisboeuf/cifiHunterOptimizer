@@ -1,4 +1,4 @@
-/** Browser port of borge_sim/wasm_engine.py — EVALBORGE_WASM. */
+/** Browser WASM bridge for Borge (`EVALBORGE_WASM`). */
 
 export const EVAL_PARAMS = [
   "lvl",

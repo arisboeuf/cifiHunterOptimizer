@@ -10,8 +10,8 @@ import {
   STAT_ORDER,
   TALENT_COSTS,
   TALENT_ORDER,
-} from "./costs.js";
-import { attrSpent, attributesTreeValid, zeroOrphanDependents } from "./attr-rules.js";
+} from "./hunters/borge/costs.js";
+import { attrSpent, attributesTreeValid, zeroOrphanDependents } from "./hunters/borge/attr-rules.js";
 
 export function defaultBuild() {
   return {

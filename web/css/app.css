@@ -516,6 +516,33 @@ body {
   user-select: none;
 }
 
+.opt-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.opt-field input {
+  width: 3.2rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0;
+  padding: 0.3rem 0.35rem;
+  font: inherit;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.opt-field input::-webkit-outer-spin-button,
+.opt-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .opt-progress {
   flex: none;
   width: 100%;

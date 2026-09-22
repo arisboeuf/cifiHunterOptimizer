@@ -23,8 +23,12 @@ export const DEFAULT_OPTIMIZE = {
   restarts: 8,
   stagnationLimit: 18,
   topK: 5,
+  /** Independent full search passes; champions are compared statistically at the end. */
+  loops: 1,
   seed: null,
   forceTimelessMastery5: false,
+  /** Two-sided α for Welch/z stage-mean equality (loot tie-break when not different). */
+  stageTieAlpha: 0.05,
 };
 
 const TIMELESS_KEY = "timeless_mastery";
@@ -68,13 +72,69 @@ function timelessLockCost() {
   return cost;
 }
 
-function scoreOf(res) {
-  return [Number(res.avgStage), Number(res.lootScore)];
+function stageStatsFromCounts(res) {
+  const counts = res?.stageCounts || {};
+  let n = 0;
+  let sum = 0;
+  let sumSq = 0;
+  for (const [stageRaw, countRaw] of Object.entries(counts)) {
+    const stage = Number(stageRaw);
+    const c = Number(countRaw);
+    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
+    n += c;
+    sum += stage * c;
+    sumSq += stage * stage * c;
+  }
+  if (n <= 0) {
+    const avg = Number(res?.avgStage) || 0;
+    const fallbackN = Math.max(1, Number(res?.n) || 1);
+    return { n: fallbackN, mean: avg, variance: 0 };
+  }
+  const mean = sum / n;
+  const variance = n > 1 ? Math.max(0, (sumSq - (sum * sum) / n) / (n - 1)) : 0;
+  return { n, mean, variance };
 }
 
-function scoreGt(a, b) {
-  if (a[0] !== b[0]) return a[0] > b[0];
-  return a[1] > b[1];
+/** Score used for ranking: Ø stage primary, loot on statistical stage-tie. */
+function scoreOf(res) {
+  const st = stageStatsFromCounts(res);
+  return {
+    avgStage: Number(res.avgStage) || st.mean,
+    lootScore: Number(res.lootScore) || 0,
+    n: st.n,
+    variance: st.variance,
+  };
+}
+
+/**
+ * Welch two-sample test (normal/z approx for large n): are means different at `alpha`?
+ * Default α=0.05 → critical |z| ≈ 1.96.
+ */
+function stagesSignificantlyDifferent(a, b, alpha = 0.05) {
+  const n1 = Number(a.n) || 0;
+  const n2 = Number(b.n) || 0;
+  const diff = Number(a.avgStage) - Number(b.avgStage);
+  if (n1 < 2 || n2 < 2) return Math.abs(diff) > 1e-9;
+
+  const se2 = a.variance / n1 + b.variance / n2;
+  if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
+
+  const z = Math.abs(diff) / Math.sqrt(se2);
+  // two-sided normal critical value
+  const zCrit =
+    alpha <= 0.01 ? 2.57582930355 : alpha <= 0.05 ? 1.95996398454 : 1.64485362695;
+  return z > zCrit;
+}
+
+/** True if `a` is better than `b` (statistically higher stage, else higher loot). */
+function scoreGt(a, b, alpha = 0.05) {
+  if (!a) return false;
+  if (!b) return true;
+  if (stagesSignificantlyDifferent(a, b, alpha)) {
+    return a.avgStage > b.avgStage;
+  }
+  if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
+  return a.avgStage > b.avgStage;
 }
 
 function mulberry32(seed) {
@@ -240,22 +300,24 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
     );
   }
 
-  const totalBudget = Math.max(1, opt.maxEvals + opt.topK + 1);
+  const loops = Math.max(1, Math.floor(Number(opt.loops) || 1));
+  const perLoopBudget = Math.max(1, opt.maxEvals + opt.topK);
+  const totalBudget = Math.max(1, 1 + loops * perLoopBudget + loops);
   let evals = 0;
+  let globalDone = 0;
   const history = [];
-  let top = [];
-  let searchBestCfg = null;
-  let searchBestScore = [-1, -1];
-  let searchBestEval = null;
+  const loopChampions = [];
 
   const notify = (msg, done, stage = null, loot = null) => {
     onProgress({
       msg,
-      done,
+      done: done ?? globalDone,
       total: totalBudget,
       stage,
       loot,
       evals,
+      loop: null,
+      loops,
     });
   };
 
@@ -270,19 +332,6 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
     return wasmToSimResult(wasmRes, n);
   };
 
-  const considerSearch = (cfg, res) => {
-    const sc = scoreOf(res);
-    history.push(sc);
-    top.push({ sc, cfg: structuredClone(cfg), res });
-    top.sort((a, b) => (scoreGt(a.sc, b.sc) ? -1 : scoreGt(b.sc, a.sc) ? 1 : 0));
-    top = top.slice(0, opt.topK);
-    if (scoreGt(sc, searchBestScore)) {
-      searchBestScore = sc;
-      searchBestCfg = structuredClone(cfg);
-      searchBestEval = res;
-    }
-  };
-
   const curTal = Object.fromEntries(talentKeys.map((k) => [k, Number(base.talents?.[k] ?? 0)]));
   const curAttr = zeroOrphanDependents(
     Object.fromEntries(attrKeys.map((k) => [k, Number(base.attributes?.[k] ?? 0)])),
@@ -295,98 +344,227 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
     throw new Error("Aktueller Build konnte nicht simuliert werden (ungültig oder abgebrochen).");
   }
   evals += 1;
+  globalDone = 1;
   const baselineScore = scoreOf(baselineEval);
-  notify("Baseline fertig", evals, baselineScore[0], baselineScore[1]);
+  notify("Baseline fertig", globalDone, baselineScore.avgStage, baselineScore.lootScore);
 
-  for (let restart = 0; restart < opt.restarts; restart++) {
-    if (isCancelled() || evals >= opt.maxEvals + 1) break;
+  for (let loop = 0; loop < loops; loop++) {
+    if (isCancelled()) break;
 
-    let tal = randomTalents(rng, talentKeys, talCap);
-    let attr = randomAttributes(rng, attrKeys, attrCap, forceTm);
-    let localCfg = applyPoints(base, tal, attr);
-    let localRes = await evaluate(localCfg, opt.nSearch, forceTm);
-    if (!localRes) continue;
-    evals += 1;
-    considerSearch(localCfg, localRes);
-    let localScore = scoreOf(localRes);
-    let stagnant = 0;
-    const show = searchBestScore[0] >= 0 ? searchBestScore : localScore;
-    notify(`Suche Start ${restart + 1}/${opt.restarts}`, evals, show[0], show[1]);
+    let top = [];
+    let searchBestCfg = null;
+    let searchBestScore = null;
+    let searchBestEval = null;
+    let loopEvals = 0;
+    const loopOffset = 1 + loop * perLoopBudget;
 
-    while (stagnant < opt.stagnationLimit && evals < opt.maxEvals + 1) {
-      if (isCancelled()) break;
-      let nxtTal;
-      let nxtAttr;
-      if (rng.random() < 0.5) {
-        nxtTal = neighborTalents(rng, tal, talentKeys);
-        nxtAttr = attr;
-        if (!nxtTal) {
-          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm);
-          nxtTal = tal;
-        }
-      } else {
-        nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm);
-        nxtTal = tal;
-        if (!nxtAttr) {
+    const loopNotify = (msg, stage = null, loot = null) => {
+      globalDone = Math.min(totalBudget, loopOffset + loopEvals);
+      const prefix = loops > 1 ? `Schleife ${loop + 1}/${loops} · ` : "";
+      onProgress({
+        msg: `${prefix}${msg}`,
+        done: globalDone,
+        total: totalBudget,
+        stage,
+        loot,
+        evals,
+        loop: loop + 1,
+        loops,
+      });
+    };
+
+    const considerSearch = (cfg, res) => {
+      const sc = scoreOf(res);
+      history.push(sc);
+      top.push({ sc, cfg: structuredClone(cfg), res });
+      top.sort((a, b) =>
+        scoreGt(a.sc, b.sc, opt.stageTieAlpha)
+          ? -1
+          : scoreGt(b.sc, a.sc, opt.stageTieAlpha)
+            ? 1
+            : 0,
+      );
+      top = top.slice(0, opt.topK);
+      if (scoreGt(sc, searchBestScore, opt.stageTieAlpha)) {
+        searchBestScore = sc;
+        searchBestCfg = structuredClone(cfg);
+        searchBestEval = res;
+      }
+    };
+
+    loopNotify("Suche…");
+
+    for (let restart = 0; restart < opt.restarts; restart++) {
+      if (isCancelled() || loopEvals >= opt.maxEvals) break;
+
+      let tal = randomTalents(rng, talentKeys, talCap);
+      let attr = randomAttributes(rng, attrKeys, attrCap, forceTm);
+      let localCfg = applyPoints(base, tal, attr);
+      let localRes = await evaluate(localCfg, opt.nSearch, forceTm);
+      if (!localRes) continue;
+      evals += 1;
+      loopEvals += 1;
+      considerSearch(localCfg, localRes);
+      let localScore = scoreOf(localRes);
+      let stagnant = 0;
+      const show = searchBestScore || localScore;
+      loopNotify(
+        `Suche r${restart + 1}/${opt.restarts}`,
+        show.avgStage,
+        show.lootScore,
+      );
+
+      while (stagnant < opt.stagnationLimit && loopEvals < opt.maxEvals) {
+        if (isCancelled()) break;
+        let nxtTal;
+        let nxtAttr;
+        if (rng.random() < 0.5) {
           nxtTal = neighborTalents(rng, tal, talentKeys);
           nxtAttr = attr;
+          if (!nxtTal) {
+            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm);
+            nxtTal = tal;
+          }
+        } else {
+          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm);
+          nxtTal = tal;
+          if (!nxtAttr) {
+            nxtTal = neighborTalents(rng, tal, talentKeys);
+            nxtAttr = attr;
+          }
         }
-      }
-      if (!nxtTal && !nxtAttr) break;
-      if (!nxtTal) nxtTal = tal;
-      if (!nxtAttr) nxtAttr = attr;
+        if (!nxtTal && !nxtAttr) break;
+        if (!nxtTal) nxtTal = tal;
+        if (!nxtAttr) nxtAttr = attr;
 
-      const cand = applyPoints(base, nxtTal, nxtAttr);
-      const candRes = await evaluate(cand, opt.nSearch, forceTm);
-      if (!candRes) {
-        if (isCancelled()) break;
-        stagnant += 1;
-        continue;
+        const cand = applyPoints(base, nxtTal, nxtAttr);
+        const candRes = await evaluate(cand, opt.nSearch, forceTm);
+        if (!candRes) {
+          if (isCancelled()) break;
+          stagnant += 1;
+          continue;
+        }
+        evals += 1;
+        loopEvals += 1;
+        const candScore = scoreOf(candRes);
+        considerSearch(cand, candRes);
+        const betterLocal = scoreGt(candScore, localScore, opt.stageTieAlpha);
+        const accept =
+          betterLocal ||
+          (stagnant > 4 &&
+            candScore.avgStage >= localScore.avgStage - 0.5 &&
+            rng.random() < 0.12);
+        if (accept) {
+          tal = nxtTal;
+          attr = nxtAttr;
+          localCfg = cand;
+          localRes = candRes;
+          localScore = candScore;
+          stagnant = betterLocal ? 0 : stagnant + 1;
+        } else {
+          stagnant += 1;
+        }
+        loopNotify(
+          `Suche r${restart + 1} eval ${loopEvals}`,
+          searchBestScore?.avgStage,
+          searchBestScore?.lootScore,
+        );
       }
+    }
+
+    const refinePool = top.slice(0, opt.topK);
+    for (let i = 0; i < refinePool.length; i++) {
+      if (isCancelled()) break;
+      const { sc, cfg } = refinePool[i];
+      loopNotify(`Refine ${i + 1}/${refinePool.length}…`, sc.avgStage, sc.lootScore);
+      const r = await evaluate(cfg, opt.nRefine, forceTm);
+      if (!r) continue;
       evals += 1;
-      const candScore = scoreOf(candRes);
-      considerSearch(cand, candRes);
-      const betterLocal = scoreGt(candScore, localScore);
-      const accept =
-        betterLocal ||
-        (stagnant > 4 && candScore[0] >= localScore[0] - 0.5 && rng.random() < 0.12);
-      if (accept) {
-        tal = nxtTal;
-        attr = nxtAttr;
-        localCfg = cand;
-        localRes = candRes;
-        localScore = candScore;
-        stagnant = betterLocal ? 0 : stagnant + 1;
-      } else {
-        stagnant += 1;
-      }
-      notify(
-        `Suche r${restart + 1} eval ${evals}`,
-        evals,
-        searchBestScore[0],
-        searchBestScore[1],
+      loopEvals += 1;
+      considerSearch(cfg, r);
+      loopNotify(
+        `Refined ${i + 1}`,
+        searchBestScore?.avgStage,
+        searchBestScore?.lootScore,
+      );
+    }
+
+    globalDone = Math.min(totalBudget, 1 + (loop + 1) * perLoopBudget);
+    if (searchBestCfg && searchBestEval) {
+      loopChampions.push({
+        loop: loop + 1,
+        cfg: searchBestCfg,
+        res: searchBestEval,
+        sc: searchBestScore,
+      });
+      loopNotify(
+        `Champion Ø ${searchBestScore.avgStage.toFixed(1)}`,
+        searchBestScore.avgStage,
+        searchBestScore.lootScore,
       );
     }
   }
 
-  const refinePool = top.slice(0, opt.topK);
-  for (let i = 0; i < refinePool.length; i++) {
-    if (isCancelled()) break;
-    const { sc, cfg } = refinePool[i];
-    notify(`Refine ${i + 1}/${refinePool.length}…`, evals, sc[0], sc[1]);
-    const r = await evaluate(cfg, opt.nRefine, forceTm);
-    if (!r) continue;
-    evals += 1;
-    considerSearch(cfg, r);
-    notify(`Refined ${i + 1}`, evals, searchBestScore[0], searchBestScore[1]);
+  // Final tournament: fair re-sim of loop champions, then statistical pick.
+  let searchBestCfg = null;
+  let searchBestScore = null;
+  let searchBestEval = null;
+
+  const unique = [];
+  const seen = new Set();
+  for (const ch of loopChampions) {
+    const key = JSON.stringify({ t: ch.cfg.talents, a: ch.cfg.attributes });
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(ch);
   }
 
-  const improved = searchBestCfg != null && scoreGt(searchBestScore, baselineScore);
+  for (let i = 0; i < unique.length; i++) {
+    if (isCancelled()) break;
+    const ch = unique[i];
+    globalDone = Math.min(totalBudget, 1 + loops * perLoopBudget + i + 1);
+    const prefix = loops > 1 ? `Finale ${i + 1}/${unique.length} · ` : "Finale · ";
+    notify(
+      `${prefix}Vergleich (${opt.nRefine} sims)…`,
+      globalDone,
+      ch.sc?.avgStage,
+      ch.sc?.lootScore,
+    );
+    const r = await evaluate(ch.cfg, opt.nRefine, forceTm);
+    if (!r) continue;
+    evals += 1;
+    const sc = scoreOf(r);
+    history.push(sc);
+    if (scoreGt(sc, searchBestScore, opt.stageTieAlpha)) {
+      searchBestScore = sc;
+      searchBestCfg = structuredClone(ch.cfg);
+      searchBestEval = r;
+    }
+    notify(
+      `${prefix}Ø ${sc.avgStage.toFixed(1)} · loot ${sc.lootScore.toFixed(1)}`,
+      globalDone,
+      searchBestScore?.avgStage,
+      searchBestScore?.lootScore,
+    );
+  }
+
+  // Single-loop fallback if finale produced nothing but a champion exists
+  if (!searchBestCfg && loopChampions.length) {
+    const ch = loopChampions.reduce((best, cur) =>
+      scoreGt(cur.sc, best.sc, opt.stageTieAlpha) ? cur : best,
+    );
+    searchBestCfg = ch.cfg;
+    searchBestScore = ch.sc;
+    searchBestEval = ch.res;
+  }
+
+  const improved =
+    searchBestCfg != null && scoreGt(searchBestScore, baselineScore, opt.stageTieAlpha);
   const bestCfg = improved ? searchBestCfg : structuredClone(baselineCfg);
   const bestScore = improved ? searchBestScore : baselineScore;
   const bestEval = improved ? searchBestEval : baselineEval;
 
-  notify("Done", totalBudget, bestScore[0], bestScore[1]);
+  notify("Done", totalBudget, bestScore.avgStage, bestScore.lootScore);
 
   return {
     bestConfig: bestCfg,
@@ -398,5 +576,7 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
     improved,
     history,
     evals,
+    loops,
+    loopChampions: loopChampions.length,
   };
 }

@@ -505,6 +505,8 @@ async function runOptimize() {
   $("#optProgressBar").style.width = "0%";
 
   const nBaseline = Math.max(1, Number($("#reps").value) || 6000);
+  const loops = Math.max(1, Math.min(20, Math.floor(Number($("#optLoops").value) || 1)));
+  $("#optLoops").value = String(loops);
 
   try {
     const result = await optimizeBuild(
@@ -512,6 +514,7 @@ async function runOptimize() {
       state.engine,
       {
         nBaseline,
+        loops,
         forceTimelessMastery5: $("#optForceTimeless").checked,
       },
       {
@@ -533,10 +536,10 @@ async function runOptimize() {
       return;
     }
 
-    const baseAvg = result.baselineScore[0].toFixed(1);
-    const bestAvg = result.bestScore[0].toFixed(1);
-    const baseLoot = result.baselineScore[1].toFixed(1);
-    const bestLoot = result.bestScore[1].toFixed(1);
+    const baseAvg = result.baselineScore.avgStage.toFixed(1);
+    const bestAvg = result.bestScore.avgStage.toFixed(1);
+    const baseLoot = result.baselineScore.lootScore.toFixed(1);
+    const bestLoot = result.bestScore.lootScore.toFixed(1);
 
     if (result.improved) {
       $("#optStatus").textContent =
@@ -561,7 +564,7 @@ async function runOptimize() {
         onBuildChanged();
         if (result.bestEval) showResult(result.bestEval);
         $("#optStatus").textContent =
-          `Übernommen · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals`;
+          `Übernommen · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals · ${result.loops || 1} Schleife(n)`;
         $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg}) — übernommen`;
       } else {
         $("#optStatus").textContent =
@@ -570,7 +573,7 @@ async function runOptimize() {
       }
     } else {
       $("#optStatus").textContent =
-        `Keine Verbesserung · Ø ${bestAvg} (Baseline ${baseAvg}) · ${result.evals} evals`;
+        `Keine Verbesserung · Ø ${bestAvg} (Baseline ${baseAvg}) · ${result.evals} evals · ${result.loops || 1} Schleife(n)`;
       $("#status").textContent = `Optimizer: keine Verbesserung (Ø ${baseAvg})`;
       $("#optProgressBar").style.width = "100%";
     }

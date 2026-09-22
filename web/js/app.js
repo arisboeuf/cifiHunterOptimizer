@@ -14,7 +14,13 @@ import {
   TALENT_LABELS,
   TALENT_ORDER,
 } from "./costs.js";
+import {
+  attributeTreeEntries,
+  attributeUnlockState,
+  zeroOrphanDependents,
+} from "./attr-rules.js";
 import { defaultBuild, downloadJson, formatDuration, validateBudgets } from "./build.js";
+import { optimizeBuild } from "./optimize.js";
 import { WasmBorgeEngine, wasmToSimResult } from "./wasm-engine.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
@@ -24,27 +30,35 @@ const state = {
   build: defaultBuild(),
   engine: null,
   running: false,
+  optimizing: false,
+  optCancel: false,
   lastResult: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
-function spinRow(parent, { key, label, hint, value, max, onChange }) {
+function spinRow(parent, { key, label, hint, value, max, onChange, depth = 0, locked = false }) {
   const row = document.createElement("div");
   row.className = "spin";
+  if (depth > 0) row.classList.add("spin-nested");
+  if (locked) row.classList.add("spin-locked");
   row.dataset.key = key;
+  row.style.setProperty("--spin-depth", String(depth));
   const hi = max === Infinity ? 9999 : Number(max);
   row.innerHTML = `
     <div class="label">${label}${hint ? `<span class="hint">${hint}</span>` : ""}</div>
     <div class="spin-controls">
-      <button type="button" class="btn btn-sm" data-act="-">−</button>
-      <input type="number" min="0" max="${hi}" value="${value}" />
-      <button type="button" class="btn btn-sm" data-act="+">+</button>
-      ${hi < 9999 ? `<button type="button" class="btn btn-primary btn-sm" data-act="max">Max</button>` : ""}
+      <button type="button" class="btn btn-sm" data-act="-" ${locked ? "disabled" : ""}>−</button>
+      <input type="number" min="0" max="${hi}" value="${value}" ${locked ? "disabled" : ""} />
+      <button type="button" class="btn btn-sm" data-act="+" ${locked ? "disabled" : ""}>+</button>
+    </div>
+    <div class="spin-max">
+      ${hi < 9999 ? `<button type="button" class="btn btn-primary btn-sm" data-act="max" ${locked ? "disabled" : ""}>Max</button>` : ""}
     </div>`;
   const input = row.querySelector("input");
   const setVal = (v) => {
+    if (locked) return;
     const n = Math.max(0, Math.min(hi, Number(v) || 0));
     input.value = String(n);
     onChange(n);
@@ -63,12 +77,10 @@ function buildLeftLists() {
   const inscList = $("#inscList");
   const miscList = $("#miscList");
   const talentList = $("#talentList");
-  const attrList = $("#attrList");
   statsList.innerHTML = "";
   inscList.innerHTML = "";
   miscList.innerHTML = "";
   talentList.innerHTML = "";
-  attrList.innerHTML = "";
 
   for (const k of STAT_ORDER) {
     const mx = STAT_MAX[k];
@@ -140,24 +152,42 @@ function buildLeftLists() {
     });
   }
 
-  for (const k of ATTR_ORDER) {
-    const cost = ATTRIBUTE_COSTS[k];
-    spinRow(attrList, {
-      key: `attr.${k}`,
-      label: ATTRIBUTE_LABELS[k],
-      hint: `cost ${cost.cost} · max ${cost.max === Infinity ? "∞" : cost.max}`,
-      value: state.build.attributes[k] ?? 0,
-      max: cost.max,
-      onChange: (n) => {
-        state.build.attributes[k] = n;
-        onBuildChanged();
-      },
-    });
-  }
+  buildAttrList();
 
   $("#trample").checked = !!state.build.mods?.trample;
   $("#buildName").value = state.build.build_name || "";
   $("#level").value = String(state.build.meta?.level ?? 0);
+}
+
+function buildAttrList() {
+  const attrList = $("#attrList");
+  if (!attrList) return;
+  attrList.innerHTML = "";
+  state.build.attributes = zeroOrphanDependents(state.build.attributes || {});
+  const attrs = state.build.attributes;
+
+  for (const { key: k, depth } of attributeTreeEntries(ATTR_ORDER)) {
+    const cost = ATTRIBUTE_COSTS[k];
+    if (!cost) continue;
+    const unlock = attributeUnlockState(attrs, k);
+    const hints = [`cost ${cost.cost} · max ${cost.max === Infinity ? "∞" : cost.max}`];
+    if (unlock.locked && unlock.reason) hints.push(unlock.reason);
+    spinRow(attrList, {
+      key: `attr.${k}`,
+      label: ATTRIBUTE_LABELS[k],
+      hint: hints.join(" · "),
+      value: attrs[k] ?? 0,
+      max: cost.max,
+      depth,
+      locked: unlock.locked,
+      onChange: (n) => {
+        state.build.attributes[k] = n;
+        state.build.attributes = zeroOrphanDependents(state.build.attributes);
+        buildAttrList();
+        onBuildChanged();
+      },
+    });
+  }
 }
 
 function syncMetaFromInputs() {
@@ -189,7 +219,7 @@ function saveState() {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ config: state.build, reps: Number($("#reps").value) || 200 }),
+      JSON.stringify({ config: state.build, reps: Number($("#reps").value) || 6000 }),
     );
   } catch {
     /* ignore quota */
@@ -295,7 +325,7 @@ function redrawCharts() {
 }
 
 async function runSim() {
-  if (!state.engine || state.running) return;
+  if (!state.engine || state.running || state.optimizing) return;
   const v = refreshBudget();
   if (!v.ok) {
     $("#status").textContent = `Invalid build: ${v.msg}`;
@@ -396,10 +426,16 @@ async function init() {
     $("#talentModal").hidden = false;
   });
   $("#btnTalentClose").addEventListener("click", () => {
+    if (state.optimizing) return;
     $("#talentModal").hidden = true;
   });
   $("#talentModal").addEventListener("click", (e) => {
-    if (e.target === $("#talentModal")) $("#talentModal").hidden = true;
+    if (e.target === $("#talentModal") && !state.optimizing) $("#talentModal").hidden = true;
+  });
+  $("#btnOptimize").addEventListener("click", () => runOptimize());
+  $("#btnOptCancel").addEventListener("click", () => {
+    state.optCancel = true;
+    $("#optStatus").textContent = "Abbruch…";
   });
   window.addEventListener("resize", () => redrawCharts());
 
@@ -409,12 +445,95 @@ async function init() {
       ? "Restored last session · WASM ready"
       : "WASM ready — edit build and Run Simulation";
     $("#btnRun").disabled = false;
+    $("#btnOptimize").disabled = false;
   } catch (err) {
     console.error(err);
     $("#status").textContent = `WASM load failed: ${err.message || err}`;
     $("#btnRun").disabled = true;
+    $("#btnOptimize").disabled = true;
+  }
+}
+
+async function runOptimize() {
+  if (!state.engine || state.running || state.optimizing) return;
+  syncMetaFromInputs();
+  const v = refreshBudget();
+  if (!v.ok) {
+    $("#optStatus").textContent = `Invalid build: ${v.msg}`;
+    return;
+  }
+
+  state.optimizing = true;
+  state.optCancel = false;
+  $("#btnOptimize").disabled = true;
+  $("#btnOptCancel").hidden = false;
+  $("#btnTalentClose").disabled = true;
+  $("#optProgressBar").style.width = "0%";
+
+  const nBaseline = Math.max(1, Number($("#reps").value) || 6000);
+
+  try {
+    const result = await optimizeBuild(
+      state.build,
+      state.engine,
+      {
+        nBaseline,
+        forceTimelessMastery5: $("#optForceTimeless").checked,
+      },
+      {
+        isCancelled: () => state.optCancel,
+        onProgress: ({ msg, done, total, stage, loot }) => {
+          const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
+          $("#optProgressBar").style.width = `${pct}%`;
+          const extra =
+            stage != null
+              ? ` · best Ø ${Number(stage).toFixed(1)}${loot != null ? ` · loot ${Number(loot).toFixed(1)}` : ""}`
+              : "";
+          $("#optStatus").textContent = `${msg}${extra}`;
+        },
+      },
+    );
+
+    if (state.optCancel) {
+      $("#optStatus").textContent = "Optimierung abgebrochen.";
+      return;
+    }
+
+    const baseAvg = result.baselineScore[0].toFixed(1);
+    const bestAvg = result.bestScore[0].toFixed(1);
+    const baseLoot = result.baselineScore[1].toFixed(1);
+    const bestLoot = result.bestScore[1].toFixed(1);
+
+    if (result.improved) {
+      state.build = {
+        ...state.build,
+        talents: { ...result.bestConfig.talents },
+        attributes: { ...result.bestConfig.attributes },
+      };
+      buildLeftLists();
+      onBuildChanged();
+      if (result.bestEval) showResult(result.bestEval);
+      $("#optStatus").textContent =
+        `Verbessert · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals — angewandt`;
+      $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg})`;
+    } else {
+      $("#optStatus").textContent =
+        `Keine Verbesserung · Ø ${bestAvg} (Baseline ${baseAvg}) · ${result.evals} evals`;
+      $("#status").textContent = `Optimizer: keine Verbesserung (Ø ${baseAvg})`;
+    }
+    $("#optProgressBar").style.width = "100%";
+  } catch (err) {
+    console.error(err);
+    $("#optStatus").textContent = `Optimizer-Fehler: ${err.message || err}`;
+  } finally {
+    state.optimizing = false;
+    state.optCancel = false;
+    $("#btnOptimize").disabled = !state.engine;
+    $("#btnOptCancel").hidden = true;
+    $("#btnTalentClose").disabled = false;
   }
 }
 
 $("#btnRun").disabled = true;
+$("#btnOptimize").disabled = true;
 init();

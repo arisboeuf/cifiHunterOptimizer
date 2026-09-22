@@ -27,7 +27,7 @@
         </div>
         <div class="field">
           <label for="reps">Sims</label>
-          <input id="reps" type="number" min="1" max="50000" value="200" style="width: 5.5rem" />
+          <input id="reps" type="number" min="1" max="50000" value="6000" style="width: 5.5rem" />
         </div>
         <button type="button" class="btn btn-primary" id="btnTalents">Talents &amp; Attributes…</button>
         <button type="button" class="btn" id="btnImport">Import</button>
@@ -123,6 +123,18 @@
         <div style="margin-top: 0.75rem">
           <div data-mpanel="tal"><div id="talentList" class="spin-list"></div></div>
           <div data-mpanel="attr" hidden><div id="attrList" class="spin-list"></div></div>
+        </div>
+        <div class="opt-panel">
+          <div class="opt-row">
+            <button type="button" class="btn btn-primary" id="btnOptimize">Optimize (WASM)</button>
+            <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
+            <label class="opt-check">
+              <input type="checkbox" id="optForceTimeless" />
+              <span>Timeless Mastery 5 lock</span>
+            </label>
+          </div>
+          <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
+          <p class="opt-status" id="optStatus">Sucht Talent/Attribute-Verteilung für max. Ø Stage (wie altes Py-Tool).</p>
         </div>
         <div class="modal-actions">
           <button type="button" class="btn btn-primary" id="btnTalentClose">Done</button>

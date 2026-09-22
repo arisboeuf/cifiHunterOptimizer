@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Borge Simulator</title>
+    <meta name="description" content="Local twin of cifi-tools Borge sim — WASM combat, stage distribution, loot score." />
+    <link rel="stylesheet" href="./css/app.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="wrap" style="padding-top: 0; padding-bottom: 0">
+        <h1>Borge Simulator</h1>
+        <p>Compare builds and optimize your performance — same WASM engine as cifi-tools.com/borge</p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <div class="toolbar">
+        <div class="field">
+          <label for="buildName">Build</label>
+          <input id="buildName" type="text" value="Lvl 14 Example" />
+        </div>
+        <div class="field">
+          <label for="level">Level</label>
+          <input id="level" type="number" min="0" max="999" value="14" style="width: 5rem" />
+        </div>
+        <div class="field">
+          <label for="reps">Sims</label>
+          <input id="reps" type="number" min="1" max="50000" value="200" style="width: 5.5rem" />
+        </div>
+        <button type="button" class="btn btn-primary" id="btnTalents">Talents &amp; Attributes…</button>
+        <button type="button" class="btn" id="btnImport">Import</button>
+        <button type="button" class="btn" id="btnExport">Export</button>
+        <input id="fileImport" type="file" accept=".json,.yaml,.yml,application/json,text/yaml" hidden />
+      </div>
+
+      <div id="budget" class="budget">Loading…</div>
+
+      <div class="layout">
+        <aside class="panel" id="leftPanel">
+          <div class="tabs" role="tablist" aria-label="Build sections">
+            <button class="tab" role="tab" data-tab="stats" aria-selected="true">Stats</button>
+            <button class="tab" role="tab" data-tab="insc" aria-selected="false">Inscryptions</button>
+            <button class="tab" role="tab" data-tab="misc" aria-selected="false">Relics / Gems</button>
+          </div>
+          <div class="tab-panels">
+            <div class="tab-panel" data-panel="stats">
+              <h3 class="section-title">Borge Stats</h3>
+              <div id="statsList" class="spin-list"></div>
+            </div>
+            <div class="tab-panel" data-panel="insc" hidden>
+              <h3 class="section-title">Inscryptions</h3>
+              <div class="row-actions">
+                <button type="button" class="btn btn-primary btn-sm" id="btnInscMax">All Max</button>
+                <button type="button" class="btn btn-sm" id="btnInscClear">Clear</button>
+              </div>
+              <div id="inscList" class="spin-list"></div>
+            </div>
+            <div class="tab-panel" data-panel="misc" hidden>
+              <h3 class="section-title">Relics / Gems / Mods</h3>
+              <div id="miscList" class="spin-list"></div>
+              <label class="check-row">
+                <input id="trample" type="checkbox" />
+                <span>Trample mod</span>
+              </label>
+            </div>
+          </div>
+        </aside>
+
+        <section class="panel" style="padding: 0.85rem">
+          <div class="run-bar">
+            <button type="button" class="btn btn-primary" id="btnRun">Run Simulation</button>
+            <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+          </div>
+
+          <div class="cards">
+            <div class="metric"><div class="k">Loot Score</div><div class="v" id="mLoot">—</div></div>
+            <div class="metric"><div class="k">Ø Stage (Range)</div><div class="v" id="mStage">—</div></div>
+            <div class="metric"><div class="k">Ø Time (Runs/d)</div><div class="v" id="mTime">—</div></div>
+            <div class="metric"><div class="k">Boss Kill %</div><div class="v" id="mBoss">—</div></div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Results">
+            <button class="tab" role="tab" data-rtab="dist" aria-selected="true">Stage Distribution</button>
+            <button class="tab" role="tab" data-rtab="odds" aria-selected="false">Stage Odds</button>
+            <button class="tab" role="tab" data-rtab="rev" aria-selected="false">Revive Distribution</button>
+            <button class="tab" role="tab" data-rtab="bstats" aria-selected="false">Build Stats</button>
+          </div>
+
+          <div style="padding-top: 0.65rem">
+            <div class="chart-box" data-rpanel="dist"><canvas id="chartDist"></canvas></div>
+            <div class="chart-box" data-rpanel="odds" hidden><canvas id="chartOdds"></canvas></div>
+            <div class="chart-box" data-rpanel="rev" hidden><canvas id="chartRev"></canvas></div>
+            <div data-rpanel="bstats" hidden>
+              <div class="stats-grid" id="buildStatsGrid"></div>
+            </div>
+          </div>
+
+          <div class="summary-row">
+            <div class="metric"><div class="k">Min Stage</div><div class="v" id="sMin">—</div></div>
+            <div class="metric"><div class="k">Avg Stage</div><div class="v" id="sAvg">—</div></div>
+            <div class="metric"><div class="k">Max Stage</div><div class="v" id="sMax">—</div></div>
+          </div>
+        </section>
+      </div>
+
+      <p class="status" id="status">Initializing WASM…</p>
+      <p class="footer-note">
+        Combat via <code>release.wasm</code> (same engine as
+        <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools.com/borge</a>).
+        Builds persist in this browser (localStorage).
+      </p>
+    </main>
+
+    <div class="modal-backdrop" id="talentModal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="talentTitle">
+        <h2 id="talentTitle">Talents &amp; Attributes</h2>
+        <div class="tabs" role="tablist">
+          <button class="tab" data-mtab="tal" aria-selected="true">Talents</button>
+          <button class="tab" data-mtab="attr" aria-selected="false">Attributes</button>
+        </div>
+        <div style="margin-top: 0.75rem">
+          <div data-mpanel="tal"><div id="talentList" class="spin-list"></div></div>
+          <div data-mpanel="attr" hidden><div id="attrList" class="spin-list"></div></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" id="btnTalentClose">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

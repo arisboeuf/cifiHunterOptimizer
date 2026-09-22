@@ -1,35 +1,32 @@
-# CIFI
+# Borge Hunter Simulator (Web)
 
-Idle-Game für **Android**.
+Browser-App zum Simulieren und Optimieren von **Borge**-Builds (CIFI).
 
-Dieses Repository enthält Hilfswerkzeuge und Projektdateien.
+Gleicher Combat-Engine wie [cifi-tools.com/borge](https://cifi-tools.com/borge) (`release.wasm` im Browser).
 
-## Borge Simulator
-
-Lokaler Twin von [cifi-tools.com/borge](https://cifi-tools.com/borge): Build eingeben, N Combat-Sims laufen lassen, Stage-Distribution / Odds / Revives / Build-Stats ansehen.
-
-**Punktbudget aus Level (Spielregel):**
-
-- Talents = `Level` (z. B. Lvl 14 → 14 Talent-Punkte)
-- Attributes = `Level × 3` Path Points (z. B. Lvl 14 → 42)
+## Lokal starten
 
 ```text
-pip install -r requirements-borge.txt
-python borge_sim_tool.py
-python borge_sim_tool.py --cli builds/borge_lvl14_example.yaml 200
+python -m http.server 8080 --directory web
 ```
 
-Combat-Engine: vendored [hunter-sim](https://github.com/bhnn/hunter-sim) unter `vendor/hunter_sim/` (inkl. Soul of Hermes / Minotaur / Athena).
+Dann http://localhost:8080 öffnen (kein `file://` — ES-Module + WASM brauchen HTTP).
 
-Ein Talent/Attribute-Optimizer kann später auf `borge_sim.eval` aufsetzen.
+## Deploy (GitHub Pages)
 
-## Entwicklung (Android-App)
+1. **Settings → Pages → Source: GitHub Actions**
+2. Push auf `main`/`master` oder Workflow **Deploy Borge Web App** manuell
+3. Details: [`web/README.md`](web/README.md)
 
-Nach dem Anlegen des Android-Studio-Projekts (oder dem Klonen mit vorhandenem `app/`-Modul):
+## Repo-Inhalt
 
-1. Projekt in Android Studio öffnen
-2. Gradle-Sync ausführen
-3. Auf Emulator oder Gerät bauen und starten
+| Pfad | Zweck |
+|---|---|
+| `web/` | Statische App (HTML/CSS/JS + WASM) |
+| `.github/workflows/` | Pages-Deploy |
+| `docs/monster_stats/` | Monster-Stat-Tabellen (Doku) |
+| `scripts/export_monster_stats.py` | CSV-Export neu erzeugen |
+| `TODO.md` | Offene Arbeit (Ozzy/Knox-Module, …) |
 
 ## Lizenz
 

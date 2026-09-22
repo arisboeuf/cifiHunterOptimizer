@@ -1,40 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# Local UI persistence
-data/*_ui_state.json
-logs/
-
-# Gradle
-.gradle/
-build/
-**/build/
-
-# Android Studio / IntelliJ
-.idea/
-*.iml
-*.ipr
-*.iws
-local.properties
-captures/
-
-# NDK
-.externalNativeBuild/
-.cxx/
-
-# Keystores (never commit secrets)
-*.jks
-*.keystore
-
-# OS
+# OS / editor
 .DS_Store
 Thumbs.db
+.idea/
+*.iml
 
-# Logs
+# Local / temp
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+logs/
 *.log
-
-# Kotlin
-.kotlin/
+_site/

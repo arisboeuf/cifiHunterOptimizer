@@ -2,19 +2,27 @@
 import { pointBudgets, validateBudgets } from "./build.js";
 
 export const DEFAULT_OPTIMIZE = {
+  /** Cheap Monte-Carlo screen during local search / restarts. */
   nSearch: 250,
-  nRefine: 1000,
-  nBaseline: 200,
+  /** High-N re-eval for top fraction + final champion compare. */
+  nRefine: 5000,
+  /** Baseline vs champion; independent of UI Sims field. */
+  nBaseline: 5000,
   maxEvals: 200,
   restarts: 8,
   stagnationLimit: 18,
-  topK: 5,
+  /** After screening: refine this top fraction of unique builds (clamped). */
+  refineTopFraction: 0.1,
+  refineMin: 3,
+  refineMax: 12,
   /** Independent full search passes; champions are compared statistically at the end. */
   loops: 1,
   seed: null,
   forceTimelessMastery5: false,
   /** Two-sided α for Welch/z stage-mean equality (loot tie-break when not different). */
   stageTieAlpha: 0.05,
+  /** How strongly elite screen builds bias later random/neighbor moves (0–1). */
+  biasBlend: 0.55,
 };
 
 function stageStatsFromCounts(res) {
@@ -92,11 +100,65 @@ function makeRng(seed) {
     choice(arr) {
       return arr[Math.floor(rand() * arr.length)];
     },
+    /** Pick from `items` with probability ∝ max(eps, weightFn(item)). */
+    weightedChoice(items, weightFn) {
+      if (!items.length) return undefined;
+      let total = 0;
+      const weights = new Array(items.length);
+      for (let i = 0; i < items.length; i++) {
+        const w = Math.max(0.05, Number(weightFn(items[i])) || 0.05);
+        weights[i] = w;
+        total += w;
+      }
+      let r = rand() * total;
+      for (let i = 0; i < items.length; i++) {
+        r -= weights[i];
+        if (r <= 0) return items[i];
+      }
+      return items[items.length - 1];
+    },
   };
 }
 
 function yieldToUi() {
   return new Promise((r) => setTimeout(r, 0));
+}
+
+function configKey(cfg) {
+  return JSON.stringify({ t: cfg.talents, a: cfg.attributes });
+}
+
+function sortByScoreDesc(rows, alpha) {
+  return rows.slice().sort((a, b) =>
+    scoreGt(a.sc, b.sc, alpha) ? -1 : scoreGt(b.sc, a.sc, alpha) ? 1 : 0,
+  );
+}
+
+/** Mean levels in elite rows → soft weights (mean ≈ 1), blended with previous. */
+function blendLevelWeights(keys, eliteMaps, prevWeights, blend) {
+  const next = { ...prevWeights };
+  if (!keys.length || !eliteMaps.length) return next;
+  const means = Object.fromEntries(keys.map((k) => [k, 0]));
+  for (const m of eliteMaps) {
+    for (const k of keys) means[k] += Number(m?.[k] ?? 0);
+  }
+  for (const k of keys) means[k] /= eliteMaps.length;
+  const avg = keys.reduce((s, k) => s + means[k], 0) / keys.length;
+  const b = Math.min(1, Math.max(0, Number(blend) || 0));
+  for (const k of keys) {
+    const target = (means[k] + 0.35) / (avg + 0.35);
+    const old = Number(prevWeights[k] ?? 1) || 1;
+    next[k] = old * (1 - b) + target * b;
+  }
+  return next;
+}
+
+function refineCountFor(screenedLen, opt) {
+  const frac = Math.min(1, Math.max(0.01, Number(opt.refineTopFraction) || 0.1));
+  const raw = Math.ceil(Math.max(1, screenedLen) * frac);
+  const mn = Math.max(1, Math.floor(Number(opt.refineMin) || 3));
+  const mx = Math.max(mn, Math.floor(Number(opt.refineMax) || 12));
+  return Math.min(mx, Math.max(mn, raw));
 }
 
 /**
@@ -135,18 +197,19 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     }
     return cost;
   }
-  function randomTalents(rng, keys, budget) {
+  function randomTalents(rng, keys, budget, talW) {
     const levels = Object.fromEntries(keys.map((k) => [k, 0]));
     let remaining = budget;
     while (remaining > 0) {
       const candidates = keys.filter((k) => levels[k] < talentMax(k));
       if (!candidates.length) break;
-      levels[rng.choice(candidates)] += 1;
+      const k = rng.weightedChoice(candidates, (x) => talW[x] ?? 1);
+      levels[k] += 1;
       remaining -= 1;
     }
     return levels;
   }
-  function randomAttributes(rng, keys, budget, forceTimeless5) {
+  function randomAttributes(rng, keys, budget, forceTimeless5, attrW) {
     let levels = Object.fromEntries(keys.map((k) => [k, 0]));
     if (forceTimeless5) {
       levels = ensureTimelessLock(levels, keys);
@@ -162,20 +225,21 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
           attrs.canIncreaseAttribute(levels, k),
       );
       if (!candidates.length) break;
-      const k = rng.choice(candidates);
+      const k = rng.weightedChoice(candidates, (x) => attrW[x] ?? 1);
       levels[k] = Number(levels[k] ?? 0) + 1;
       remaining -= attrCost(k);
     }
     if (forceTimeless5) levels = ensureTimelessLock(levels, keys);
     return levels;
   }
-  function neighborTalents(rng, talents, keys) {
+  function neighborTalents(rng, talents, keys, talW) {
     const donors = keys.filter((k) => Number(talents[k] ?? 0) > 0);
     const receivers = keys.filter((k) => Number(talents[k] ?? 0) < talentMax(k));
     if (!donors.length || !receivers.length) return null;
     for (let i = 0; i < 24; i++) {
-      const a = rng.choice(donors);
-      const b = rng.choice(receivers);
+      // Prefer stealing from weak keys, giving to strong ones (learned from screen elite).
+      const a = rng.weightedChoice(donors, (x) => 1 / (talW[x] ?? 1));
+      const b = rng.weightedChoice(receivers, (x) => talW[x] ?? 1);
       if (a === b) continue;
       const out = { ...talents };
       out[a] = Number(out[a]) - 1;
@@ -184,13 +248,13 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     }
     return null;
   }
-  function neighborAttributes(rng, attrMap, keys, budget, forceTimeless5) {
+  function neighborAttributes(rng, attrMap, keys, budget, forceTimeless5, attrW) {
     const lockedFloor = forceTimeless5 ? { ...TIMELESS_PARENT_MIN, [TIMELESS_KEY]: 5 } : {};
     const donors = keys.filter((k) => Number(attrMap[k] ?? 0) > (lockedFloor[k] ?? 0));
     if (!donors.length) return null;
     const baseSnap = Object.fromEntries(keys.map((k) => [k, Number(attrMap[k] ?? 0)]));
     for (let i = 0; i < 48; i++) {
-      const a = rng.choice(donors);
+      const a = rng.weightedChoice(donors, (x) => 1 / (attrW[x] ?? 1));
       let out = { ...baseSnap };
       const floor = lockedFloor[a] ?? 0;
       out[a] = Math.max(floor, Number(out[a]) - 1);
@@ -211,7 +275,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
           attrCost(k) <= remaining,
       );
       if (receivers.length) {
-        const b = rng.choice(receivers);
+        const b = rng.weightedChoice(receivers, (x) => attrW[x] ?? 1);
         out[b] = Number(out[b] ?? 0) + 1;
       }
       if (forceTimeless5) out = ensureTimelessLock(out, keys);
@@ -264,12 +328,15 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   }
 
   const loops = Math.max(1, Math.floor(Number(opt.loops) || 1));
-  const perLoopBudget = Math.max(1, opt.maxEvals + opt.topK);
+  const refineCap = refineCountFor(opt.maxEvals, opt);
+  const perLoopBudget = Math.max(1, opt.maxEvals + refineCap);
   const totalBudget = Math.max(1, 1 + loops * perLoopBudget + loops);
   let evals = 0;
   let globalDone = 0;
   const history = [];
   const loopChampions = [];
+  let talW = Object.fromEntries(talentKeys.map((k) => [k, 1]));
+  let attrW = Object.fromEntries(attrKeys.map((k) => [k, 1]));
 
   const notify = (msg, done, stage = null, loot = null) => {
     onProgress({
@@ -295,13 +362,32 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     return wasmToSimResult(wasmRes, n);
   };
 
+  const learnFromScreened = (screened) => {
+    if (screened.length < 3) return;
+    const ranked = sortByScoreDesc(screened, opt.stageTieAlpha);
+    const eliteN = Math.max(1, Math.ceil(ranked.length * Math.min(0.25, opt.refineTopFraction * 2)));
+    const elite = ranked.slice(0, eliteN);
+    talW = blendLevelWeights(
+      talentKeys,
+      elite.map((e) => e.cfg.talents),
+      talW,
+      opt.biasBlend,
+    );
+    attrW = blendLevelWeights(
+      attrKeys,
+      elite.map((e) => e.cfg.attributes),
+      attrW,
+      opt.biasBlend,
+    );
+  };
+
   const curTal = Object.fromEntries(talentKeys.map((k) => [k, Number(base.talents?.[k] ?? 0)]));
   const curAttr = attrs.zeroOrphanDependents(
     Object.fromEntries(attrKeys.map((k) => [k, Number(base.attributes?.[k] ?? 0)])),
   );
   const baselineCfg = applyPoints(base, curTal, curAttr);
 
-  notify(`Simuliere aktuellen Build (${opt.nBaseline} sims)…`, 0);
+  notify(`Baseline (${opt.nBaseline} sims)…`, 0);
   const baselineEval = await evaluate(baselineCfg, opt.nBaseline, false);
   if (!baselineEval) {
     throw new Error("Aktueller Build konnte nicht simuliert werden (ungültig oder abgebrochen).");
@@ -311,13 +397,17 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   const baselineScore = scoreOf(baselineEval);
   notify("Baseline fertig", globalDone, baselineScore.avgStage, baselineScore.lootScore);
 
+  // Soft-start: current spend biases the first screens (not a hard lock).
+  talW = blendLevelWeights(talentKeys, [curTal], talW, 0.35);
+  attrW = blendLevelWeights(attrKeys, [curAttr], attrW, 0.35);
+
   for (let loop = 0; loop < loops; loop++) {
     if (isCancelled()) break;
 
-    let top = [];
-    let searchBestCfg = null;
-    let searchBestScore = null;
-    let searchBestEval = null;
+    /** @type {Map<string, { sc: object, cfg: object, res: object }>} */
+    const screenedByKey = new Map();
+    let screenBestCfg = null;
+    let screenBestScore = null;
     let loopEvals = 0;
     const loopOffset = 1 + loop * perLoopBudget;
 
@@ -336,59 +426,54 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       });
     };
 
-    const considerSearch = (cfg, res) => {
+    const considerScreen = (cfg, res) => {
       const sc = scoreOf(res);
       history.push(sc);
-      top.push({ sc, cfg: structuredClone(cfg), res });
-      top.sort((a, b) =>
-        scoreGt(a.sc, b.sc, opt.stageTieAlpha)
-          ? -1
-          : scoreGt(b.sc, a.sc, opt.stageTieAlpha)
-            ? 1
-            : 0,
-      );
-      top = top.slice(0, opt.topK);
-      if (scoreGt(sc, searchBestScore, opt.stageTieAlpha)) {
-        searchBestScore = sc;
-        searchBestCfg = structuredClone(cfg);
-        searchBestEval = res;
+      const key = configKey(cfg);
+      const prev = screenedByKey.get(key);
+      if (!prev || scoreGt(sc, prev.sc, opt.stageTieAlpha)) {
+        screenedByKey.set(key, { sc, cfg: structuredClone(cfg), res });
+      }
+      if (scoreGt(sc, screenBestScore, opt.stageTieAlpha)) {
+        screenBestScore = sc;
+        screenBestCfg = structuredClone(cfg);
       }
     };
 
-    loopNotify("Suche…");
+    loopNotify(`Screening (${opt.nSearch} sims/eval)…`);
 
     for (let restart = 0; restart < opt.restarts; restart++) {
       if (isCancelled() || loopEvals >= opt.maxEvals) break;
 
-      let tal = randomTalents(rng, talentKeys, talCap);
-      let attr = randomAttributes(rng, attrKeys, attrCap, forceTm);
+      let tal = randomTalents(rng, talentKeys, talCap, talW);
+      let attr = randomAttributes(rng, attrKeys, attrCap, forceTm, attrW);
       let localCfg = applyPoints(base, tal, attr);
       let localRes = await evaluate(localCfg, opt.nSearch, forceTm);
       if (!localRes) continue;
       evals += 1;
       loopEvals += 1;
-      considerSearch(localCfg, localRes);
+      considerScreen(localCfg, localRes);
       let localScore = scoreOf(localRes);
       let stagnant = 0;
-      const show = searchBestScore || localScore;
-      loopNotify(`Suche r${restart + 1}/${opt.restarts}`, show.avgStage, show.lootScore);
+      const show = screenBestScore || localScore;
+      loopNotify(`Screen r${restart + 1}/${opt.restarts}`, show.avgStage, show.lootScore);
 
       while (stagnant < opt.stagnationLimit && loopEvals < opt.maxEvals) {
         if (isCancelled()) break;
         let nxtTal;
         let nxtAttr;
         if (rng.random() < 0.5) {
-          nxtTal = neighborTalents(rng, tal, talentKeys);
+          nxtTal = neighborTalents(rng, tal, talentKeys, talW);
           nxtAttr = attr;
           if (!nxtTal) {
-            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm);
+            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm, attrW);
             nxtTal = tal;
           }
         } else {
-          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm);
+          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm, attrW);
           nxtTal = tal;
           if (!nxtAttr) {
-            nxtTal = neighborTalents(rng, tal, talentKeys);
+            nxtTal = neighborTalents(rng, tal, talentKeys, talW);
             nxtAttr = attr;
           }
         }
@@ -406,7 +491,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         evals += 1;
         loopEvals += 1;
         const candScore = scoreOf(candRes);
-        considerSearch(cand, candRes);
+        considerScreen(cand, candRes);
         const betterLocal = scoreGt(candScore, localScore, opt.stageTieAlpha);
         const accept =
           betterLocal ||
@@ -424,39 +509,60 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
           stagnant += 1;
         }
         loopNotify(
-          `Suche r${restart + 1} eval ${loopEvals}`,
-          searchBestScore?.avgStage,
-          searchBestScore?.lootScore,
+          `Screen r${restart + 1} eval ${loopEvals}`,
+          screenBestScore?.avgStage,
+          screenBestScore?.lootScore,
         );
       }
+
+      // Learn mid-loop so later restarts prefer elite talent/attr spends.
+      learnFromScreened([...screenedByKey.values()]);
     }
 
-    const refinePool = top.slice(0, opt.topK);
+    const screened = sortByScoreDesc([...screenedByKey.values()], opt.stageTieAlpha);
+    learnFromScreened(screened);
+
+    const nRefineHere = Math.min(refineCap, refineCountFor(screened.length, opt));
+    const refinePool = screened.slice(0, nRefineHere);
+
+    let refineBestCfg = null;
+    let refineBestScore = null;
+    let refineBestEval = null;
+
     for (let i = 0; i < refinePool.length; i++) {
       if (isCancelled()) break;
       const { sc, cfg } = refinePool[i];
-      loopNotify(`Refine ${i + 1}/${refinePool.length}…`, sc.avgStage, sc.lootScore);
+      loopNotify(
+        `Refine ${i + 1}/${refinePool.length} (${opt.nRefine} sims)…`,
+        sc.avgStage,
+        sc.lootScore,
+      );
       const r = await evaluate(cfg, opt.nRefine, forceTm);
       if (!r) continue;
       evals += 1;
       loopEvals += 1;
-      considerSearch(cfg, r);
-      loopNotify(`Refined ${i + 1}`, searchBestScore?.avgStage, searchBestScore?.lootScore);
+      const rSc = scoreOf(r);
+      history.push(rSc);
+      if (scoreGt(rSc, refineBestScore, opt.stageTieAlpha)) {
+        refineBestScore = rSc;
+        refineBestCfg = structuredClone(cfg);
+        refineBestEval = r;
+      }
+      loopNotify(`Refined ${i + 1}`, refineBestScore?.avgStage, refineBestScore?.lootScore);
     }
 
     globalDone = Math.min(totalBudget, 1 + (loop + 1) * perLoopBudget);
-    if (searchBestCfg && searchBestEval) {
+    const champCfg = refineBestCfg || screenBestCfg;
+    const champScore = refineBestScore || screenBestScore;
+    const champEval = refineBestEval || screened[0]?.res || null;
+    if (champCfg && champScore) {
       loopChampions.push({
         loop: loop + 1,
-        cfg: searchBestCfg,
-        res: searchBestEval,
-        sc: searchBestScore,
+        cfg: champCfg,
+        res: champEval,
+        sc: champScore,
       });
-      loopNotify(
-        `Champion Ø ${searchBestScore.avgStage.toFixed(1)}`,
-        searchBestScore.avgStage,
-        searchBestScore.lootScore,
-      );
+      loopNotify(`Champion Ø ${champScore.avgStage.toFixed(1)}`, champScore.avgStage, champScore.lootScore);
     }
   }
 
@@ -467,7 +573,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   const unique = [];
   const seen = new Set();
   for (const ch of loopChampions) {
-    const key = JSON.stringify({ t: ch.cfg.talents, a: ch.cfg.attributes });
+    const key = configKey(ch.cfg);
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(ch);
@@ -531,5 +637,116 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     evals,
     loops,
     loopChampions: loopChampions.length,
+    nSearch: opt.nSearch,
+    nRefine: opt.nRefine,
+  };
+}
+
+/** Stats that are combat spendables for +1 marginal analysis (not progress metadata). */
+const MARGINAL_STAT_SKIP = new Set(["highest_stage_reached"]);
+
+/**
+ * For the current build only: baseline sim, then each combat stat +1 vs baseline.
+ * Does not redistribute talents/attributes.
+ *
+ * @param {object} baseConfig
+ * @param {{ evaluate: Function }} engine
+ * @param {import('./hunters/index.js').HUNTERS[string]} hunter
+ * @param {{ n?: number }} [optIn]
+ * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
+ */
+export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const { costs, wasmToSimResult } = hunter;
+  const n = Math.max(1, Number(optIn.n) || 1000);
+  const onProgress = typeof hooks.onProgress === "function" ? hooks.onProgress : () => {};
+  const isCancelled = typeof hooks.isCancelled === "function" ? hooks.isCancelled : () => false;
+
+  const validated = validateBudgets(baseConfig, hunter);
+  if (!validated.ok) {
+    throw new Error(validated.msg || "Invalid build");
+  }
+  const baselineCfg = structuredClone(validated.config);
+  const keys = (costs.STAT_ORDER || []).filter((k) => !MARGINAL_STAT_SKIP.has(k));
+  const total = 1 + keys.length;
+  let done = 0;
+
+  function notify(msg, stage, loot) {
+    onProgress({ msg, done, total, stage, loot });
+  }
+
+  await yieldToUi();
+  if (isCancelled()) return { cancelled: true, baselineScore: null, results: [] };
+
+  const baseWasm = engine.evaluate(baselineCfg, n);
+  const baselineEval = wasmToSimResult(baseWasm, n);
+  const baselineScore = scoreOf(baselineEval);
+  done = 1;
+  notify("Baseline", baselineScore.avgStage, baselineScore.lootScore);
+
+  const results = [];
+  let bestKey = null;
+  let bestScore = null;
+
+  for (const key of keys) {
+    if (isCancelled()) return { cancelled: true, baselineScore, results };
+    const cur = Number(baselineCfg.stats?.[key] || 0);
+    const mx = Number(costs.STAT_MAX?.[key] ?? 9999);
+    const atCap = mx < 9999 && cur >= mx;
+
+    if (atCap) {
+      results.push({
+        key,
+        skipped: "max",
+        avgStage: baselineScore.avgStage,
+        lootScore: baselineScore.lootScore,
+        dStage: 0,
+        dLoot: 0,
+        significant: false,
+        significantBenefit: false,
+      });
+      done += 1;
+      notify(`${costs.STAT_LABELS[key] || key} (max)`, baselineScore.avgStage, baselineScore.lootScore);
+      continue;
+    }
+
+    const cfg = structuredClone(baselineCfg);
+    cfg.stats = { ...cfg.stats, [key]: cur + 1 };
+    await yieldToUi();
+    if (isCancelled()) return { cancelled: true, baselineScore, results };
+
+    const wasmRes = engine.evaluate(cfg, n);
+    const res = wasmToSimResult(wasmRes, n);
+    const sc = scoreOf(res);
+    const alpha = DEFAULT_OPTIMIZE.stageTieAlpha;
+    const significant = stagesSignificantlyDifferent(sc, baselineScore, alpha);
+    const significantBenefit = significant && sc.avgStage > baselineScore.avgStage;
+    const entry = {
+      key,
+      skipped: null,
+      avgStage: sc.avgStage,
+      lootScore: sc.lootScore,
+      dStage: sc.avgStage - baselineScore.avgStage,
+      dLoot: sc.lootScore - baselineScore.lootScore,
+      score: sc,
+      significant,
+      significantBenefit,
+    };
+    results.push(entry);
+    if (significantBenefit && (!bestScore || scoreGt(sc, bestScore, alpha))) {
+      bestScore = sc;
+      bestKey = key;
+    }
+    done += 1;
+    notify(costs.STAT_LABELS[key] || key, sc.avgStage, sc.lootScore);
+  }
+
+  return {
+    cancelled: false,
+    n,
+    baselineScore,
+    baselineEval,
+    results,
+    bestKey,
+    stageTieAlpha: DEFAULT_OPTIMIZE.stageTieAlpha,
   };
 }

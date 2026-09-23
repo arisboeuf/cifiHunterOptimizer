@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets } from "./build.js";
-import { optimizeBuild } from "./optimize.js";
+import { marginalStatGains, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
@@ -20,8 +20,11 @@ const state = {
   engine: null,
   running: false,
   optimizing: false,
+  nextBestRunning: false,
+  nextBestCancel: false,
   optCancel: false,
   lastResult: null,
+  statDeltas: null,
   hideMaxed: true,
 };
 
@@ -109,7 +112,56 @@ function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 
   if (maxBtn) maxBtn.addEventListener("click", () => setVal(hi));
   input.addEventListener("change", () => setVal(input.value));
   parent.appendChild(row);
-  return { setVal, input };
+  return { setVal, input, row };
+}
+
+function clearStatDeltas() {
+  state.statDeltas = null;
+  $$("#statsList .stat-delta").forEach((el) => el.remove());
+}
+
+function fmtDelta(n, digits = 2) {
+  const v = Number(n) || 0;
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(digits)}`;
+}
+
+function renderStatDeltas() {
+  $$("#statsList .stat-delta").forEach((el) => el.remove());
+  const data = state.statDeltas;
+  if (!data?.results?.length) return;
+  for (const entry of data.results) {
+    const row = $(`#statsList .spin[data-key="stat.${entry.key}"]`);
+    if (!row) continue;
+    const label = row.querySelector(".label");
+    if (!label) continue;
+    const span = document.createElement("span");
+    span.className = "stat-delta";
+    if (entry.skipped === "max") {
+      span.classList.add("is-skip");
+      span.textContent = "max";
+      span.title = "Bereits am Cap";
+    } else if (entry.significantBenefit) {
+      span.textContent = `${fmtDelta(entry.dStage)} Ø`;
+      span.title =
+        `Signifikant besser (α=${data.stageTieAlpha ?? 0.05})` +
+        ` · Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}`;
+      if (entry.key === data.bestKey) span.classList.add("is-best");
+    } else {
+      span.classList.add("is-skip");
+      span.textContent = "(n.s.)";
+      span.title =
+        `Nicht signifikant vs. Baseline (α=${data.stageTieAlpha ?? 0.05})` +
+        ` · Roh Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}` +
+        ` — oft nur Sim-Rauschen`;
+    }
+    label.appendChild(span);
+  }
+}
+
+function onStatValueChange(key, n) {
+  state.build.stats[key] = n;
+  onBuildChanged();
 }
 
 function buildLeftLists() {
@@ -161,12 +213,10 @@ function buildLeftLists() {
       label: capped ? `${STAT_LABELS[k]}  /${mx}` : STAT_LABELS[k],
       value: state.build.stats[k] ?? 0,
       max: mx,
-      onChange: (n) => {
-        state.build.stats[k] = n;
-        onBuildChanged();
-      },
+      onChange: (n) => onStatValueChange(k, n),
     });
   }
+  renderStatDeltas();
 
   for (const k of INSC_ORDER) {
     const meta = INSCRIPTION_META[k];
@@ -280,6 +330,7 @@ function syncMetaFromInputs() {
 
 function onBuildChanged() {
   syncMetaFromInputs();
+  clearStatDeltas();
   refreshBudget();
   saveState();
 }
@@ -344,7 +395,7 @@ function applyHunterTheme() {
 }
 
 function switchHunter(hunterId) {
-  if (state.running || state.optimizing) return;
+  if (state.running || state.optimizing || state.nextBestRunning) return;
   if (hunterId === state.hunterId) return;
   if (!HUNTERS[hunterId]) return;
 
@@ -355,6 +406,7 @@ function switchHunter(hunterId) {
   state.build = saved ? { ...h.defaultBuild(), ...saved } : h.defaultBuild();
   if (state.wasmExports) state.engine = engineFor(h, state.wasmExports);
   state.lastResult = null;
+  clearStatDeltas();
   renderBuildStats(null);
   drawEmpty($("#chartDist"));
   drawEmpty($("#chartOdds"));
@@ -464,7 +516,7 @@ function redrawCharts() {
 }
 
 async function runSim() {
-  if (!state.engine || state.running || state.optimizing) return;
+  if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
   const v = refreshBudget();
   if (!v.ok) {
     $("#status").textContent = `Invalid build: ${v.msg}`;
@@ -473,6 +525,7 @@ async function runSim() {
   const n = Math.max(1, Number($("#reps").value) || 1);
   state.running = true;
   $("#btnRun").disabled = true;
+  $("#btnNextBest").disabled = true;
   $("#progressBar").style.width = "15%";
   $("#status").textContent = `Running ${n} sims (wasm · ${hunter().name})…`;
   saveState();
@@ -489,7 +542,8 @@ async function runSim() {
     $("#progressBar").style.width = "0%";
   } finally {
     state.running = false;
-    $("#btnRun").disabled = false;
+    $("#btnRun").disabled = !state.engine;
+    $("#btnNextBest").disabled = !state.engine || state.optimizing || state.nextBestRunning;
   }
 }
 
@@ -587,6 +641,7 @@ async function init() {
     if (e.target === $("#talentModal") && !state.optimizing) $("#talentModal").hidden = true;
   });
   $("#btnOptimize").addEventListener("click", () => runOptimize());
+  $("#btnNextBest").addEventListener("click", () => runNextBest());
   $("#btnOptCancel").addEventListener("click", () => {
     state.optCancel = true;
     $("#optStatus").textContent = "Abbruch…";
@@ -601,11 +656,13 @@ async function init() {
       : "WASM ready — edit build and Run Simulation";
     $("#btnRun").disabled = false;
     $("#btnOptimize").disabled = false;
+    $("#btnNextBest").disabled = false;
   } catch (err) {
     console.error(err);
     $("#status").textContent = `WASM load failed: ${err.message || err}`;
     $("#btnRun").disabled = true;
     $("#btnOptimize").disabled = true;
+    $("#btnNextBest").disabled = true;
   }
 }
 
@@ -633,8 +690,87 @@ async function askApplyOptimize({ baseAvg, bestAvg, baseLoot, bestLoot, evals })
   });
 }
 
+async function runNextBest() {
+  if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
+  syncMetaFromInputs();
+  const v = refreshBudget();
+  if (!v.ok) {
+    $("#status").textContent = `Invalid build: ${v.msg}`;
+    return;
+  }
+
+  state.nextBestRunning = true;
+  state.nextBestCancel = false;
+  clearStatDeltas();
+  const btn = $("#btnNextBest");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Rechnet…";
+  }
+  $("#btnRun").disabled = true;
+  $("#btnOptimize").disabled = true;
+
+  const n = Math.max(1, Number($("#reps").value) || 1000);
+
+  try {
+    const result = await marginalStatGains(
+      state.build,
+      state.engine,
+      hunter(),
+      { n },
+      {
+        isCancelled: () => state.nextBestCancel,
+        onProgress: ({ msg, done, total, stage }) => {
+          const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
+          const stageTxt = stage != null ? ` · Ø ${Number(stage).toFixed(1)}` : "";
+          const line = `Next-Best-Opti ${done}/${total} (${pct}%) — ${msg}${stageTxt}`;
+          $("#status").textContent = line;
+          const optEl = $("#optStatus");
+          if (optEl) optEl.textContent = line;
+        },
+      },
+    );
+
+    if (result.cancelled) {
+      $("#status").textContent = "Next-Best-Opti abgebrochen.";
+      return;
+    }
+
+    state.statDeltas = result;
+    renderStatDeltas();
+
+    const best = result.results.find((r) => r.key === result.bestKey);
+    const label = best ? hunter().costs.STAT_LABELS[best.key] || best.key : null;
+    const d = best ? fmtDelta(best.dStage) : null;
+    const sigN = result.results.filter((r) => r.significantBenefit).length;
+    const doneMsg = best
+      ? `Next-Best-Opti fertig · ${n} sims/Stat · ${sigN} signifikant · bestes +1: ${label} (${d} Ø)` +
+        ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`
+      : `Next-Best-Opti fertig · ${n} sims/Stat · kein signifikantes +1` +
+        ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`;
+    $("#status").textContent = doneMsg;
+    const optEl = $("#optStatus");
+    if (optEl) optEl.textContent = doneMsg;
+  } catch (err) {
+    console.error(err);
+    const msg = `Next-Best-Opti Fehler: ${err.message || err}`;
+    $("#status").textContent = msg;
+    const optEl = $("#optStatus");
+    if (optEl) optEl.textContent = msg;
+  } finally {
+    state.nextBestRunning = false;
+    state.nextBestCancel = false;
+    if (btn) {
+      btn.disabled = !state.engine;
+      btn.textContent = "Next-Best-Opti";
+    }
+    $("#btnRun").disabled = !state.engine;
+    $("#btnOptimize").disabled = !state.engine;
+  }
+}
+
 async function runOptimize() {
-  if (!state.engine || state.running || state.optimizing) return;
+  if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
   syncMetaFromInputs();
   const v = refreshBudget();
   if (!v.ok) {
@@ -645,13 +781,15 @@ async function runOptimize() {
   state.optimizing = true;
   state.optCancel = false;
   $("#btnOptimize").disabled = true;
+  $("#btnNextBest").disabled = true;
   $("#btnOptCancel").hidden = false;
   $("#btnTalentClose").disabled = true;
   $("#optProgressBar").style.width = "0%";
 
-  const nBaseline = Math.max(1, Number($("#reps").value) || 6000);
   const loops = Math.max(1, Math.min(20, Math.floor(Number($("#optLoops").value) || 1)));
   $("#optLoops").value = String(loops);
+
+  let runNextBestAfterApply = false;
 
   try {
     const result = await optimizeBuild(
@@ -659,7 +797,6 @@ async function runOptimize() {
       state.engine,
       hunter(),
       {
-        nBaseline,
         loops,
         forceTimelessMastery5: $("#optForceTimeless").checked,
       },
@@ -710,8 +847,9 @@ async function runOptimize() {
         onBuildChanged();
         if (result.bestEval) showResult(result.bestEval);
         $("#optStatus").textContent =
-          `Übernommen · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals · ${result.loops || 1} Schleife(n)`;
-        $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg}) — übernommen`;
+          `Übernommen · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals · ${result.loops || 1} Schleife(n) · Next-Best-Opti…`;
+        $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg}) — übernommen · Next-Best-Opti…`;
+        runNextBestAfterApply = true;
       } else {
         $("#optStatus").textContent =
           `Verworfen · Vorschlag Ø ${bestAvg} (aktuell ${baseAvg}) · ${result.evals} evals`;
@@ -730,11 +868,17 @@ async function runOptimize() {
     state.optimizing = false;
     state.optCancel = false;
     $("#btnOptimize").disabled = !state.engine;
+    $("#btnNextBest").disabled = !state.engine || state.running || state.nextBestRunning;
     $("#btnOptCancel").hidden = true;
     $("#btnTalentClose").disabled = false;
+  }
+
+  if (runNextBestAfterApply) {
+    await runNextBest();
   }
 }
 
 $("#btnRun").disabled = true;
 $("#btnOptimize").disabled = true;
+$("#btnNextBest").disabled = true;
 init();

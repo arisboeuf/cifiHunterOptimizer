@@ -52,7 +52,12 @@
           </label>
           <div class="tab-panels">
             <div class="tab-panel" data-panel="stats">
-              <h3 class="section-title">Stats</h3>
+              <div class="section-title-row">
+                <h3 class="section-title">Stats</h3>
+                <button type="button" class="btn btn-primary btn-sm" id="btnNextBest" title="Sim: aktueller Build, jeder Stat +1">
+                  Next-Best-Opti
+                </button>
+              </div>
               <div id="statsList" class="spin-list"></div>
             </div>
             <div class="tab-panel" data-panel="insc" hidden>
@@ -136,7 +141,9 @@
             </label>
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
-          <p class="opt-status" id="optStatus">Sucht Talent/Attribute-Verteilung für max. Ø Stage. Mehrere Schleifen → Champions werden am Ende statistisch verglichen.</p>
+          <p class="opt-status" id="optStatus">
+            Pro Schleife: Screening (~250 sims) → Refine Top&nbsp;10% (~5000 sims). Elite-Builds steuern die nächste Suche (welche Talents/Attributes sich lohnen). Sims-Feld gilt nur für manuelle Runs / Next-Best.
+          </p>
         </div>
         <div class="tabs" role="tablist">
           <button class="tab" data-mtab="tal" aria-selected="true">Talents</button>

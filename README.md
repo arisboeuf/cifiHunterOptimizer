@@ -29,7 +29,7 @@ If a run stages, dies, and loots correctly, that is **their** engine. We only ca
 | Item | What it does |
 | --- | --- |
 | **Talent / attribute optimizer** | Monte-Carlo search over point budgets: random restarts, local neighbors, refine pass, multi-loop champions, Welch/z stage-mean comparison with loot as tie-break, optional Timeless Mastery 5 lock, apply/discard UI |
-| **Next-Best-Opti** | Marginal +1 sweep over combat stats for the *current* build only (no talent/attr search); Δ Ø-stage labels next to each stat |
+| **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |
 | Persistence | Separate `localStorage` builds per hunter |
@@ -46,7 +46,7 @@ The optimizer is the main added value beyond “run the same sim once”: it sea
 - Edit stats, inscryptions, relics/gems, talents, and attributes (tree rules enforced)
 - Run N Monte-Carlo sims; see loot score, stage range, time, boss kill %, charts
 - Optimize talent/attribute spend for average stage (loot on statistical ties)
-- **Next-Best-Opti**: for the current build, show Δ Ø-stage of investing +1 in each combat stat
+- **Next-Best-Opti**: for the current build, show Δ Ø-stage of investing +1 in each combat stat (also runs after applying a talent/attribute optimize). Separate on-demand buttons on Inscryptions and Relics/Gems tabs (never auto-chained).
 - Builds saved per hunter in the browser
 
 ---

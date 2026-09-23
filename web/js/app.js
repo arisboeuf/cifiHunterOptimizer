@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets } from "./build.js";
-import { marginalStatGains, optimizeBuild } from "./optimize.js";
+import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
@@ -25,6 +25,8 @@ const state = {
   optCancel: false,
   lastResult: null,
   statDeltas: null,
+  inscDeltas: null,
+  miscDeltas: null,
   hideMaxed: true,
 };
 
@@ -141,6 +143,49 @@ function clearStatDeltas() {
   $$("#statsList .stat-delta").forEach((el) => el.remove());
 }
 
+function clearInscDeltas() {
+  state.inscDeltas = null;
+  $$("#inscList .stat-delta").forEach((el) => el.remove());
+}
+
+function clearMiscDeltas() {
+  state.miscDeltas = null;
+  $$("#miscList .stat-delta").forEach((el) => el.remove());
+}
+
+function clearAllMarginalDeltas() {
+  clearStatDeltas();
+  clearInscDeltas();
+  clearMiscDeltas();
+}
+
+const NEXT_BEST_BTN_IDS = {
+  stats: "btnNextBest",
+  insc: "btnNextBestInsc",
+  misc: "btnNextBestMisc",
+};
+
+function nextBestButtons() {
+  return Object.fromEntries(
+    Object.entries(NEXT_BEST_BTN_IDS).map(([kind, id]) => [kind, document.getElementById(id)]),
+  );
+}
+
+function setNextBestButtonsDisabled(disabled) {
+  const off = !!disabled;
+  for (const btn of Object.values(nextBestButtons())) {
+    if (btn) btn.disabled = off;
+  }
+}
+
+function syncActionButtons() {
+  const busy = state.running || state.optimizing || state.nextBestRunning;
+  const ready = !!state.engine && !busy;
+  $("#btnRun").disabled = !ready;
+  $("#btnOptimize").disabled = !ready;
+  setNextBestButtonsDisabled(!ready);
+}
+
 function fmtDelta(n, digits = 2) {
   const v = Number(n) || 0;
   const sign = v > 0 ? "+" : "";
@@ -201,12 +246,11 @@ function renderMatsPerHour(res) {
   });
 }
 
-function renderStatDeltas() {
-  $$("#statsList .stat-delta").forEach((el) => el.remove());
-  const data = state.statDeltas;
+function renderMarginalDeltas(listSel, keyPrefix, data) {
+  $$(`${listSel} .stat-delta`).forEach((el) => el.remove());
   if (!data?.results?.length) return;
   for (const entry of data.results) {
-    const row = $(`#statsList .spin[data-key="stat.${entry.key}"]`);
+    const row = $(`${listSel} .spin[data-key="${keyPrefix}${entry.key}"]`);
     if (!row) continue;
     const label = row.querySelector(".label");
     if (!label) continue;
@@ -232,6 +276,19 @@ function renderStatDeltas() {
     }
     label.appendChild(span);
   }
+}
+
+function renderStatDeltas() {
+  renderMarginalDeltas("#statsList", "stat.", state.statDeltas);
+}
+
+function renderInscDeltas() {
+  renderMarginalDeltas("#inscList", "insc.", state.inscDeltas);
+}
+
+function renderMiscDeltas() {
+  // Result keys already match data-key (`relic.*` / `gem.*`).
+  renderMarginalDeltas("#miscList", "", state.miscDeltas);
 }
 
 function onStatValueChange(key, n) {
@@ -318,6 +375,7 @@ function buildLeftLists() {
       },
     });
   }
+  renderInscDeltas();
 
   for (const k of RELIC_KEYS) {
     spinRow(miscList, {
@@ -343,6 +401,7 @@ function buildLeftLists() {
       },
     });
   }
+  renderMiscDeltas();
 
   for (const k of TALENT_ORDER) {
     spinRow(talentList, {
@@ -415,7 +474,7 @@ function syncMetaFromInputs() {
 
 function onBuildChanged() {
   syncMetaFromInputs();
-  clearStatDeltas();
+  clearAllMarginalDeltas();
   refreshBudget();
   saveState();
 }
@@ -490,7 +549,7 @@ function applyHunterTheme() {
 
 function clearResultUi() {
   state.lastResult = null;
-  clearStatDeltas();
+  clearAllMarginalDeltas();
   renderBuildStats(null);
   drawEmpty($("#chartDist"));
   drawEmpty($("#chartOdds"));
@@ -680,8 +739,7 @@ async function runSim() {
   }
   const n = Math.max(1, Number($("#reps").value) || 1);
   state.running = true;
-  $("#btnRun").disabled = true;
-  $("#btnNextBest").disabled = true;
+  syncActionButtons();
   $("#progressBar").style.width = "15%";
   $("#status").textContent = `Running ${n} sims (wasm · ${hunter().name})…`;
   saveState();
@@ -698,8 +756,7 @@ async function runSim() {
     $("#progressBar").style.width = "0%";
   } finally {
     state.running = false;
-    $("#btnRun").disabled = !state.engine;
-    $("#btnNextBest").disabled = !state.engine || state.optimizing || state.nextBestRunning;
+    syncActionButtons();
   }
 }
 
@@ -801,6 +858,8 @@ async function init() {
   });
   $("#btnOptimize").addEventListener("click", () => runOptimize());
   $("#btnNextBest").addEventListener("click", () => runNextBest());
+  $("#btnNextBestInsc").addEventListener("click", () => runNextBestInsc());
+  $("#btnNextBestMisc").addEventListener("click", () => runNextBestMisc());
   $("#btnOptCancel").addEventListener("click", () => {
     state.optCancel = true;
     $("#optStatus").textContent = "Cancelling…";
@@ -813,15 +872,11 @@ async function init() {
     $("#status").textContent = saved
       ? "Restored Borge session · WASM ready"
       : "WASM ready — edit build and Run Simulation";
-    $("#btnRun").disabled = false;
-    $("#btnOptimize").disabled = false;
-    $("#btnNextBest").disabled = false;
+    syncActionButtons();
   } catch (err) {
     console.error(err);
     $("#status").textContent = `WASM load failed: ${err.message || err}`;
-    $("#btnRun").disabled = true;
-    $("#btnOptimize").disabled = true;
-    $("#btnNextBest").disabled = true;
+    syncActionButtons();
   }
 }
 
@@ -849,7 +904,7 @@ async function askApplyOptimize({ baseAvg, bestAvg, baseLoot, bestLoot, evals })
   });
 }
 
-async function runNextBest() {
+async function runMarginalNextBest({ kind, clearDeltas, runSweep, applyResult, bestLabelOf, unitLabel }) {
   if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
   syncMetaFromInputs();
   const v = refreshBudget();
@@ -860,19 +915,26 @@ async function runNextBest() {
 
   state.nextBestRunning = true;
   state.nextBestCancel = false;
-  clearStatDeltas();
-  const btn = $("#btnNextBest");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Rechnet…";
+  clearDeltas();
+  const btns = nextBestButtons();
+  for (const btn of Object.values(btns)) {
+    if (btn) btn.disabled = true;
   }
+  const activeBtn = btns[kind];
+  if (activeBtn) activeBtn.textContent = "Running…";
   $("#btnRun").disabled = true;
   $("#btnOptimize").disabled = true;
 
   const n = Math.max(1, Number($("#reps").value) || 1000);
+  const titleByKind = {
+    stats: "Next-Best-Opti",
+    insc: "Insc Next-Best-Opti",
+    misc: "Relic/Gem Next-Best-Opti",
+  };
+  const title = titleByKind[kind] || "Next-Best-Opti";
 
   try {
-    const result = await marginalStatGains(
+    const result = await runSweep(
       state.build,
       state.engine,
       hunter(),
@@ -882,7 +944,7 @@ async function runNextBest() {
         onProgress: ({ msg, done, total, stage }) => {
           const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
           const stageTxt = stage != null ? ` · Ø ${Number(stage).toFixed(1)}` : "";
-          const line = `Next-Best-Opti ${done}/${total} (${pct}%) — ${msg}${stageTxt}`;
+          const line = `${title} ${done}/${total} (${pct}%) — ${msg}${stageTxt}`;
           $("#status").textContent = line;
           const optEl = $("#optStatus");
           if (optEl) optEl.textContent = line;
@@ -891,41 +953,85 @@ async function runNextBest() {
     );
 
     if (result.cancelled) {
-      $("#status").textContent = "Next-Best-Opti cancelled.";
+      $("#status").textContent = `${title} cancelled.`;
       return;
     }
 
-    state.statDeltas = result;
-    renderStatDeltas();
+    applyResult(result);
 
     const best = result.results.find((r) => r.key === result.bestKey);
-    const label = best ? hunter().costs.STAT_LABELS[best.key] || best.key : null;
+    const label = best ? bestLabelOf(best.key) : null;
     const d = best ? fmtDelta(best.dStage) : null;
     const sigN = result.results.filter((r) => r.significantBenefit).length;
     const doneMsg = best
-      ? `Next-Best-Opti done · ${n} sims/stat · ${sigN} significant · best +1: ${label} (${d} Ø)` +
+      ? `${title} done · ${n} sims/${unitLabel} · ${sigN} significant · best +1: ${label} (${d} Ø)` +
         ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`
-      : `Next-Best-Opti done · ${n} sims/stat · no significant +1` +
+      : `${title} done · ${n} sims/${unitLabel} · no significant +1` +
         ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`;
     $("#status").textContent = doneMsg;
     const optEl = $("#optStatus");
     if (optEl) optEl.textContent = doneMsg;
   } catch (err) {
     console.error(err);
-    const msg = `Next-Best-Opti error: ${err.message || err}`;
+    const msg = `${title} error: ${err.message || err}`;
     $("#status").textContent = msg;
     const optEl = $("#optStatus");
     if (optEl) optEl.textContent = msg;
   } finally {
     state.nextBestRunning = false;
     state.nextBestCancel = false;
-    if (btn) {
-      btn.disabled = !state.engine;
-      btn.textContent = "Next-Best-Opti";
+    for (const btn of Object.values(btns)) {
+      if (btn) btn.textContent = "Next-Best-Opti";
     }
-    $("#btnRun").disabled = !state.engine;
-    $("#btnOptimize").disabled = !state.engine;
+    syncActionButtons();
   }
+}
+
+async function runNextBest() {
+  await runMarginalNextBest({
+    kind: "stats",
+    clearDeltas: clearStatDeltas,
+    runSweep: marginalStatGains,
+    applyResult: (result) => {
+      state.statDeltas = result;
+      renderStatDeltas();
+    },
+    bestLabelOf: (key) => hunter().costs.STAT_LABELS[key] || key,
+    unitLabel: "stat",
+  });
+}
+
+/** On-demand only — not chained after talent/attribute optimize. */
+async function runNextBestInsc() {
+  await runMarginalNextBest({
+    kind: "insc",
+    clearDeltas: clearInscDeltas,
+    runSweep: marginalInscryptionGains,
+    applyResult: (result) => {
+      state.inscDeltas = result;
+      renderInscDeltas();
+    },
+    bestLabelOf: (key) => hunter().costs.INSCRIPTION_META?.[key]?.title || key,
+    unitLabel: "insc",
+  });
+}
+
+/** On-demand only — not chained after talent/attribute optimize. */
+async function runNextBestMisc() {
+  await runMarginalNextBest({
+    kind: "misc",
+    clearDeltas: clearMiscDeltas,
+    runSweep: marginalRelicGemGains,
+    applyResult: (result) => {
+      state.miscDeltas = result;
+      renderMiscDeltas();
+    },
+    bestLabelOf: (key) => {
+      const dot = String(key).indexOf(".");
+      return dot >= 0 ? key.slice(dot + 1) : key;
+    },
+    unitLabel: "item",
+  });
 }
 
 async function runOptimize() {
@@ -939,8 +1045,7 @@ async function runOptimize() {
 
   state.optimizing = true;
   state.optCancel = false;
-  $("#btnOptimize").disabled = true;
-  $("#btnNextBest").disabled = true;
+  syncActionButtons();
   $("#btnOptCancel").hidden = false;
   $("#btnTalentClose").disabled = true;
   $("#optProgressBar").style.width = "0%";
@@ -1026,18 +1131,18 @@ async function runOptimize() {
   } finally {
     state.optimizing = false;
     state.optCancel = false;
-    $("#btnOptimize").disabled = !state.engine;
-    $("#btnNextBest").disabled = !state.engine || state.running || state.nextBestRunning;
+    syncActionButtons();
     $("#btnOptCancel").hidden = true;
     $("#btnTalentClose").disabled = false;
   }
 
   if (runNextBestAfterApply) {
+    // Stats only — inscription next-best stays manual.
     await runNextBest();
   }
 }
 
 $("#btnRun").disabled = true;
 $("#btnOptimize").disabled = true;
-$("#btnNextBest").disabled = true;
+setNextBestButtonsDisabled(true);
 init();

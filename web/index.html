@@ -69,7 +69,12 @@
               <div id="statsList" class="spin-list"></div>
             </div>
             <div class="tab-panel" data-panel="insc" hidden>
-              <h3 class="section-title">Inscryptions</h3>
+              <div class="section-title-row">
+                <h3 class="section-title">Inscryptions</h3>
+                <button type="button" class="btn btn-primary btn-sm" id="btnNextBestInsc" title="Sim current build, then each inscryption +1">
+                  Next-Best-Opti
+                </button>
+              </div>
               <div class="row-actions">
                 <button type="button" class="btn btn-primary btn-sm" id="btnInscMax">All Max</button>
                 <button type="button" class="btn btn-sm" id="btnInscClear">Clear</button>
@@ -77,7 +82,12 @@
               <div id="inscList" class="spin-list"></div>
             </div>
             <div class="tab-panel" data-panel="misc" hidden>
-              <h3 class="section-title">Relics / Gems / Mods</h3>
+              <div class="section-title-row">
+                <h3 class="section-title">Relics / Gems / Mods</h3>
+                <button type="button" class="btn btn-primary btn-sm" id="btnNextBestMisc" title="Sim current build, then each relic/gem +1">
+                  Next-Best-Opti
+                </button>
+              </div>
               <div id="miscList" class="spin-list"></div>
               <label class="check-row" id="trampleRow">
                 <input id="trample" type="checkbox" />
@@ -165,7 +175,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). Elite builds bias the next search toward stronger talents/attributes. The Sims field applies only to manual runs / Next-Best.
+            Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). Elite builds bias the next search toward stronger talents/attributes. The Sims field applies only to manual runs / Next-Best (stats, inscryptions, relics/gems).
           </p>
         </div>
         <div class="tabs" role="tablist">

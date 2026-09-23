@@ -646,17 +646,17 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 const MARGINAL_STAT_SKIP = new Set(["highest_stage_reached"]);
 
 /**
- * For the current build only: baseline sim, then each combat stat +1 vs baseline.
- * Does not redistribute talents/attributes.
- *
- * @param {object} baseConfig
- * @param {{ evaluate: Function }} engine
- * @param {import('./hunters/index.js').HUNTERS[string]} hunter
- * @param {{ n?: number }} [optIn]
- * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
+ * Shared +1 marginal sweep: baseline, then each key +1 vs baseline (no talent/attr search).
+ * @param {{
+ *   keys: string[],
+ *   getLevel: (cfg: object, key: string) => number,
+ *   getMax: (key: string) => number,
+ *   withPlusOne: (cfg: object, key: string, next: number) => void,
+ *   labelOf: (key: string) => string,
+ * }} sweep
  */
-export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
-  const { costs, wasmToSimResult } = hunter;
+async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sweep) {
+  const { wasmToSimResult } = hunter;
   const n = Math.max(1, Number(optIn.n) || 1000);
   const onProgress = typeof hooks.onProgress === "function" ? hooks.onProgress : () => {};
   const isCancelled = typeof hooks.isCancelled === "function" ? hooks.isCancelled : () => false;
@@ -666,7 +666,7 @@ export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, 
     throw new Error(validated.msg || "Invalid build");
   }
   const baselineCfg = structuredClone(validated.config);
-  const keys = (costs.STAT_ORDER || []).filter((k) => !MARGINAL_STAT_SKIP.has(k));
+  const keys = sweep.keys;
   const total = 1 + keys.length;
   let done = 0;
 
@@ -686,12 +686,14 @@ export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, 
   const results = [];
   let bestKey = null;
   let bestScore = null;
+  const alpha = DEFAULT_OPTIMIZE.stageTieAlpha;
 
   for (const key of keys) {
     if (isCancelled()) return { cancelled: true, baselineScore, results };
-    const cur = Number(baselineCfg.stats?.[key] || 0);
-    const mx = Number(costs.STAT_MAX?.[key] ?? 9999);
+    const cur = sweep.getLevel(baselineCfg, key);
+    const mx = sweep.getMax(key);
     const atCap = mx < 9999 && cur >= mx;
+    const label = sweep.labelOf(key);
 
     if (atCap) {
       results.push({
@@ -705,19 +707,18 @@ export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, 
         significantBenefit: false,
       });
       done += 1;
-      notify(`${costs.STAT_LABELS[key] || key} (max)`, baselineScore.avgStage, baselineScore.lootScore);
+      notify(`${label} (max)`, baselineScore.avgStage, baselineScore.lootScore);
       continue;
     }
 
     const cfg = structuredClone(baselineCfg);
-    cfg.stats = { ...cfg.stats, [key]: cur + 1 };
+    sweep.withPlusOne(cfg, key, cur + 1);
     await yieldToUi();
     if (isCancelled()) return { cancelled: true, baselineScore, results };
 
     const wasmRes = engine.evaluate(cfg, n);
     const res = wasmToSimResult(wasmRes, n);
     const sc = scoreOf(res);
-    const alpha = DEFAULT_OPTIMIZE.stageTieAlpha;
     const significant = stagesSignificantlyDifferent(sc, baselineScore, alpha);
     const significantBenefit = significant && sc.avgStage > baselineScore.avgStage;
     const entry = {
@@ -737,7 +738,7 @@ export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, 
       bestKey = key;
     }
     done += 1;
-    notify(costs.STAT_LABELS[key] || key, sc.avgStage, sc.lootScore);
+    notify(label, sc.avgStage, sc.lootScore);
   }
 
   return {
@@ -747,6 +748,100 @@ export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, 
     baselineEval,
     results,
     bestKey,
-    stageTieAlpha: DEFAULT_OPTIMIZE.stageTieAlpha,
+    stageTieAlpha: alpha,
   };
+}
+
+/**
+ * For the current build only: baseline sim, then each combat stat +1 vs baseline.
+ * Does not redistribute talents/attributes.
+ *
+ * @param {object} baseConfig
+ * @param {{ evaluate: Function }} engine
+ * @param {import('./hunters/index.js').HUNTERS[string]} hunter
+ * @param {{ n?: number }} [optIn]
+ * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
+ */
+export async function marginalStatGains(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const { costs } = hunter;
+  return marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, {
+    keys: (costs.STAT_ORDER || []).filter((k) => !MARGINAL_STAT_SKIP.has(k)),
+    getLevel: (cfg, key) => Number(cfg.stats?.[key] || 0),
+    getMax: (key) => Number(costs.STAT_MAX?.[key] ?? 9999),
+    withPlusOne: (cfg, key, next) => {
+      cfg.stats = { ...cfg.stats, [key]: next };
+    },
+    labelOf: (key) => costs.STAT_LABELS[key] || key,
+  });
+}
+
+/**
+ * For the current build only: baseline sim, then each inscryption +1 vs baseline.
+ * On-demand only — not part of talent/attribute optimize.
+ *
+ * @param {object} baseConfig
+ * @param {{ evaluate: Function }} engine
+ * @param {import('./hunters/index.js').HUNTERS[string]} hunter
+ * @param {{ n?: number }} [optIn]
+ * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
+ */
+export async function marginalInscryptionGains(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const { costs } = hunter;
+  const meta = costs.INSCRIPTION_META || {};
+  return marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, {
+    keys: [...(costs.INSC_ORDER || [])],
+    getLevel: (cfg, key) => Number(cfg.inscryptions?.[key] || 0),
+    getMax: (key) => {
+      const mx = costs.INSCRIPTION_COSTS?.[key]?.max;
+      return mx == null || mx === Infinity ? 9999 : Number(mx);
+    },
+    withPlusOne: (cfg, key, next) => {
+      cfg.inscryptions = { ...cfg.inscryptions, [key]: next };
+    },
+    labelOf: (key) => meta[key]?.title || key,
+  });
+}
+
+/** UI spin max for relics/gems (same as build editor). */
+const RELIC_GEM_MAX = 20;
+
+/**
+ * For the current build only: baseline sim, then each relic/gem +1 vs baseline.
+ * On-demand only — not part of talent/attribute optimize. Keys are `relic.*` / `gem.*`.
+ *
+ * @param {object} baseConfig
+ * @param {{ evaluate: Function }} engine
+ * @param {import('./hunters/index.js').HUNTERS[string]} hunter
+ * @param {{ n?: number }} [optIn]
+ * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
+ */
+export async function marginalRelicGemGains(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const { costs } = hunter;
+  const keys = [
+    ...(costs.RELIC_KEYS || []).map((k) => `relic.${k}`),
+    ...(costs.GEM_KEYS || []).map((k) => `gem.${k}`),
+  ];
+
+  function parseKey(composite) {
+    const dot = String(composite).indexOf(".");
+    if (dot < 0) return { section: null, id: composite };
+    return { section: composite.slice(0, dot), id: composite.slice(dot + 1) };
+  }
+
+  return marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, {
+    keys,
+    getLevel: (cfg, composite) => {
+      const { section, id } = parseKey(composite);
+      if (section === "relic") return Number(cfg.relics?.[id] || 0);
+      if (section === "gem") return Number(cfg.gems?.[id] || 0);
+      return 0;
+    },
+    getMax: () => RELIC_GEM_MAX,
+    withPlusOne: (cfg, composite, next) => {
+      const { section, id } = parseKey(composite);
+      if (section === "relic") cfg.relics = { ...cfg.relics, [id]: next };
+      else if (section === "gem") cfg.gems = { ...cfg.gems, [id]: next };
+    },
+    labelOf: (composite) => parseKey(composite).id || composite,
+  });
 }

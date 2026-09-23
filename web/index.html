@@ -56,7 +56,7 @@
           </div>
           <label class="hide-maxed-row">
             <input type="checkbox" id="hideMaxed" checked />
-            <span>Gemaxte ausblenden</span>
+            <span>Hide maxed</span>
           </label>
           <div class="tab-panels">
             <div class="tab-panel" data-panel="stats">
@@ -118,8 +118,23 @@
 
           <div class="summary-row">
             <div class="metric"><div class="k">Min Stage</div><div class="v" id="sMin">—</div></div>
-            <div class="metric"><div class="k">Avg Stage</div><div class="v" id="sAvg">—</div></div>
+            <div class="metric"><div class="k">Avg Stage (±sd)</div><div class="v" id="sAvg">—</div></div>
             <div class="metric"><div class="k">Max Stage</div><div class="v" id="sMax">—</div></div>
+          </div>
+
+          <div class="mats-row" id="matsRow" aria-label="Resources per hour">
+            <div class="mat-metric" data-mat="mat1">
+              <div class="mat-k"><img class="mat-icon" alt="" width="18" height="18" /><span class="mat-name">Obs</span><span class="mat-unit">/h</span></div>
+              <div class="mat-v">—</div>
+            </div>
+            <div class="mat-metric" data-mat="mat2">
+              <div class="mat-k"><img class="mat-icon" alt="" width="18" height="18" /><span class="mat-name">Beh</span><span class="mat-unit">/h</span></div>
+              <div class="mat-v">—</div>
+            </div>
+            <div class="mat-metric" data-mat="mat3">
+              <div class="mat-k"><img class="mat-icon" alt="" width="18" height="18" /><span class="mat-name">HBM</span><span class="mat-unit">/h</span></div>
+              <div class="mat-v">—</div>
+            </div>
           </div>
         </section>
       </div>

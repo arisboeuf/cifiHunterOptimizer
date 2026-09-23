@@ -117,27 +117,17 @@ function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 
 }
 
 /** Combat stats that share an upgrade resource (subtle UI grouping). */
-const STAT_RESOURCE = {
-  hp: "obsidian",
-  power: "obsidian",
-  regen: "obsidian",
-  damage_reduction: "behlium",
-  evade_chance: "behlium",
-  block_chance: "behlium",
-  effect_chance: "behlium",
-  special_chance: "hbm",
-  special_damage: "hbm",
-  speed: "hbm",
-};
+function statResourceMap() {
+  return hunter().statResource || {};
+}
 
-const RESOURCE_META = {
-  obsidian: { label: "Obsidian", icon: "./img/obsidian.png" },
-  behlium: { label: "Behlium", icon: "./img/behlium.png" },
-  hbm: { label: "HBM", icon: "./img/hbm.png" },
-};
+function resourceMeta(resourceId) {
+  const mats = hunter().lootMats || [];
+  return mats.find((m) => m.key === resourceId) || null;
+}
 
 function appendStatResourceHead(parent, resourceId) {
-  const meta = RESOURCE_META[resourceId];
+  const meta = resourceMeta(resourceId);
   if (!meta) return;
   const head = document.createElement("div");
   head.className = "stat-res-head";
@@ -155,6 +145,119 @@ function fmtDelta(n, digits = 2) {
   const v = Number(n) || 0;
   const sign = v > 0 ? "+" : "";
   return `${sign}${v.toFixed(digits)}`;
+}
+
+/** Compact number like cifi-tools (1.2k / 3.4m). */
+function formatCompact(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || Math.abs(v) < 0.01) return "0";
+  if (Math.abs(v) < 1) return v.toFixed(2);
+  const abs = Math.abs(v);
+  const units = ["", "k", "m", "b", "t", "qa", "qu"];
+  const exp = Math.min(units.length - 1, Math.floor(Math.log10(abs) / 3));
+  const scaled = v / 10 ** (exp * 3);
+  const digits = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
+  return `${scaled.toFixed(digits)}${units[exp]}`;
+}
+
+/** Sample SD of stages across all runs (from stageCounts histogram). */
+function stageSdFromCounts(res) {
+  const counts = res?.stageCounts || {};
+  let n = 0;
+  let sum = 0;
+  let sumSq = 0;
+  for (const [stageRaw, countRaw] of Object.entries(counts)) {
+    const stage = Number(stageRaw);
+    const c = Number(countRaw);
+    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
+    n += c;
+    sum += stage * c;
+    sumSq += stage * stage * c;
+  }
+  if (n < 2) return 0;
+  const variance = Math.max(0, (sumSq - (sum * sum) / n) / (n - 1));
+  return Math.sqrt(variance);
+}
+
+/**
+ * Expected range of n i.i.d. N(0,1) samples (control-chart d₂ approximation).
+ * Used to turn WASM min/max mats into an SD estimate across runs.
+ */
+function expectedNormalRange(n) {
+  const nn = Math.max(2, Number(n) || 2);
+  if (nn <= 2) return 1.128;
+  if (nn <= 3) return 1.693;
+  if (nn <= 4) return 2.059;
+  if (nn <= 5) return 2.326;
+  if (nn <= 10) return 3.078;
+  if (nn <= 25) return 3.931;
+  // Tippett-style: E[max−min] ≈ 2√(2 ln n) · (1 − γ/(2 ln n))
+  const ln = Math.log(nn);
+  return 2 * Math.sqrt(2 * ln) * (1 - 0.5772156649 / (2 * ln));
+}
+
+/** Estimate per-run mat SD from WASM min/max over all runs. */
+function matSdFromMinMax(minV, maxV, n) {
+  const range = Number(maxV) - Number(minV);
+  if (!(range > 0) || n < 2) return 0;
+  return range / expectedNormalRange(n);
+}
+
+/** WASM mats = avg drop per full run; avgTimeS is seconds (converted from WASM minutes). */
+function matsPerHour(res) {
+  const t = Number(res?.avgTimeS) || 0;
+  const mats = res?.mats;
+  if (!mats || t <= 0) return null;
+  const scale = 3600 / t;
+  const n = Number(res?.n) || 0;
+  const mins = res?.matsMin || {};
+  const maxs = res?.matsMax || {};
+  const out = {};
+  for (const key of ["mat1", "mat2", "mat3"]) {
+    const avg = (Number(mats[key]) || 0) * scale;
+    const sd = matSdFromMinMax(mins[key], maxs[key], n) * scale;
+    out[key] = { avg, sd };
+  }
+  return out;
+}
+
+function syncMatsRowLabels() {
+  const defs = hunter().lootMats || [];
+  defs.forEach((def) => {
+    const el = $(`.mat-metric[data-mat="${def.key}"]`);
+    if (!el) return;
+    const icon = el.querySelector(".mat-icon");
+    const name = el.querySelector(".mat-name");
+    if (icon) {
+      icon.src = def.icon;
+      icon.alt = def.label;
+    }
+    if (name) {
+      name.textContent = def.short;
+      name.title = def.label;
+    }
+  });
+}
+
+function renderMatsPerHour(res) {
+  const rates = matsPerHour(res);
+  $$(".mat-metric").forEach((el) => {
+    const key = el.dataset.mat;
+    const v = el.querySelector(".mat-v");
+    if (!v) return;
+    if (!rates) {
+      v.textContent = "—";
+      v.removeAttribute("title");
+      return;
+    }
+    const { avg, sd } = rates[key];
+    const sdPart = sd > 0 ? ` <span class="mat-sd">±${formatCompact(sd)}</span>` : "";
+    v.innerHTML = `${formatCompact(avg)}${sdPart}`;
+    v.title =
+      sd > 0
+        ? `Mean ± estimated SD across ${res.n} runs (from min/max mats)`
+        : `Mean across ${res.n} runs`;
+  });
 }
 
 function renderStatDeltas() {
@@ -237,10 +340,11 @@ function buildLeftLists() {
   ];
 
   let lastRes = null;
+  const resMap = statResourceMap();
   for (const k of STAT_ORDER) {
     const mx = STAT_MAX[k];
     const capped = cappedStats.includes(k);
-    const resource = STAT_RESOURCE[k] || null;
+    const resource = resMap[k] || null;
     if (resource && resource !== lastRes) {
       appendStatResourceHead(statsList, resource);
       lastRes = resource;
@@ -440,6 +544,7 @@ function applyHunterTheme() {
   });
   const note = $("#hunterNote");
   if (note) note.innerHTML = `Active: <strong>${h.name}</strong>. Builds persist per hunter in this browser.`;
+  syncMatsRowLabels();
 }
 
 function clearResultUi() {
@@ -455,7 +560,9 @@ function clearResultUi() {
   $("#mBoss").textContent = "—";
   $("#sMin").textContent = "—";
   $("#sAvg").textContent = "—";
+  $("#sAvg").removeAttribute("title");
   $("#sMax").textContent = "—";
+  renderMatsPerHour(null);
 }
 
 const RESET_LABELS = ["Reset Stats etc", "Sure?", "Really?"];
@@ -602,8 +709,15 @@ function showResult(res) {
   $("#mTime").textContent = `${formatDuration(res.avgTimeS)}  (${res.runsPerDay.toFixed(1)})`;
   $("#mBoss").textContent = `${(res.bossKillRate * 100).toFixed(1)}%`;
   $("#sMin").textContent = res.minStage.toFixed(1);
-  $("#sAvg").textContent = res.avgStage.toFixed(1);
+  const stageSd = stageSdFromCounts(res);
+  $("#sAvg").textContent =
+    stageSd > 0
+      ? `${res.avgStage.toFixed(1)} ±${stageSd.toFixed(1)}`
+      : res.avgStage.toFixed(1);
+  $("#sAvg").title =
+    stageSd > 0 ? `Mean ± SD across ${res.n} runs` : `Mean across ${res.n || 0} runs`;
   $("#sMax").textContent = res.maxStage.toFixed(1);
+  renderMatsPerHour(res);
   renderBuildStats(res.buildStats);
   redrawCharts();
   $("#status").textContent = `Done — ${res.n} runs (${res.engine}) · ${hunter().name}`;

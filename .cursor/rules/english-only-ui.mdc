@@ -1,0 +1,41 @@
+---
+description: User-facing text must be English only (whole repo)
+alwaysApply: true
+---
+
+# English-only (product / repo text)
+
+Audience for this project **only speaks English**. Do **not** put German (or other non-English) into anything users or contributors see in the product.
+
+## Must be English
+
+- Web UI: labels, buttons, tabs, tooltips, `aria-label`, placeholders, status / progress / error strings
+- In-app copy in `web/**` (HTML, JS, CSS content)
+- README, docs, TODO items, comments that explain behavior to readers
+- Commit messages and PR descriptions for this repo
+
+## Examples
+
+```html
+<!-- ❌ BAD -->
+<span>Gemaxte ausblenden</span>
+
+<!-- ✅ GOOD -->
+<span>Hide maxed</span>
+```
+
+```js
+// ❌ BAD
+status.textContent = "Simuliere…";
+
+// ✅ GOOD
+status.textContent = "Running simulation…";
+```
+
+## Exceptions
+
+- Chat with the repo owner may stay in their language.
+- Proper names / game terms stay as in CIFI (Borge, Obsidian, Behlium, HBM, …).
+- Do not translate identifiers, file paths, or API keys.
+
+If you find leftover German in UI or docs while editing, fix it in the same change.

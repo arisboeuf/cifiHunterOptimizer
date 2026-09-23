@@ -69,6 +69,29 @@ const borgeExample = {
 
 export const HUNTER_ORDER = ["borge", "ozzy", "knox"];
 
+/** Combat stats → mat slot (upgrade currency grouping in Stats panel). */
+const STAT_RESOURCE_SLOTS = {
+  hp: "mat1",
+  power: "mat1",
+  regen: "mat1",
+  damage_reduction: "mat2",
+  evade_chance: "mat2",
+  block_chance: "mat2",
+  effect_chance: "mat2",
+  special_chance: "mat3",
+  special_damage: "mat3",
+  speed: "mat3",
+};
+
+/** Drop / upgrade mats from WASM (mat1/2/3), same mapping as cifi-tools. */
+function lootMats(m1, m2, m3) {
+  return [
+    { key: "mat1", short: m1.short, label: m1.label, icon: m1.icon },
+    { key: "mat2", short: m2.short, label: m2.label, icon: m2.icon },
+    { key: "mat3", short: m3.short, label: m3.label, icon: m3.icon },
+  ];
+}
+
 export const HUNTERS = {
   borge: {
     id: "borge",
@@ -78,6 +101,12 @@ export const HUNTERS = {
     attrs: borgeAttrs,
     Engine: WasmBorgeEngine,
     wasmToSimResult: borgeWasmToSim,
+    statResource: STAT_RESOURCE_SLOTS,
+    lootMats: lootMats(
+      { short: "Obs", label: "Obsidian", icon: "./img/obsidian.png" },
+      { short: "Beh", label: "Behlium", icon: "./img/behlium.png" },
+      { short: "HBM", label: "Hellish-Biomatter", icon: "./img/hbm.png" },
+    ),
     showTrample: true,
     defaultBuild: () => {
       const b = makeDefaultBuild(borgeCosts, "Borge", borgeExample);
@@ -98,6 +127,12 @@ export const HUNTERS = {
     attrs: ozzyAttrs,
     Engine: WasmOzzyEngine,
     wasmToSimResult: ozzyWasmToSim,
+    statResource: STAT_RESOURCE_SLOTS,
+    lootMats: lootMats(
+      { short: "Fara", label: "Farahyte", icon: "./img/farahyte.png" },
+      { short: "Galv", label: "Galvarium", icon: "./img/galvarium.png" },
+      { short: "Vectid", label: "Vectid", icon: "./img/vectid.png" },
+    ),
     showTrample: false,
     defaultBuild: () =>
       makeDefaultBuild(ozzyCosts, "Ozzy", {
@@ -141,6 +176,12 @@ export const HUNTERS = {
     attrs: knoxAttrs,
     Engine: WasmKnoxEngine,
     wasmToSimResult: knoxWasmToSim,
+    statResource: STAT_RESOURCE_SLOTS,
+    lootMats: lootMats(
+      { short: "Glac", label: "Glacium", icon: "./img/glacium.png" },
+      { short: "Quartz", label: "Quartz", icon: "./img/quartz.png" },
+      { short: "Tess", label: "Tessarects", icon: "./img/tessarects.png" },
+    ),
     showTrample: false,
     defaultBuild: () =>
       makeDefaultBuild(knoxCosts, "Knox", {

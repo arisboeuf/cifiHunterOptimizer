@@ -61,7 +61,8 @@ export function wasmToSimResult(wasmRes, repetitions) {
   const avgTime = Number(wasmRes.avgTime);
   const lootPerMin = Number(wasmRes.lootPerMin);
   const lootScore = Math.round(lootPerMin * 10) / 10;
-  const runsPerDay = avgTime > 0 ? 86400 / avgTime : 0;
+  // WASM avgTime is minutes (same as cifi-tools: runs/day = 1440 / avgTime).
+  const runsPerDay = avgTime > 0 ? 1440 / avgTime : 0;
   const odds = oddsFromCounts(counts);
 
   return {
@@ -71,7 +72,8 @@ export function wasmToSimResult(wasmRes, repetitions) {
     maxStage: wasmRes.maxStage,
     stageCounts: counts,
     stageOdds: odds,
-    avgTimeS: avgTime,
+    avgTimeS: avgTime * 60, // seconds for formatDuration / mats/h
+    avgTimeMin: avgTime,
     runsPerDay,
     lootScore,
     firstRevive: wasmRes.firstRevive,
@@ -79,6 +81,8 @@ export function wasmToSimResult(wasmRes, repetitions) {
     bossKillRate: wasmRes.bossKillRate,
     buildStats: wasmRes.buildStats,
     mats: { mat1: wasmRes.mat1, mat2: wasmRes.mat2, mat3: wasmRes.mat3 },
+    matsMin: { mat1: wasmRes.minMat1, mat2: wasmRes.minMat2, mat3: wasmRes.minMat3 },
+    matsMax: { mat1: wasmRes.maxMat1, mat2: wasmRes.maxMat2, mat3: wasmRes.maxMat3 },
     xp: wasmRes.xp,
     engine: "wasm",
   };

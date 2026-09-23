@@ -751,13 +751,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.mat-sd {
-  margin-left: 0.15rem;
-  font-size: 0.78em;
-  font-weight: 600;
-  color: var(--muted);
-}
-
 .status {
   margin-top: 0.85rem;
   color: var(--muted);

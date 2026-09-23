@@ -160,65 +160,17 @@ function formatCompact(n) {
   return `${scaled.toFixed(digits)}${units[exp]}`;
 }
 
-/** Sample SD of stages across all runs (from stageCounts histogram). */
-function stageSdFromCounts(res) {
-  const counts = res?.stageCounts || {};
-  let n = 0;
-  let sum = 0;
-  let sumSq = 0;
-  for (const [stageRaw, countRaw] of Object.entries(counts)) {
-    const stage = Number(stageRaw);
-    const c = Number(countRaw);
-    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
-    n += c;
-    sum += stage * c;
-    sumSq += stage * stage * c;
-  }
-  if (n < 2) return 0;
-  const variance = Math.max(0, (sumSq - (sum * sum) / n) / (n - 1));
-  return Math.sqrt(variance);
-}
-
-/**
- * Expected range of n i.i.d. N(0,1) samples (control-chart d₂ approximation).
- * Used to turn WASM min/max mats into an SD estimate across runs.
- */
-function expectedNormalRange(n) {
-  const nn = Math.max(2, Number(n) || 2);
-  if (nn <= 2) return 1.128;
-  if (nn <= 3) return 1.693;
-  if (nn <= 4) return 2.059;
-  if (nn <= 5) return 2.326;
-  if (nn <= 10) return 3.078;
-  if (nn <= 25) return 3.931;
-  // Tippett-style: E[max−min] ≈ 2√(2 ln n) · (1 − γ/(2 ln n))
-  const ln = Math.log(nn);
-  return 2 * Math.sqrt(2 * ln) * (1 - 0.5772156649 / (2 * ln));
-}
-
-/** Estimate per-run mat SD from WASM min/max over all runs. */
-function matSdFromMinMax(minV, maxV, n) {
-  const range = Number(maxV) - Number(minV);
-  if (!(range > 0) || n < 2) return 0;
-  return range / expectedNormalRange(n);
-}
-
 /** WASM mats = avg drop per full run; avgTimeS is seconds (converted from WASM minutes). */
 function matsPerHour(res) {
   const t = Number(res?.avgTimeS) || 0;
   const mats = res?.mats;
   if (!mats || t <= 0) return null;
   const scale = 3600 / t;
-  const n = Number(res?.n) || 0;
-  const mins = res?.matsMin || {};
-  const maxs = res?.matsMax || {};
-  const out = {};
-  for (const key of ["mat1", "mat2", "mat3"]) {
-    const avg = (Number(mats[key]) || 0) * scale;
-    const sd = matSdFromMinMax(mins[key], maxs[key], n) * scale;
-    out[key] = { avg, sd };
-  }
-  return out;
+  return {
+    mat1: (Number(mats.mat1) || 0) * scale,
+    mat2: (Number(mats.mat2) || 0) * scale,
+    mat3: (Number(mats.mat3) || 0) * scale,
+  };
 }
 
 function syncMatsRowLabels() {
@@ -245,18 +197,7 @@ function renderMatsPerHour(res) {
     const key = el.dataset.mat;
     const v = el.querySelector(".mat-v");
     if (!v) return;
-    if (!rates) {
-      v.textContent = "—";
-      v.removeAttribute("title");
-      return;
-    }
-    const { avg, sd } = rates[key];
-    const sdPart = sd > 0 ? ` <span class="mat-sd">±${formatCompact(sd)}</span>` : "";
-    v.innerHTML = `${formatCompact(avg)}${sdPart}`;
-    v.title =
-      sd > 0
-        ? `Mean ± estimated SD across ${res.n} runs (from min/max mats)`
-        : `Mean across ${res.n} runs`;
+    v.textContent = rates ? formatCompact(rates[key]) : "—";
   });
 }
 
@@ -560,7 +501,6 @@ function clearResultUi() {
   $("#mBoss").textContent = "—";
   $("#sMin").textContent = "—";
   $("#sAvg").textContent = "—";
-  $("#sAvg").removeAttribute("title");
   $("#sMax").textContent = "—";
   renderMatsPerHour(null);
 }
@@ -709,13 +649,7 @@ function showResult(res) {
   $("#mTime").textContent = `${formatDuration(res.avgTimeS)}  (${res.runsPerDay.toFixed(1)})`;
   $("#mBoss").textContent = `${(res.bossKillRate * 100).toFixed(1)}%`;
   $("#sMin").textContent = res.minStage.toFixed(1);
-  const stageSd = stageSdFromCounts(res);
-  $("#sAvg").textContent =
-    stageSd > 0
-      ? `${res.avgStage.toFixed(1)} ±${stageSd.toFixed(1)}`
-      : res.avgStage.toFixed(1);
-  $("#sAvg").title =
-    stageSd > 0 ? `Mean ± SD across ${res.n} runs` : `Mean across ${res.n || 0} runs`;
+  $("#sAvg").textContent = res.avgStage.toFixed(1);
   $("#sMax").textContent = res.maxStage.toFixed(1);
   renderMatsPerHour(res);
   renderBuildStats(res.buildStats);

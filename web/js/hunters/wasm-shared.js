@@ -81,8 +81,6 @@ export function wasmToSimResult(wasmRes, repetitions) {
     bossKillRate: wasmRes.bossKillRate,
     buildStats: wasmRes.buildStats,
     mats: { mat1: wasmRes.mat1, mat2: wasmRes.mat2, mat3: wasmRes.mat3 },
-    matsMin: { mat1: wasmRes.minMat1, mat2: wasmRes.minMat2, mat3: wasmRes.minMat3 },
-    matsMax: { mat1: wasmRes.maxMat1, mat2: wasmRes.maxMat2, mat3: wasmRes.maxMat3 },
     xp: wasmRes.xp,
     engine: "wasm",
   };

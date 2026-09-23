@@ -54,7 +54,7 @@
             <div class="tab-panel" data-panel="stats">
               <div class="section-title-row">
                 <h3 class="section-title">Stats</h3>
-                <button type="button" class="btn btn-primary btn-sm" id="btnNextBest" title="Sim: aktueller Build, jeder Stat +1">
+                <button type="button" class="btn btn-primary btn-sm" id="btnNextBest" title="Sim current build, then each combat stat +1">
                   Next-Best-Opti
                 </button>
               </div>
@@ -132,17 +132,17 @@
             <button type="button" class="btn btn-primary" id="btnOptimize">Optimize (WASM)</button>
             <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
             <label class="opt-field">
-              <span>Schleifen</span>
+              <span>Iterations</span>
               <input id="optLoops" type="number" min="1" max="20" value="3" />
             </label>
             <label class="opt-check">
-              <input type="checkbox" id="optForceTimeless" />
+              <input type="checkbox" id="optForceTimeless" checked />
               <span>Timeless Mastery 5 lock</span>
             </label>
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Pro Schleife: Screening (~250 sims) → Refine Top&nbsp;10% (~5000 sims). Elite-Builds steuern die nächste Suche (welche Talents/Attributes sich lohnen). Sims-Feld gilt nur für manuelle Runs / Next-Best.
+            Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). Elite builds bias the next search toward stronger talents/attributes. The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -161,11 +161,11 @@
 
     <div class="modal-backdrop confirm-backdrop" id="optConfirmModal" hidden>
       <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="optConfirmTitle">
-        <h2 id="optConfirmTitle">Optimizer-Ergebnis übernehmen?</h2>
+        <h2 id="optConfirmTitle">Apply optimizer result?</h2>
         <p class="opt-confirm-body" id="optConfirmBody"></p>
         <div class="modal-actions">
-          <button type="button" class="btn" id="btnOptDiscard">Verwerfen</button>
-          <button type="button" class="btn btn-primary" id="btnOptApply">Übernehmen</button>
+          <button type="button" class="btn" id="btnOptDiscard">Discard</button>
+          <button type="button" class="btn btn-primary" id="btnOptApply">Apply</button>
         </div>
       </div>
     </div>

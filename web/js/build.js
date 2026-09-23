@@ -66,7 +66,7 @@ export function validateBudgets(config, hunter) {
 
   return {
     ok: true,
-    msg: `Level ${level}  ·  Talents ${tal}/${caps.talents} (${caps.talents - tal} frei)  ·  Attributes ${attr}/${caps.attributes} (${caps.attributes - attr} frei)`,
+    msg: `Level ${level}  ·  Talents ${tal}/${caps.talents} (${caps.talents - tal} free)  ·  Attributes ${attr}/${caps.attributes} (${caps.attributes - attr} free)`,
     config: cfg,
     spent: { talents: tal, attributes: attr },
     caps,

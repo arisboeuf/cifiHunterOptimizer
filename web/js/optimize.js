@@ -3,22 +3,22 @@ import { pointBudgets, validateBudgets } from "./build.js";
 
 export const DEFAULT_OPTIMIZE = {
   /** Cheap Monte-Carlo screen during local search / restarts. */
-  nSearch: 250,
+  nSearch: 100,
   /** High-N re-eval for top fraction + final champion compare. */
-  nRefine: 5000,
+  nRefine: 4000,
   /** Baseline vs champion; independent of UI Sims field. */
-  nBaseline: 5000,
+  nBaseline: 4000,
   maxEvals: 200,
   restarts: 8,
   stagnationLimit: 18,
   /** After screening: refine this top fraction of unique builds (clamped). */
-  refineTopFraction: 0.1,
-  refineMin: 3,
-  refineMax: 12,
+  refineTopFraction: 0.03,
+  refineMin: 2,
+  refineMax: 8,
   /** Independent full search passes; champions are compared statistically at the end. */
   loops: 1,
   seed: null,
-  forceTimelessMastery5: false,
+  forceTimelessMastery5: true,
   /** Two-sided α for Welch/z stage-mean equality (loot tie-break when not different). */
   stageTieAlpha: 0.05,
   /** How strongly elite screen builds bias later random/neighbor moves (0–1). */
@@ -323,7 +323,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
   if (forceTm && timelessLockCost() > attrCap) {
     throw new Error(
-      `Timeless Mastery 5 braucht mind. ${timelessLockCost()} Path Points (Level ${level} hat ${attrCap}).`,
+      `Timeless Mastery 5 needs at least ${timelessLockCost()} path points (level ${level} has ${attrCap}).`,
     );
   }
 
@@ -390,12 +390,12 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   notify(`Baseline (${opt.nBaseline} sims)…`, 0);
   const baselineEval = await evaluate(baselineCfg, opt.nBaseline, false);
   if (!baselineEval) {
-    throw new Error("Aktueller Build konnte nicht simuliert werden (ungültig oder abgebrochen).");
+    throw new Error("Could not simulate current build (invalid or cancelled).");
   }
   evals += 1;
   globalDone = 1;
   const baselineScore = scoreOf(baselineEval);
-  notify("Baseline fertig", globalDone, baselineScore.avgStage, baselineScore.lootScore);
+  notify("Baseline done", globalDone, baselineScore.avgStage, baselineScore.lootScore);
 
   // Soft-start: current spend biases the first screens (not a hard lock).
   talW = blendLevelWeights(talentKeys, [curTal], talW, 0.35);
@@ -413,7 +413,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
     const loopNotify = (msg, stage = null, loot = null) => {
       globalDone = Math.min(totalBudget, loopOffset + loopEvals);
-      const prefix = loops > 1 ? `Schleife ${loop + 1}/${loops} · ` : "";
+      const prefix = loops > 1 ? `Iteration ${loop + 1}/${loops} · ` : "";
       onProgress({
         msg: `${prefix}${msg}`,
         done: globalDone,
@@ -583,9 +583,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     if (isCancelled()) break;
     const ch = unique[i];
     globalDone = Math.min(totalBudget, 1 + loops * perLoopBudget + i + 1);
-    const prefix = loops > 1 ? `Finale ${i + 1}/${unique.length} · ` : "Finale · ";
+    const prefix = loops > 1 ? `Final ${i + 1}/${unique.length} · ` : "Final · ";
     notify(
-      `${prefix}Vergleich (${opt.nRefine} sims)…`,
+      `${prefix}Compare (${opt.nRefine} sims)…`,
       globalDone,
       ch.sc?.avgStage,
       ch.sc?.lootScore,

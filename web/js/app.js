@@ -61,11 +61,12 @@ function setHideMaxed(on) {
   applyHideMaxed();
 }
 
-function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 0, locked = false }) {
+function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 0, locked = false, resource = null }) {
   const row = document.createElement("div");
   row.className = "spin";
   if (depth > 0) row.classList.add("spin-nested");
   if (locked) row.classList.add("spin-locked");
+  if (resource) row.classList.add(`res-${resource}`);
   row.dataset.key = key;
   row.style.setProperty("--spin-depth", String(depth));
   if (tip) {
@@ -115,6 +116,36 @@ function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 
   return { setVal, input, row };
 }
 
+/** Combat stats that share an upgrade resource (subtle UI grouping). */
+const STAT_RESOURCE = {
+  hp: "obsidian",
+  power: "obsidian",
+  regen: "obsidian",
+  damage_reduction: "behlium",
+  evade_chance: "behlium",
+  block_chance: "behlium",
+  effect_chance: "behlium",
+  special_chance: "hbm",
+  special_damage: "hbm",
+  speed: "hbm",
+};
+
+const RESOURCE_META = {
+  obsidian: { label: "Obsidian", icon: "./img/obsidian.png" },
+  behlium: { label: "Behlium", icon: "./img/behlium.png" },
+  hbm: { label: "HBM", icon: "./img/hbm.png" },
+};
+
+function appendStatResourceHead(parent, resourceId) {
+  const meta = RESOURCE_META[resourceId];
+  if (!meta) return;
+  const head = document.createElement("div");
+  head.className = "stat-res-head";
+  head.dataset.res = resourceId;
+  head.innerHTML = `<img src="${meta.icon}" alt="" width="18" height="18" /><span>${meta.label}</span>`;
+  parent.appendChild(head);
+}
+
 function clearStatDeltas() {
   state.statDeltas = null;
   $$("#statsList .stat-delta").forEach((el) => el.remove());
@@ -140,20 +171,20 @@ function renderStatDeltas() {
     if (entry.skipped === "max") {
       span.classList.add("is-skip");
       span.textContent = "max";
-      span.title = "Bereits am Cap";
+      span.title = "Already at cap";
     } else if (entry.significantBenefit) {
       span.textContent = `${fmtDelta(entry.dStage)} Ø`;
       span.title =
-        `Signifikant besser (α=${data.stageTieAlpha ?? 0.05})` +
+        `Significantly better (α=${data.stageTieAlpha ?? 0.05})` +
         ` · Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}`;
       if (entry.key === data.bestKey) span.classList.add("is-best");
     } else {
       span.classList.add("is-skip");
       span.textContent = "(n.s.)";
       span.title =
-        `Nicht signifikant vs. Baseline (α=${data.stageTieAlpha ?? 0.05})` +
-        ` · Roh Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}` +
-        ` — oft nur Sim-Rauschen`;
+        `Not significant vs baseline (α=${data.stageTieAlpha ?? 0.05})` +
+        ` · Raw Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}` +
+        ` — often just sim noise`;
     }
     label.appendChild(span);
   }
@@ -205,14 +236,23 @@ function buildLeftLists() {
     "projectiles",
   ];
 
+  let lastRes = null;
   for (const k of STAT_ORDER) {
     const mx = STAT_MAX[k];
     const capped = cappedStats.includes(k);
+    const resource = STAT_RESOURCE[k] || null;
+    if (resource && resource !== lastRes) {
+      appendStatResourceHead(statsList, resource);
+      lastRes = resource;
+    } else if (!resource) {
+      lastRes = null;
+    }
     spinRow(statsList, {
       key: `stat.${k}`,
       label: capped ? `${STAT_LABELS[k]}  /${mx}` : STAT_LABELS[k],
       value: state.build.stats[k] ?? 0,
       max: mx,
+      resource,
       onChange: (n) => onStatValueChange(k, n),
     });
   }
@@ -353,6 +393,8 @@ function saveState() {
       JSON.stringify({
         config: state.build,
         reps: Number($("#reps").value) || 6000,
+        optForceTimeless: $("#optForceTimeless")?.checked !== false,
+        optLoops: Math.max(1, Number($("#optLoops")?.value) || 3),
       }),
     );
   } catch {
@@ -376,6 +418,12 @@ function loadHunterState(hunterId) {
     const data = JSON.parse(raw);
     if (data?.config && typeof data.config === "object") {
       if (data.reps) $("#reps").value = String(data.reps);
+      // Timeless lock defaults ON; only stay off if user previously unchecked it.
+      const tmEl = $("#optForceTimeless");
+      if (tmEl) tmEl.checked = data.optForceTimeless !== false;
+      if (data.optLoops != null && $("#optLoops")) {
+        $("#optLoops").value = String(Math.max(1, Math.min(20, Number(data.optLoops) || 3)));
+      }
       return data.config;
     }
   } catch {
@@ -404,6 +452,11 @@ function switchHunter(hunterId) {
   const h = hunter();
   const saved = loadHunterState(hunterId);
   state.build = saved ? { ...h.defaultBuild(), ...saved } : h.defaultBuild();
+  // No prior session → Timeless lock stays default ON.
+  if (!saved) {
+    const tmEl = $("#optForceTimeless");
+    if (tmEl) tmEl.checked = true;
+  }
   if (state.wasmExports) state.engine = engineFor(h, state.wasmExports);
   state.lastResult = null;
   clearStatDeltas();
@@ -603,6 +656,8 @@ async function init() {
   $("#buildName").addEventListener("change", onBuildChanged);
   $("#level").addEventListener("change", onBuildChanged);
   $("#reps").addEventListener("change", saveState);
+  $("#optForceTimeless").addEventListener("change", saveState);
+  $("#optLoops").addEventListener("change", saveState);
   $("#trample").addEventListener("change", onBuildChanged);
   $("#btnRun").addEventListener("click", runSim);
   $("#btnExport").addEventListener("click", exportBuild);
@@ -644,7 +699,7 @@ async function init() {
   $("#btnNextBest").addEventListener("click", () => runNextBest());
   $("#btnOptCancel").addEventListener("click", () => {
     state.optCancel = true;
-    $("#optStatus").textContent = "Abbruch…";
+    $("#optStatus").textContent = "Cancelling…";
   });
   window.addEventListener("resize", () => redrawCharts());
 
@@ -669,7 +724,7 @@ async function init() {
 async function askApplyOptimize({ baseAvg, bestAvg, baseLoot, bestLoot, evals }) {
   const modal = $("#optConfirmModal");
   $("#optConfirmBody").textContent =
-    `Ø Stage ${bestAvg} (war ${baseAvg})\nLoot ${bestLoot} (war ${baseLoot})\n${evals} evals\n\nTalents & Attributes übernehmen?`;
+    `Ø Stage ${bestAvg} (was ${baseAvg})\nLoot ${bestLoot} (was ${baseLoot})\n${evals} evals\n\nApply talents & attributes?`;
   modal.hidden = false;
   return new Promise((resolve) => {
     const finish = (ok) => {
@@ -732,7 +787,7 @@ async function runNextBest() {
     );
 
     if (result.cancelled) {
-      $("#status").textContent = "Next-Best-Opti abgebrochen.";
+      $("#status").textContent = "Next-Best-Opti cancelled.";
       return;
     }
 
@@ -744,16 +799,16 @@ async function runNextBest() {
     const d = best ? fmtDelta(best.dStage) : null;
     const sigN = result.results.filter((r) => r.significantBenefit).length;
     const doneMsg = best
-      ? `Next-Best-Opti fertig · ${n} sims/Stat · ${sigN} signifikant · bestes +1: ${label} (${d} Ø)` +
+      ? `Next-Best-Opti done · ${n} sims/stat · ${sigN} significant · best +1: ${label} (${d} Ø)` +
         ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`
-      : `Next-Best-Opti fertig · ${n} sims/Stat · kein signifikantes +1` +
+      : `Next-Best-Opti done · ${n} sims/stat · no significant +1` +
         ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`;
     $("#status").textContent = doneMsg;
     const optEl = $("#optStatus");
     if (optEl) optEl.textContent = doneMsg;
   } catch (err) {
     console.error(err);
-    const msg = `Next-Best-Opti Fehler: ${err.message || err}`;
+    const msg = `Next-Best-Opti error: ${err.message || err}`;
     $("#status").textContent = msg;
     const optEl = $("#optStatus");
     if (optEl) optEl.textContent = msg;
@@ -815,7 +870,7 @@ async function runOptimize() {
     );
 
     if (state.optCancel) {
-      $("#optStatus").textContent = "Optimierung abgebrochen.";
+      $("#optStatus").textContent = "Optimization cancelled.";
       return;
     }
 
@@ -826,7 +881,7 @@ async function runOptimize() {
 
     if (result.improved) {
       $("#optStatus").textContent =
-        `Verbessert · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals — wartet auf Bestätigung`;
+        `Improved · Ø ${bestAvg} (was ${baseAvg}) · loot ${bestLoot} (was ${baseLoot}) · ${result.evals} evals — waiting for confirmation`;
       $("#optProgressBar").style.width = "100%";
 
       const apply = await askApplyOptimize({
@@ -847,23 +902,23 @@ async function runOptimize() {
         onBuildChanged();
         if (result.bestEval) showResult(result.bestEval);
         $("#optStatus").textContent =
-          `Übernommen · Ø ${bestAvg} (war ${baseAvg}) · loot ${bestLoot} (war ${baseLoot}) · ${result.evals} evals · ${result.loops || 1} Schleife(n) · Next-Best-Opti…`;
-        $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ von ${baseAvg}) — übernommen · Next-Best-Opti…`;
+          `Applied · Ø ${bestAvg} (was ${baseAvg}) · loot ${bestLoot} (was ${baseLoot}) · ${result.evals} evals · ${result.loops || 1} iteration(s) · Next-Best-Opti…`;
+        $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ from ${baseAvg}) — applied · Next-Best-Opti…`;
         runNextBestAfterApply = true;
       } else {
         $("#optStatus").textContent =
-          `Verworfen · Vorschlag Ø ${bestAvg} (aktuell ${baseAvg}) · ${result.evals} evals`;
-        $("#status").textContent = `Optimizer: Vorschlag verworfen (Ø ${bestAvg})`;
+          `Discarded · suggested Ø ${bestAvg} (current ${baseAvg}) · ${result.evals} evals`;
+        $("#status").textContent = `Optimizer: suggestion discarded (Ø ${bestAvg})`;
       }
     } else {
       $("#optStatus").textContent =
-        `Keine Verbesserung · Ø ${bestAvg} (Baseline ${baseAvg}) · ${result.evals} evals · ${result.loops || 1} Schleife(n)`;
-      $("#status").textContent = `Optimizer: keine Verbesserung (Ø ${baseAvg})`;
+        `No improvement · Ø ${bestAvg} (baseline ${baseAvg}) · ${result.evals} evals · ${result.loops || 1} iteration(s)`;
+      $("#status").textContent = `Optimizer: no improvement (Ø ${baseAvg})`;
       $("#optProgressBar").style.width = "100%";
     }
   } catch (err) {
     console.error(err);
-    $("#optStatus").textContent = `Optimizer-Fehler: ${err.message || err}`;
+    $("#optStatus").textContent = `Optimizer error: ${err.message || err}`;
   } finally {
     state.optimizing = false;
     state.optCancel = false;

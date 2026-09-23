@@ -7,7 +7,7 @@
     <meta name="description" content="Hunter simulator & optimizer for CIFI — WASM combat, stage distribution, loot score." />
     <link rel="stylesheet" href="./css/app.css" />
   </head>
-  <body>
+  <body data-hunter="borge">
     <header class="app-header">
       <div class="wrap" style="padding-top: 0; padding-bottom: 0">
         <h1>Hunter Sim</h1>
@@ -16,6 +16,8 @@
     </header>
 
     <main class="wrap">
+      <div class="hunter-tabs" id="hunterTabs" role="tablist" aria-label="Hunter"></div>
+
       <div class="toolbar">
         <div class="field">
           <label for="buildName">Build</label>
@@ -64,7 +66,7 @@
             <div class="tab-panel" data-panel="misc" hidden>
               <h3 class="section-title">Relics / Gems / Mods</h3>
               <div id="miscList" class="spin-list"></div>
-              <label class="check-row">
+              <label class="check-row" id="trampleRow">
                 <input id="trample" type="checkbox" />
                 <span>Trample mod</span>
               </label>
@@ -110,10 +112,10 @@
       </div>
 
       <p class="status" id="status">Initializing WASM…</p>
-      <p class="footer-note">
+      <p class="footer-note" id="hunterNote">
         Combat via <code>release.wasm</code> (same engine as
         <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).
-        Currently: <strong>Borge</strong>. Builds persist in this browser (localStorage).
+        Active: <strong>Borge</strong>. Builds persist per hunter in this browser.
       </p>
     </main>
 

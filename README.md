@@ -1,6 +1,6 @@
 # Hunter Sim (Web)
 
-Browser-App zum Simulieren und Optimieren von **Hunter**-Builds (CIFI). Aktuell: **Borge**; Ozzy/Knox folgen.
+Browser-App zum Simulieren und Optimieren von **Hunter**-Builds (CIFI): **Borge**, **Ozzy**, **Knox**.
 
 Gleicher Combat-Engine wie [cifi-tools](https://cifi-tools.com/borge) (`release.wasm` im Browser).
 
@@ -25,11 +25,11 @@ Dann http://localhost:8080 öffnen (kein `file://` — ES-Module + WASM brauchen
 | Pfad | Zweck |
 |---|---|
 | `web/` | Statische App (HTML/CSS/JS + WASM) |
-| `web/js/hunters/borge/` | Borge-Modul (Kosten, Attr-Rules, WASM-Bridge) |
+| `web/js/hunters/` | Hunter-Module (Borge / Ozzy / Knox) |
 | `.github/workflows/` | Pages-Deploy |
 | `docs/monster_stats/` | Monster-Stat-Tabellen (Doku) |
 | `scripts/export_monster_stats.py` | CSV-Export neu erzeugen |
-| `TODO.md` | Offene Arbeit (Ozzy/Knox-Module, …) |
+| `TODO.md` | Offene Arbeit |
 
 ## Lizenz
 

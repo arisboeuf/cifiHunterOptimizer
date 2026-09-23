@@ -171,3 +171,22 @@ export const GEM_KEYS = [
   "creation_node_#2",
   "creation_node_#3",
 ];
+
+export const BUILD_STATS_LABELS = [
+  ["max_hp", "MAX HP", (v) => String(v)],
+  ["atk_power", "ATK Power", (v) => String(v)],
+  ["hp_regen", "HP Regen", (v) => `${v} /s`],
+  ["dmg_reduction", "DMG Reduction", (v) => `${v} %`],
+  ["evade_chance", "Evade Chance", (v) => `${v} %`],
+  ["effect_chance", "Effect Chance", (v) => `${v} %`],
+  ["crit_chance", "Crit Chance", (v) => `${v} %`],
+  ["crit_power", "Crit Power", (v) => `${v} x`],
+  ["atk_speed", "ATK Speed", (v) => `${v} s`],
+];
+
+export const TIMELESS_KEY = "timeless_mastery";
+export const TIMELESS_PARENT_MIN = {
+  soul_of_ares: 1,
+  essence_of_ylith: 1,
+  spartan_lineage: 1,
+};

@@ -1,36 +1,22 @@
 import {
-  ATTRIBUTE_COSTS,
-  ATTRIBUTE_LABELS,
-  ATTRIBUTE_TIPS,
-  ATTR_ORDER,
-  GEM_KEYS,
-  INSC_ORDER,
-  INSCRIPTION_COSTS,
-  INSCRIPTION_META,
-  RELIC_KEYS,
-  STAT_LABELS,
-  STAT_MAX,
-  STAT_ORDER,
-  TALENT_COSTS,
-  TALENT_LABELS,
-  TALENT_TIPS,
-  TALENT_ORDER,
-} from "./hunters/borge/costs.js";
-import {
-  attributeTreeEntries,
-  attributeUnlockState,
-  zeroOrphanDependents,
-} from "./hunters/borge/attr-rules.js";
-import { defaultBuild, downloadJson, formatDuration, validateBudgets } from "./build.js";
+  DEFAULT_HUNTER_ID,
+  HUNTER_ORDER,
+  HUNTERS,
+  engineFor,
+  getHunter,
+  loadSharedWasm,
+  storageKeyFor,
+} from "./hunters/index.js";
+import { downloadJson, formatDuration, validateBudgets } from "./build.js";
 import { optimizeBuild } from "./optimize.js";
-import { WasmBorgeEngine, wasmToSimResult } from "./hunters/borge/wasm-engine.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
-const STORAGE_KEY = "hunter_sim_web_state_v1";
-const LEGACY_STORAGE_KEYS = ["borge_sim_web_state_v1"];
+const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 
 const state = {
-  build: defaultBuild(),
+  hunterId: DEFAULT_HUNTER_ID,
+  build: null,
+  wasmExports: null,
   engine: null,
   running: false,
   optimizing: false,
@@ -42,6 +28,10 @@ const state = {
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
+function hunter() {
+  return getHunter(state.hunterId);
+}
+
 function isCappedMax(value, hi) {
   return hi < 9999 && Number(value) >= hi;
 }
@@ -50,14 +40,12 @@ function applyHideMaxed() {
   const hide = !!state.hideMaxed;
   const hideEl = $("#hideMaxed");
   if (hideEl) hideEl.checked = hide;
-  // Only left-panel lists (stats / insc / relics-gems) — not talents/attributes
   for (const listId of ["statsList", "inscList", "miscList"]) {
     $$(`#${listId} .spin[data-can-max='1']`).forEach((row) => {
       const maxed = row.dataset.maxed === "1";
       row.hidden = hide && maxed;
     });
   }
-  // Clear hide on talent/attr rows if any were marked
   for (const listId of ["talentList", "attrList"]) {
     $$(`#${listId} .spin`).forEach((row) => {
       row.hidden = false;
@@ -125,6 +113,26 @@ function spinRow(parent, { key, label, hint, tip, value, max, onChange, depth = 
 }
 
 function buildLeftLists() {
+  const h = hunter();
+  const {
+    STAT_ORDER,
+    STAT_LABELS,
+    STAT_MAX,
+    INSC_ORDER,
+    INSCRIPTION_META,
+    INSCRIPTION_COSTS,
+    RELIC_KEYS,
+    GEM_KEYS,
+    TALENT_ORDER,
+    TALENT_LABELS,
+    TALENT_TIPS,
+    TALENT_COSTS,
+    ATTR_ORDER,
+    ATTRIBUTE_COSTS,
+    ATTRIBUTE_LABELS,
+    ATTRIBUTE_TIPS,
+  } = h.costs;
+
   const statsList = $("#statsList");
   const inscList = $("#inscList");
   const miscList = $("#miscList");
@@ -134,9 +142,20 @@ function buildLeftLists() {
   miscList.innerHTML = "";
   talentList.innerHTML = "";
 
+  const cappedStats = [
+    "damage_reduction",
+    "evade_chance",
+    "block_chance",
+    "effect_chance",
+    "special_chance",
+    "special_damage",
+    "speed",
+    "projectiles",
+  ];
+
   for (const k of STAT_ORDER) {
     const mx = STAT_MAX[k];
-    const capped = ["damage_reduction", "evade_chance", "effect_chance", "special_chance", "special_damage", "speed"].includes(k);
+    const capped = cappedStats.includes(k);
     spinRow(statsList, {
       key: `stat.${k}`,
       label: capped ? `${STAT_LABELS[k]}  /${mx}` : STAT_LABELS[k],
@@ -207,6 +226,8 @@ function buildLeftLists() {
 
   buildAttrList();
 
+  const trampleRow = $("#trampleRow");
+  if (trampleRow) trampleRow.hidden = !h.showTrample;
   $("#trample").checked = !!state.build.mods?.trample;
   $("#buildName").value = state.build.build_name || "";
   $("#level").value = String(state.build.meta?.level ?? 0);
@@ -214,16 +235,18 @@ function buildLeftLists() {
 }
 
 function buildAttrList() {
+  const h = hunter();
+  const { ATTR_ORDER, ATTRIBUTE_COSTS, ATTRIBUTE_LABELS, ATTRIBUTE_TIPS } = h.costs;
   const attrList = $("#attrList");
   if (!attrList) return;
   attrList.innerHTML = "";
-  state.build.attributes = zeroOrphanDependents(state.build.attributes || {});
-  const attrs = state.build.attributes;
+  state.build.attributes = h.attrs.zeroOrphanDependents(state.build.attributes || {});
+  const attributes = state.build.attributes;
 
-  for (const { key: k, depth } of attributeTreeEntries(ATTR_ORDER)) {
+  for (const { key: k, depth } of h.attrs.attributeTreeEntries(ATTR_ORDER)) {
     const cost = ATTRIBUTE_COSTS[k];
     if (!cost) continue;
-    const unlock = attributeUnlockState(attrs, k);
+    const unlock = h.attrs.attributeUnlockState(attributes, k);
     const hints = [`cost ${cost.cost} · max ${cost.max === Infinity ? "∞" : cost.max}`];
     if (unlock.locked && unlock.reason) hints.push(unlock.reason);
     spinRow(attrList, {
@@ -231,13 +254,13 @@ function buildAttrList() {
       label: ATTRIBUTE_LABELS[k],
       tip: ATTRIBUTE_TIPS[k],
       hint: hints.join(" · "),
-      value: attrs[k] ?? 0,
+      value: attributes[k] ?? 0,
       max: cost.max,
       depth,
       locked: unlock.locked,
       onChange: (n) => {
         state.build.attributes[k] = n;
-        state.build.attributes = zeroOrphanDependents(state.build.attributes);
+        state.build.attributes = h.attrs.zeroOrphanDependents(state.build.attributes);
         buildAttrList();
         onBuildChanged();
       },
@@ -247,11 +270,12 @@ function buildAttrList() {
 }
 
 function syncMetaFromInputs() {
+  const h = hunter();
   state.build.build_name = $("#buildName").value.trim() || "Build";
   state.build.meta = state.build.meta || {};
-  state.build.meta.hunter = "Borge";
+  state.build.meta.hunter = h.name;
   state.build.meta.level = Math.max(0, Number($("#level").value) || 0);
-  state.build.mods = { trample: $("#trample").checked };
+  state.build.mods = { trample: h.showTrample ? $("#trample").checked : false };
 }
 
 function onBuildChanged() {
@@ -262,7 +286,7 @@ function onBuildChanged() {
 
 function refreshBudget() {
   syncMetaFromInputs();
-  const v = validateBudgets(state.build);
+  const v = validateBudgets(state.build, hunter());
   state.build = { ...state.build, ...v.config, build_name: state.build.build_name };
   const el = $("#budget");
   el.textContent = v.msg;
@@ -274,7 +298,7 @@ function refreshBudget() {
 function saveState() {
   try {
     localStorage.setItem(
-      STORAGE_KEY,
+      storageKeyFor(state.hunterId),
       JSON.stringify({
         config: state.build,
         reps: Number($("#reps").value) || 6000,
@@ -285,31 +309,86 @@ function saveState() {
   }
 }
 
-function loadState() {
+function loadHunterState(hunterId) {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
+    let raw = localStorage.getItem(storageKeyFor(hunterId));
+    if (!raw && hunterId === "borge") {
       for (const key of LEGACY_STORAGE_KEYS) {
         raw = localStorage.getItem(key);
         if (raw) {
-          localStorage.setItem(STORAGE_KEY, raw);
+          localStorage.setItem(storageKeyFor("borge"), raw);
           break;
         }
       }
     }
-    if (!raw) return false;
+    if (!raw) return null;
     const data = JSON.parse(raw);
     if (data?.config && typeof data.config === "object") {
-      state.build = { ...defaultBuild(), ...data.config };
       if (data.reps) $("#reps").value = String(data.reps);
-      // Always start with "Gemaxte ausblenden" on (ignore older saved false).
-      state.hideMaxed = true;
-      return true;
+      return data.config;
     }
   } catch {
     /* ignore */
   }
-  return false;
+  return null;
+}
+
+function applyHunterTheme() {
+  const h = hunter();
+  document.body.dataset.hunter = h.theme;
+  $$(".hunter-tab").forEach((btn) => {
+    btn.setAttribute("aria-selected", String(btn.dataset.hunter === state.hunterId));
+  });
+  const note = $("#hunterNote");
+  if (note) note.innerHTML = `Active: <strong>${h.name}</strong>. Builds persist per hunter in this browser.`;
+}
+
+function switchHunter(hunterId) {
+  if (state.running || state.optimizing) return;
+  if (hunterId === state.hunterId) return;
+  if (!HUNTERS[hunterId]) return;
+
+  saveState();
+  state.hunterId = hunterId;
+  const h = hunter();
+  const saved = loadHunterState(hunterId);
+  state.build = saved ? { ...h.defaultBuild(), ...saved } : h.defaultBuild();
+  if (state.wasmExports) state.engine = engineFor(h, state.wasmExports);
+  state.lastResult = null;
+  renderBuildStats(null);
+  drawEmpty($("#chartDist"));
+  drawEmpty($("#chartOdds"));
+  drawEmpty($("#chartRev"));
+  $("#mLoot").textContent = "—";
+  $("#mStage").textContent = "—";
+  $("#mTime").textContent = "—";
+  $("#mBoss").textContent = "—";
+  $("#sMin").textContent = "—";
+  $("#sAvg").textContent = "—";
+  $("#sMax").textContent = "—";
+
+  applyHunterTheme();
+  buildLeftLists();
+  refreshBudget();
+  saveState();
+  $("#status").textContent = `${h.name} ready`;
+}
+
+function setupHunterTabs() {
+  const bar = $("#hunterTabs");
+  if (!bar) return;
+  bar.innerHTML = "";
+  for (const id of HUNTER_ORDER) {
+    const h = HUNTERS[id];
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "hunter-tab";
+    btn.dataset.hunter = id;
+    btn.setAttribute("role", "tab");
+    btn.textContent = h.name;
+    btn.addEventListener("click", () => switchHunter(id));
+    bar.appendChild(btn);
+  }
 }
 
 function setupTabs() {
@@ -322,9 +401,9 @@ function setupTabs() {
     });
   });
 
-  $$('.tab[data-rtab]').forEach((btn) => {
+  $$(".tab[data-rtab]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      $$('.tab[data-rtab]').forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
+      $$(".tab[data-rtab]").forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
       $$("[data-rpanel]").forEach((p) => {
         p.hidden = p.dataset.rpanel !== btn.dataset.rtab;
       });
@@ -332,9 +411,9 @@ function setupTabs() {
     });
   });
 
-  $$('.tab[data-mtab]').forEach((btn) => {
+  $$(".tab[data-mtab]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      $$('.tab[data-mtab]').forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
+      $$(".tab[data-mtab]").forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
       $$("[data-mpanel]").forEach((p) => {
         p.hidden = p.dataset.mpanel !== btn.dataset.mtab;
       });
@@ -344,17 +423,7 @@ function setupTabs() {
 
 function renderBuildStats(stats) {
   const grid = $("#buildStatsGrid");
-  const items = [
-    ["max_hp", "MAX HP", (v) => String(v)],
-    ["atk_power", "ATK Power", (v) => String(v)],
-    ["hp_regen", "HP Regen", (v) => `${v} /s`],
-    ["dmg_reduction", "DMG Reduction", (v) => `${v} %`],
-    ["evade_chance", "Evade Chance", (v) => `${v} %`],
-    ["effect_chance", "Effect Chance", (v) => `${v} %`],
-    ["crit_chance", "Crit Chance", (v) => `${v} %`],
-    ["crit_power", "Crit Power", (v) => `${v} x`],
-    ["atk_speed", "ATK Speed", (v) => `${v} s`],
-  ];
+  const items = hunter().costs.BUILD_STATS_LABELS;
   grid.innerHTML = items
     .map(
       ([key, title, fmt]) => `
@@ -377,7 +446,7 @@ function showResult(res) {
   $("#sMax").textContent = res.maxStage.toFixed(1);
   renderBuildStats(res.buildStats);
   redrawCharts();
-  $("#status").textContent = `Done — ${res.n} runs (${res.engine})`;
+  $("#status").textContent = `Done — ${res.n} runs (${res.engine}) · ${hunter().name}`;
   $("#progressBar").style.width = "100%";
 }
 
@@ -405,15 +474,14 @@ async function runSim() {
   state.running = true;
   $("#btnRun").disabled = true;
   $("#progressBar").style.width = "15%";
-  $("#status").textContent = `Running ${n} sims (wasm)…`;
+  $("#status").textContent = `Running ${n} sims (wasm · ${hunter().name})…`;
   saveState();
 
   try {
-    // Yield so UI updates before heavy WASM call
     await new Promise((r) => setTimeout(r, 30));
     $("#progressBar").style.width = "55%";
     const wasmRes = state.engine.evaluate(v.config, n);
-    const res = wasmToSimResult(wasmRes, n);
+    const res = hunter().wasmToSimResult(wasmRes, n);
     showResult(res);
   } catch (err) {
     console.error(err);
@@ -435,7 +503,6 @@ async function importBuild(file) {
   const text = await file.text();
   let data;
   if (/\.ya?ml$/i.test(file.name)) {
-    // Minimal YAML subset via dynamic import of js-yaml CDN if available; else try JSON
     try {
       const mod = await import("https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/+esm");
       data = mod.load(text);
@@ -446,7 +513,14 @@ async function importBuild(file) {
     data = JSON.parse(text);
   }
   if (!data || typeof data !== "object") throw new Error("Invalid build file");
-  state.build = { ...defaultBuild(), ...data };
+
+  const hunterName = String(data.meta?.hunter || "").toLowerCase();
+  const matchId = HUNTER_ORDER.find((id) => HUNTERS[id].name.toLowerCase() === hunterName);
+  if (matchId && matchId !== state.hunterId) {
+    switchHunter(matchId);
+  }
+
+  state.build = { ...hunter().defaultBuild(), ...data };
   buildLeftLists();
   refreshBudget();
   saveState();
@@ -454,16 +528,23 @@ async function importBuild(file) {
 }
 
 async function init() {
+  setupHunterTabs();
   setupTabs();
+
+  // Always start on Borge
+  state.hunterId = DEFAULT_HUNTER_ID;
+  const saved = loadHunterState(state.hunterId);
+  state.build = saved ? { ...hunter().defaultBuild(), ...saved } : hunter().defaultBuild();
+  state.hideMaxed = true;
+
+  applyHunterTheme();
   renderBuildStats(null);
   drawEmpty($("#chartDist"));
   drawEmpty($("#chartOdds"));
   drawEmpty($("#chartRev"));
-
-  const restored = loadState();
   buildLeftLists();
   refreshBudget();
-  $("#status").textContent = restored ? "Restored last session · loading WASM…" : "Loading WASM…";
+  $("#status").textContent = saved ? "Restored Borge session · loading WASM…" : "Loading WASM…";
 
   $("#buildName").addEventListener("change", onBuildChanged);
   $("#level").addEventListener("change", onBuildChanged);
@@ -483,11 +564,13 @@ async function init() {
     }
   });
   $("#btnInscMax").addEventListener("click", () => {
+    const { INSC_ORDER, INSCRIPTION_COSTS } = hunter().costs;
     for (const k of INSC_ORDER) state.build.inscryptions[k] = INSCRIPTION_COSTS[k].max;
     buildLeftLists();
     onBuildChanged();
   });
   $("#btnInscClear").addEventListener("click", () => {
+    const { INSC_ORDER } = hunter().costs;
     for (const k of INSC_ORDER) state.build.inscryptions[k] = 0;
     buildLeftLists();
     onBuildChanged();
@@ -511,9 +594,10 @@ async function init() {
   window.addEventListener("resize", () => redrawCharts());
 
   try {
-    state.engine = await WasmBorgeEngine.load("./wasm/release.wasm");
-    $("#status").textContent = restored
-      ? "Restored last session · WASM ready"
+    state.wasmExports = await loadSharedWasm("./wasm/release.wasm");
+    state.engine = engineFor(hunter(), state.wasmExports);
+    $("#status").textContent = saved
+      ? "Restored Borge session · WASM ready"
       : "WASM ready — edit build and Run Simulation";
     $("#btnRun").disabled = false;
     $("#btnOptimize").disabled = false;
@@ -573,6 +657,7 @@ async function runOptimize() {
     const result = await optimizeBuild(
       state.build,
       state.engine,
+      hunter(),
       {
         nBaseline,
         loops,

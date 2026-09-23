@@ -1,4 +1,5 @@
-:root {
+:root,
+body[data-hunter="borge"] {
   --bg: #070b14;
   --bg-elev: #0d1424;
   --panel: #121a2d;
@@ -14,9 +15,46 @@
   --ok: #22c55e;
   --warn: #f59e0b;
   --header-from: #9f1239;
+  --header-mid: #4c1d95;
   --header-to: #0b1220;
+  --glow-a: rgba(159, 18, 57, 0.35);
+  --glow-b: rgba(66, 99, 235, 0.22);
   --radius: 12px;
   --font: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+body[data-hunter="ozzy"] {
+  --bg: #06120c;
+  --bg-elev: #0c1a14;
+  --panel: #10241a;
+  --card: #163024;
+  --card-hover: #1d3c2d;
+  --border: #245038;
+  --accent: #2f9e6a;
+  --accent-hover: #247a52;
+  --accent-soft: rgba(47, 158, 106, 0.2);
+  --header-from: #14532d;
+  --header-mid: #166534;
+  --header-to: #052e16;
+  --glow-a: rgba(34, 197, 94, 0.28);
+  --glow-b: rgba(16, 185, 129, 0.18);
+}
+
+body[data-hunter="knox"] {
+  --bg: #070c16;
+  --bg-elev: #0c1524;
+  --panel: #101c30;
+  --card: #15263c;
+  --card-hover: #1c304a;
+  --border: #243b58;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.2);
+  --header-from: #1e3a8a;
+  --header-mid: #1d4ed8;
+  --header-to: #0b1220;
+  --glow-a: rgba(37, 99, 235, 0.32);
+  --glow-b: rgba(14, 165, 233, 0.18);
 }
 
 *,
@@ -36,15 +74,53 @@ body {
 
 body {
   background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(159, 18, 57, 0.35), transparent 55%),
-    radial-gradient(900px 420px at 90% 0%, rgba(66, 99, 235, 0.22), transparent 50%),
+    radial-gradient(1200px 500px at 10% -10%, var(--glow-a), transparent 55%),
+    radial-gradient(900px 420px at 90% 0%, var(--glow-b), transparent 50%),
     var(--bg);
+  transition: background 0.35s ease;
 }
 
 .app-header {
-  background: linear-gradient(105deg, var(--header-from) 0%, #4c1d95 42%, var(--header-to) 100%);
+  background: linear-gradient(105deg, var(--header-from) 0%, var(--header-mid) 42%, var(--header-to) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding: 1.25rem 1.25rem 1rem;
+  transition: background 0.35s ease;
+}
+
+.hunter-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.95rem;
+  padding: 0.3rem;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.hunter-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 650;
+  padding: 0.5rem 1.05rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.hunter-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.hunter-tab[aria-selected="true"] {
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
 }
 
 .app-header h1 {

@@ -2,7 +2,7 @@
 
 Static hunter sim / optimizer for [cifi-tools](https://cifi-tools.com/borge).
 
-Uses `wasm/release.wasm` in the browser — no backend. Hunter modules live under `js/hunters/` (currently `borge/`).
+Uses `wasm/release.wasm` in the browser — no backend. Hunter modules live under `js/hunters/` (`borge/`, `ozzy/`, `knox/`). Tabs: Borge → Ozzy → Knox.
 
 ## Local preview
 

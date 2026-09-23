@@ -1,19 +1,5 @@
 /** Monte-Carlo local search over talent/attribute budgets (WASM eval). */
-import {
-  ATTRIBUTE_COSTS,
-  ATTR_ORDER,
-  TALENT_COSTS,
-  TALENT_ORDER,
-} from "./hunters/borge/costs.js";
-import {
-  attrSpent,
-  attributesTreeValid,
-  canIncreaseAttribute,
-  dependentsOf,
-  zeroOrphanDependents,
-} from "./hunters/borge/attr-rules.js";
 import { pointBudgets, validateBudgets } from "./build.js";
-import { wasmToSimResult } from "./hunters/borge/wasm-engine.js";
 
 export const DEFAULT_OPTIMIZE = {
   nSearch: 250,
@@ -30,47 +16,6 @@ export const DEFAULT_OPTIMIZE = {
   /** Two-sided α for Welch/z stage-mean equality (loot tie-break when not different). */
   stageTieAlpha: 0.05,
 };
-
-const TIMELESS_KEY = "timeless_mastery";
-const TIMELESS_PARENT_MIN = {
-  soul_of_ares: 1,
-  essence_of_ylith: 1,
-  spartan_lineage: 1,
-};
-
-function talentMax(key) {
-  return Number(TALENT_COSTS[key]?.max ?? 0);
-}
-
-function attrCost(key) {
-  return Number(ATTRIBUTE_COSTS[key]?.cost ?? 1);
-}
-
-function attrMax(key) {
-  const mx = ATTRIBUTE_COSTS[key]?.max;
-  return mx === Infinity ? 9999 : Number(mx ?? 0);
-}
-
-function attrsValid(attrs, budget) {
-  return attributesTreeValid(attrs, budget).ok;
-}
-
-function ensureTimelessLock(attrs, keys) {
-  const out = Object.fromEntries(keys.map((k) => [k, Number(attrs[k] ?? 0)]));
-  for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
-    if (k in out) out[k] = Math.max(Number(out[k] ?? 0), mn);
-  }
-  if (TIMELESS_KEY in out || keys.includes(TIMELESS_KEY)) out[TIMELESS_KEY] = 5;
-  return zeroOrphanDependents(out);
-}
-
-function timelessLockCost() {
-  let cost = 5 * attrCost(TIMELESS_KEY);
-  for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
-    cost += mn * attrCost(k);
-  }
-  return cost;
-}
 
 function stageStatsFromCounts(res) {
   const counts = res?.stageCounts || {};
@@ -95,7 +40,6 @@ function stageStatsFromCounts(res) {
   return { n, mean, variance };
 }
 
-/** Score used for ranking: Ø stage primary, loot on statistical stage-tie. */
 function scoreOf(res) {
   const st = stageStatsFromCounts(res);
   return {
@@ -106,10 +50,6 @@ function scoreOf(res) {
   };
 }
 
-/**
- * Welch two-sample test (normal/z approx for large n): are means different at `alpha`?
- * Default α=0.05 → critical |z| ≈ 1.96.
- */
 function stagesSignificantlyDifferent(a, b, alpha = 0.05) {
   const n1 = Number(a.n) || 0;
   const n2 = Number(b.n) || 0;
@@ -120,13 +60,11 @@ function stagesSignificantlyDifferent(a, b, alpha = 0.05) {
   if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
 
   const z = Math.abs(diff) / Math.sqrt(se2);
-  // two-sided normal critical value
   const zCrit =
     alpha <= 0.01 ? 2.57582930355 : alpha <= 0.05 ? 1.95996398454 : 1.64485362695;
   return z > zCrit;
 }
 
-/** True if `a` is better than `b` (statistically higher stage, else higher loot). */
 function scoreGt(a, b, alpha = 0.05) {
   if (!a) return false;
   if (!b) return true;
@@ -161,120 +99,145 @@ function yieldToUi() {
   return new Promise((r) => setTimeout(r, 0));
 }
 
-function randomTalents(rng, keys, budget) {
-  const levels = Object.fromEntries(keys.map((k) => [k, 0]));
-  let remaining = budget;
-  while (remaining > 0) {
-    const candidates = keys.filter((k) => levels[k] < talentMax(k));
-    if (!candidates.length) break;
-    levels[rng.choice(candidates)] += 1;
-    remaining -= 1;
-  }
-  return levels;
-}
-
-function randomAttributes(rng, keys, budget, forceTimeless5) {
-  let levels = Object.fromEntries(keys.map((k) => [k, 0]));
-  if (forceTimeless5) {
-    levels = ensureTimelessLock(levels, keys);
-    if (attrSpent(levels) > budget) return levels;
-  }
-  let remaining = budget - attrSpent(levels);
-  for (let i = 0; i < budget * 6; i++) {
-    if (remaining <= 0) break;
-    const candidates = keys.filter(
-      (k) =>
-        (!forceTimeless5 || k !== TIMELESS_KEY) &&
-        attrCost(k) <= remaining &&
-        canIncreaseAttribute(levels, k),
-    );
-    if (!candidates.length) break;
-    const k = rng.choice(candidates);
-    levels[k] = Number(levels[k] ?? 0) + 1;
-    remaining -= attrCost(k);
-  }
-  if (forceTimeless5) levels = ensureTimelessLock(levels, keys);
-  return levels;
-}
-
-function neighborTalents(rng, talents, keys) {
-  const donors = keys.filter((k) => Number(talents[k] ?? 0) > 0);
-  const receivers = keys.filter((k) => Number(talents[k] ?? 0) < talentMax(k));
-  if (!donors.length || !receivers.length) return null;
-  for (let i = 0; i < 24; i++) {
-    const a = rng.choice(donors);
-    const b = rng.choice(receivers);
-    if (a === b) continue;
-    const out = { ...talents };
-    out[a] = Number(out[a]) - 1;
-    out[b] = Number(out[b] ?? 0) + 1;
-    return out;
-  }
-  return null;
-}
-
-function neighborAttributes(rng, attrs, keys, budget, forceTimeless5) {
-  const lockedFloor = forceTimeless5 ? { ...TIMELESS_PARENT_MIN, [TIMELESS_KEY]: 5 } : {};
-  const donors = keys.filter((k) => Number(attrs[k] ?? 0) > (lockedFloor[k] ?? 0));
-  if (!donors.length) return null;
-  const baseSnap = Object.fromEntries(keys.map((k) => [k, Number(attrs[k] ?? 0)]));
-  for (let i = 0; i < 48; i++) {
-    const a = rng.choice(donors);
-    let out = { ...baseSnap };
-    const floor = lockedFloor[a] ?? 0;
-    out[a] = Math.max(floor, Number(out[a]) - 1);
-    if (out[a] <= 0 && !(a in lockedFloor)) {
-      out[a] = 0;
-      for (const dep of dependentsOf(a)) {
-        if (dep in lockedFloor) continue;
-        out[dep] = 0;
-      }
-    }
-    out = forceTimeless5 ? ensureTimelessLock(out, keys) : zeroOrphanDependents(out);
-    const remaining = budget - attrSpent(out);
-    const receivers = keys.filter(
-      (k) =>
-        k !== a &&
-        (!forceTimeless5 || k !== TIMELESS_KEY) &&
-        canIncreaseAttribute(out, k) &&
-        attrCost(k) <= remaining,
-    );
-    if (receivers.length) {
-      const b = rng.choice(receivers);
-      out[b] = Number(out[b] ?? 0) + 1;
-    }
-    if (forceTimeless5) out = ensureTimelessLock(out, keys);
-    const changed = keys.some((k) => Number(out[k] ?? 0) !== baseSnap[k]);
-    if (attrsValid(out, budget) && changed) return out;
-  }
-  return null;
-}
-
-function applyPoints(base, talents, attrs) {
-  const cfg = structuredClone(base);
-  cfg.talents = Object.fromEntries(
-    Object.keys(base.talents || {}).map((k) => [k, Number(talents[k] ?? 0)]),
-  );
-  for (const [k, v] of Object.entries(talents)) cfg.talents[k] = Number(v);
-  let cleaned = zeroOrphanDependents(
-    Object.fromEntries(Object.keys(base.attributes || {}).map((k) => [k, Number(attrs[k] ?? 0)])),
-  );
-  for (const [k, v] of Object.entries(attrs)) cleaned[k] = Number(v);
-  cleaned = zeroOrphanDependents(cleaned);
-  cfg.attributes = Object.fromEntries(
-    Object.keys(base.attributes || {}).map((k) => [k, Number(cleaned[k] ?? 0)]),
-  );
-  for (const [k, v] of Object.entries(cleaned)) cfg.attributes[k] = Number(v);
-  return cfg;
-}
-
 /**
  * @param {object} baseConfig
- * @param {import('./hunters/borge/wasm-engine.js').WasmBorgeEngine} engine
+ * @param {{ evaluate: Function }} engine
+ * @param {import('./hunters/index.js').HUNTERS[string]} hunter
  * @param {Partial<typeof DEFAULT_OPTIMIZE>} [optIn]
  * @param {{ onProgress?: Function, isCancelled?: () => boolean }} [hooks]
  */
-export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) {
+export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const { costs, attrs, wasmToSimResult } = hunter;
+  const TIMELESS_KEY = costs.TIMELESS_KEY;
+  const TIMELESS_PARENT_MIN = costs.TIMELESS_PARENT_MIN || {};
+
+  function talentMax(key) {
+    return Number(costs.TALENT_COSTS[key]?.max ?? 0);
+  }
+  function attrCost(key) {
+    return Number(costs.ATTRIBUTE_COSTS[key]?.cost ?? 1);
+  }
+  function attrsValid(attrsMap, budget) {
+    return attrs.attributesTreeValid(attrsMap, budget).ok;
+  }
+  function ensureTimelessLock(attrMap, keys) {
+    const out = Object.fromEntries(keys.map((k) => [k, Number(attrMap[k] ?? 0)]));
+    for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
+      if (k in out) out[k] = Math.max(Number(out[k] ?? 0), mn);
+    }
+    if (TIMELESS_KEY in out || keys.includes(TIMELESS_KEY)) out[TIMELESS_KEY] = 5;
+    return attrs.zeroOrphanDependents(out);
+  }
+  function timelessLockCost() {
+    let cost = 5 * attrCost(TIMELESS_KEY);
+    for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
+      cost += mn * attrCost(k);
+    }
+    return cost;
+  }
+  function randomTalents(rng, keys, budget) {
+    const levels = Object.fromEntries(keys.map((k) => [k, 0]));
+    let remaining = budget;
+    while (remaining > 0) {
+      const candidates = keys.filter((k) => levels[k] < talentMax(k));
+      if (!candidates.length) break;
+      levels[rng.choice(candidates)] += 1;
+      remaining -= 1;
+    }
+    return levels;
+  }
+  function randomAttributes(rng, keys, budget, forceTimeless5) {
+    let levels = Object.fromEntries(keys.map((k) => [k, 0]));
+    if (forceTimeless5) {
+      levels = ensureTimelessLock(levels, keys);
+      if (attrs.attrSpent(levels) > budget) return levels;
+    }
+    let remaining = budget - attrs.attrSpent(levels);
+    for (let i = 0; i < budget * 6; i++) {
+      if (remaining <= 0) break;
+      const candidates = keys.filter(
+        (k) =>
+          (!forceTimeless5 || k !== TIMELESS_KEY) &&
+          attrCost(k) <= remaining &&
+          attrs.canIncreaseAttribute(levels, k),
+      );
+      if (!candidates.length) break;
+      const k = rng.choice(candidates);
+      levels[k] = Number(levels[k] ?? 0) + 1;
+      remaining -= attrCost(k);
+    }
+    if (forceTimeless5) levels = ensureTimelessLock(levels, keys);
+    return levels;
+  }
+  function neighborTalents(rng, talents, keys) {
+    const donors = keys.filter((k) => Number(talents[k] ?? 0) > 0);
+    const receivers = keys.filter((k) => Number(talents[k] ?? 0) < talentMax(k));
+    if (!donors.length || !receivers.length) return null;
+    for (let i = 0; i < 24; i++) {
+      const a = rng.choice(donors);
+      const b = rng.choice(receivers);
+      if (a === b) continue;
+      const out = { ...talents };
+      out[a] = Number(out[a]) - 1;
+      out[b] = Number(out[b] ?? 0) + 1;
+      return out;
+    }
+    return null;
+  }
+  function neighborAttributes(rng, attrMap, keys, budget, forceTimeless5) {
+    const lockedFloor = forceTimeless5 ? { ...TIMELESS_PARENT_MIN, [TIMELESS_KEY]: 5 } : {};
+    const donors = keys.filter((k) => Number(attrMap[k] ?? 0) > (lockedFloor[k] ?? 0));
+    if (!donors.length) return null;
+    const baseSnap = Object.fromEntries(keys.map((k) => [k, Number(attrMap[k] ?? 0)]));
+    for (let i = 0; i < 48; i++) {
+      const a = rng.choice(donors);
+      let out = { ...baseSnap };
+      const floor = lockedFloor[a] ?? 0;
+      out[a] = Math.max(floor, Number(out[a]) - 1);
+      if (out[a] <= 0 && !(a in lockedFloor)) {
+        out[a] = 0;
+        for (const dep of attrs.dependentsOf(a)) {
+          if (dep in lockedFloor) continue;
+          out[dep] = 0;
+        }
+      }
+      out = forceTimeless5 ? ensureTimelessLock(out, keys) : attrs.zeroOrphanDependents(out);
+      const remaining = budget - attrs.attrSpent(out);
+      const receivers = keys.filter(
+        (k) =>
+          k !== a &&
+          (!forceTimeless5 || k !== TIMELESS_KEY) &&
+          attrs.canIncreaseAttribute(out, k) &&
+          attrCost(k) <= remaining,
+      );
+      if (receivers.length) {
+        const b = rng.choice(receivers);
+        out[b] = Number(out[b] ?? 0) + 1;
+      }
+      if (forceTimeless5) out = ensureTimelessLock(out, keys);
+      const changed = keys.some((k) => Number(out[k] ?? 0) !== baseSnap[k]);
+      if (attrsValid(out, budget) && changed) return out;
+    }
+    return null;
+  }
+  function applyPoints(base, talents, attrMap) {
+    const cfg = structuredClone(base);
+    cfg.talents = Object.fromEntries(
+      Object.keys(base.talents || {}).map((k) => [k, Number(talents[k] ?? 0)]),
+    );
+    for (const [k, v] of Object.entries(talents)) cfg.talents[k] = Number(v);
+    let cleaned = attrs.zeroOrphanDependents(
+      Object.fromEntries(Object.keys(base.attributes || {}).map((k) => [k, Number(attrMap[k] ?? 0)])),
+    );
+    for (const [k, v] of Object.entries(attrMap)) cleaned[k] = Number(v);
+    cleaned = attrs.zeroOrphanDependents(cleaned);
+    cfg.attributes = Object.fromEntries(
+      Object.keys(base.attributes || {}).map((k) => [k, Number(cleaned[k] ?? 0)]),
+    );
+    for (const [k, v] of Object.entries(cleaned)) cfg.attributes[k] = Number(v);
+    return cfg;
+  }
+
   const opt = { ...DEFAULT_OPTIMIZE, ...optIn };
   const rng = makeRng(opt.seed);
   const forceTm = !!opt.forceTimelessMastery5;
@@ -289,10 +252,10 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
 
   const talentKeys = Object.keys(base.talents || {}).length
     ? Object.keys(base.talents)
-    : [...TALENT_ORDER];
+    : [...costs.TALENT_ORDER];
   const attrKeys = Object.keys(base.attributes || {}).length
     ? Object.keys(base.attributes)
-    : [...ATTR_ORDER];
+    : [...costs.ATTR_ORDER];
 
   if (forceTm && timelessLockCost() > attrCap) {
     throw new Error(
@@ -324,7 +287,7 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
   const evaluate = async (cfg, n, enforceTimeless) => {
     if (isCancelled()) return null;
     if (enforceTimeless && Number(cfg.attributes?.[TIMELESS_KEY] ?? 0) !== 5) return null;
-    const v = validateBudgets(cfg);
+    const v = validateBudgets(cfg, hunter);
     if (!v.ok) return null;
     await yieldToUi();
     if (isCancelled()) return null;
@@ -333,7 +296,7 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
   };
 
   const curTal = Object.fromEntries(talentKeys.map((k) => [k, Number(base.talents?.[k] ?? 0)]));
-  const curAttr = zeroOrphanDependents(
+  const curAttr = attrs.zeroOrphanDependents(
     Object.fromEntries(attrKeys.map((k) => [k, Number(base.attributes?.[k] ?? 0)])),
   );
   const baselineCfg = applyPoints(base, curTal, curAttr);
@@ -408,11 +371,7 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
       let localScore = scoreOf(localRes);
       let stagnant = 0;
       const show = searchBestScore || localScore;
-      loopNotify(
-        `Suche r${restart + 1}/${opt.restarts}`,
-        show.avgStage,
-        show.lootScore,
-      );
+      loopNotify(`Suche r${restart + 1}/${opt.restarts}`, show.avgStage, show.lootScore);
 
       while (stagnant < opt.stagnationLimit && loopEvals < opt.maxEvals) {
         if (isCancelled()) break;
@@ -482,11 +441,7 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
       evals += 1;
       loopEvals += 1;
       considerSearch(cfg, r);
-      loopNotify(
-        `Refined ${i + 1}`,
-        searchBestScore?.avgStage,
-        searchBestScore?.lootScore,
-      );
+      loopNotify(`Refined ${i + 1}`, searchBestScore?.avgStage, searchBestScore?.lootScore);
     }
 
     globalDone = Math.min(totalBudget, 1 + (loop + 1) * perLoopBudget);
@@ -505,7 +460,6 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
     }
   }
 
-  // Final tournament: fair re-sim of loop champions, then statistical pick.
   let searchBestCfg = null;
   let searchBestScore = null;
   let searchBestEval = null;
@@ -548,7 +502,6 @@ export async function optimizeBuild(baseConfig, engine, optIn = {}, hooks = {}) 
     );
   }
 
-  // Single-loop fallback if finale produced nothing but a champion exists
   if (!searchBestCfg && loopChampions.length) {
     const ch = loopChampions.reduce((best, cur) =>
       scoreGt(cur.sc, best.sc, opt.stageTieAlpha) ? cur : best,

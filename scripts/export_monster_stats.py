@@ -1,6 +1,8 @@
 """Export enemy/boss base stats to docs/monster_stats/*.csv (documentation only).
 
-Formulas originally from hunter-sim units.py (Enemy/Boss.fetch_stats).
+Borge/Ozzy normal formulas: hunter-sim units.py (legacy docs).
+Knox (+ richer boss notes): cifi-tools EnemyStatsDebug (WASM-aligned).
+
 Values are *base* monster stats before hunter talents (PoG, Omen, …) are applied.
 """
 
@@ -99,6 +101,89 @@ def ozzy_enemy(stage: int) -> dict[str, float]:
     }
 
 
+def _knox_late(stage: int) -> float:
+    """Late-game multiplier from cifi-tools EnemyStatsDebug (Knox)."""
+    t = stage
+    return max(
+        1.0,
+        1
+        + 0.006 * (t - 49)
+        + max(0.0, 0.006 * (t - 99))
+        + max(0.0, 0.01 * (t - 119))
+        + max(0.0, 0.008 * (t - 129))
+        + max(0.0, 0.006 * (t - 139))
+        + max(0.0, 0.006 * (t - 149))
+        + max(0.0, 0.006 * (t - 159))
+        + max(0.0, 0.006 * (t - 169))
+        + max(0.0, 0.006 * (t - 179))
+        + max(0.0, 0.006 * (t - 189))
+        + max(0.0, 0.006 * (t - 199))
+        + max(0.0, 0.02 * (t - 219))
+        + max(0.0, 0.006 * (t - 249))
+        + max(0.0, 0.006 * (t - 299))
+        + max(0.0, 0.003 * (t - 309))
+        + max(0.0, 0.02 * (t - 319))
+        + max(0.0, 0.004 * (t - 329))
+        + max(0.0, 0.004 * (t - 339))
+        + max(0.0, 0.005 * (t - 349))
+        + max(0.0, 0.005 * (t - 359))
+        + max(0.0, 0.006 * (t - 369))
+        + max(0.0, 0.006 * (t - 379))
+        + max(0.0, 0.007 * (t - 389)),
+    )
+
+
+def knox_enemy(stage: int, pog_level: int = 0) -> dict[str, float]:
+    """Knox normal/boss base stats (cifi-tools EnemyStatsDebug), PoG=0 by default."""
+    late = _knox_late(stage)
+    band = int(max(0, stage - 1) // 100)
+    is_boss = stage > 0 and stage % 100 == 0
+
+    hp = (7 + 9 * stage) * late * (3.2**band) * (120 if is_boss else 1)
+    power = (2.4 + 1.4 * stage) * late * (2.7**band) * (4 if is_boss else 1) * (1 - 0.03 * pog_level)
+    regen = 0.04 * stage * late * (1.4**band) * (2 if is_boss else 1)
+
+    # JS stores damage-taken multiplier; convert to reduction fraction for CSV.
+    if stage >= 200:
+        taken = 1 - (0.02 * max(0, band - 2) + 0.04) - (0.05 if is_boss else 0)
+    else:
+        taken = 1 - (0.05 if is_boss else 0)
+    damage_reduction = max(0.0, 1.0 - taken)
+
+    return {
+        "hp": hp,
+        "power": power,
+        "regen": regen,
+        "damage_reduction": damage_reduction,
+        "evade_chance": 0.01,
+        "special_chance": min(0.0994 + stage * 0.0006 + (0.1 if is_boss else 0), CRIT_CHANCE_CAP),
+        "special_damage": min(1.032 + stage * 0.008, CRIT_DAMAGE_CAP),
+        "speed": (6.005 - 0.005 * stage) * (2.85 if is_boss else 1),
+    }
+
+
+def knox_boss_row(stage: int, name: str, notes: str) -> dict:
+    s = knox_enemy(stage, pog_level=0)
+    return {
+        "hunter": "Knox",
+        "stage": stage,
+        "name": name,
+        "hp": round(s["hp"], 2),
+        "power": round(s["power"], 2),
+        "regen": round(s["regen"], 2),
+        "special_chance": round(s["special_chance"], 6),
+        "special_damage": round(s["special_damage"], 6),
+        "damage_reduction": round(s["damage_reduction"], 4),
+        "evade_chance": s["evade_chance"],
+        "speed": round(s["speed"], 4),
+        "speed2": "",
+        "special": "",
+        "enrage_effect": "",
+        "enrage_effect2": "",
+        "notes": notes,
+    }
+
+
 BOSSES = [
     {
         "hunter": "Borge",
@@ -172,6 +257,16 @@ BOSSES = [
         "enrage_effect2": 0,
         "notes": "Harden: +5 enrage, DR=95% for 5 regen ticks, 3x regen while harden",
     },
+    knox_boss_row(
+        100,
+        "Boss_100",
+        "cifi-tools EnemyStatsDebug; PoG=0; evade always 1%",
+    ),
+    knox_boss_row(
+        200,
+        "Boss_200",
+        "cifi-tools EnemyStatsDebug; PoG=0; Boss#200 ability in WASM",
+    ),
 ]
 
 ENEMY_COLS = [
@@ -216,7 +311,7 @@ def _enemy_row(stage: int, stats: dict[str, float]) -> dict:
         "hp": round(stats["hp"], 4),
         "power": round(stats["power"], 4),
         "regen": round(stats["regen"], 4),
-        "damage_reduction": stats["damage_reduction"],
+        "damage_reduction": round(stats["damage_reduction"], 6),
         "evade_chance": stats["evade_chance"],
         "special_chance": round(stats["special_chance"], 6),
         "special_damage": round(stats["special_damage"], 6),
@@ -238,12 +333,17 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     write_enemy_csv(OUT / "borge_enemies.csv", borge_enemy)
     write_enemy_csv(OUT / "ozzy_enemies.csv", ozzy_enemy)
+    write_enemy_csv(OUT / "knox_enemies.csv", knox_enemy)
 
     with (OUT / "enemies_milestones.csv").open("w", newline="", encoding="utf-8") as f:
         fields = ["hunter", *ENEMY_COLS]
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
-        for hunter, fn in (("Borge", borge_enemy), ("Ozzy", ozzy_enemy)):
+        for hunter, fn in (
+            ("Borge", borge_enemy),
+            ("Ozzy", ozzy_enemy),
+            ("Knox", knox_enemy),
+        ):
             for stage in MILESTONES:
                 row = _enemy_row(stage, fn(stage))
                 row["hunter"] = hunter

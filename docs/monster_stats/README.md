@@ -1,7 +1,7 @@
 # Monster / Enemy Stats (Dokumentation)
 
 **Basiswerte vor** Talent-/Attribute-Effekten (Presence of God, Omen of Defeat, …).
-Formeln leben in `scripts/export_monster_stats.py` (ehem. hunter-sim `units.py`).
+Formeln leben in `scripts/export_monster_stats.py`.
 
 Neu generieren:
 
@@ -15,8 +15,9 @@ python scripts/export_monster_stats.py
 |---|---|
 | `borge_enemies.csv` | Borge-Normalgegner, Stage 1–300 |
 | `ozzy_enemies.csv` | Ozzy-Normalgegner, Stage 1–300 |
-| `enemies_milestones.csv` | Kompakte Stichproben beider Hunter |
-| `bosses.csv` | Bosse Stage 100 / 200 (Borge + Ozzy) |
+| `knox_enemies.csv` | Knox-Normalgegner, Stage 1–300 |
+| `enemies_milestones.csv` | Kompakte Stichproben aller drei Hunter |
+| `bosses.csv` | Bosse Stage 100 / 200 (Borge + Ozzy + Knox) |
 
 ## Caps (Combat)
 
@@ -29,6 +30,8 @@ In den Enemy-CSVs sind die Werte bereits gecappt; `*_capped` markiert, ob der Ca
 
 ## Formeln (Normalgegner)
 
+### Borge / Ozzy (hunter-sim)
+
 Skalierungsschwellen:
 
 - **Stage > 100:** HP/Power/Regen-Multiplikatoren + Evade
@@ -36,7 +39,7 @@ Skalierungsschwellen:
   `1 + (stage-149) * (0.006 + 0.006 * (stage-150)//50)`  
   (bei HP zusätzlich mit `stage // 150` multipliziert)
 
-### Borge
+#### Borge
 
 | Stat | Formel (Kern) |
 |---|---|
@@ -49,7 +52,7 @@ Skalierungsschwellen:
 | Speed | `4.53 - stage*0.006` |
 | DR | immer 0 |
 
-### Ozzy
+#### Ozzy
 
 | Stat | Formel (Kern) |
 |---|---|
@@ -62,16 +65,34 @@ Skalierungsschwellen:
 | Speed | `3.20 - stage*0.004` |
 | DR | immer 0 |
 
+### Knox (cifi-tools EnemyStatsDebug)
+
+Late-Multiplikator startet früher (ab Stage 49) und hat zusätzliche Breakpoints; Band = `floor((stage-1)/100)`.
+
+| Stat | Formel (Kern, PoG=0, Normal) |
+|---|---|
+| HP | `(7 + stage*9) * late * 3.2^band` |
+| Power | `(2.4 + stage*1.4) * late * 2.7^band` |
+| Regen | `0.04 * stage * late * 1.4^band` |
+| Crit Chance | `0.0994 + stage*0.0006` |
+| Crit Damage | `1.032 + stage*0.008` |
+| Evade | immer `0.01` |
+| Speed | `6.005 - stage*0.005` |
+| DR | 0 unter Stage 200; ab 200: `0.02*(band-2)+0.04` (min. band≥2) |
+
+Boss-Stufen (`stage % 100 == 0`): HP×120, Power×4, Regen×2, Speed×2.85, +DR/Crit-Boni.
+
 ## Bosse
 
-Feste Tabellenwerte (keine Stage-Formel), siehe `bosses.csv`.
+Feste Tabellenwerte bzw. Knox aus derselben Formel, siehe `bosses.csv`.
 
 Zusatzmechanik:
 
 - **Enrage:** +1 Stack pro Primary-Hit; Speed wird schneller; bei ≥200 Stacks: Power ×3, Crit Chance 100%
 - **Borge 200 (Gothmorgor):** Secondary Attack (`speed2`)
 - **Ozzy 200 (Exoscarab):** Harden (DR 95%, 3× Regen, 5 Ticks)
+- **Knox 200:** Boss-Ability in der WASM-Engine (siehe cifi-tools Changelog)
 
 ## Hinweis WASM / Online-Sim
 
-Die Online-/WASM-Engine kann leicht abweichende Werte haben. Diese CSVs spiegeln die dokumentierten hunter-sim-Formeln.
+Die Online-/WASM-Engine kann leicht abweichende Werte haben. Borge/Ozzy-CSVs spiegeln die dokumentierten hunter-sim-Formeln; Knox folgt cifi-tools EnemyStatsDebug.

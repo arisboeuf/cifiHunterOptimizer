@@ -201,25 +201,13 @@ export class WasmBorgeEngine {
     this.ex = exports;
   }
 
+  static fromExports(exports) {
+    return new WasmBorgeEngine(exports);
+  }
+
   static async load(wasmUrl = "./wasm/release.wasm") {
-    const imports = {
-      env: {
-        abort(_msg, _file, line, col) {
-          throw new Error(`WASM abort at ${line}:${col}`);
-        },
-      },
-    };
-    let result;
-    try {
-      result = await WebAssembly.instantiateStreaming(fetch(wasmUrl), imports);
-    } catch {
-      const buf = await fetch(wasmUrl).then((r) => {
-        if (!r.ok) throw new Error(`Failed to load WASM: ${r.status}`);
-        return r.arrayBuffer();
-      });
-      result = await WebAssembly.instantiate(buf, imports);
-    }
-    return new WasmBorgeEngine(result.instance.exports);
+    const { loadWasmExports } = await import("../wasm-shared.js");
+    return WasmBorgeEngine.fromExports(await loadWasmExports(wasmUrl));
   }
 
   evaluate(config, iterations) {

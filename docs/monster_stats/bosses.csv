@@ -1,5 +1,7 @@
 hunter,stage,name,hp,power,regen,damage_reduction,evade_chance,special_chance,special_damage,speed,speed2,special,enrage_effect,enrage_effect2,notes
 Borge,100,Boss_100,36810,263.18,15.21,0.05,0.004,0.1122,2.26,9.5,,,0.0475,0,primary enrage only
-Borge,200,Gothmorgor,272250,1930,42.19,0.09,0.004,0.1522,2.5,8.05,14.49,gothmorgor,0.04,0.0725,secondary attack; enrage also on secondary
-Ozzy,100,Boss_100,29328,229.05,59.52,0.05,0.01,0.3094,1.83,6.87,,,0.033658536585365856,0,crit capped to 25% / CHD 2.5 in combat
+Borge,200,Gothmorgor,272250,1930,42.19,0.09,0.004,0.1522,2.5,8.05,14.49,gothmorgor,0.04,0.0725,secondary attack; enrage on primary + secondary
+Ozzy,100,Boss_100,29328,229.05,59.52,0.05,0.01,0.3094,1.83,6.87,,,0.033658536585365856,0,fetch returns CHC 30.94%; combat caps CHC to 25% / CHD to 2.5
 Ozzy,200,Exoscarab,221170,1610,196.01,0.09,0.01,0.25,2.5,5.89,25.4,exoscarab,0.029,0,"Harden: +5 enrage, DR=95% for 5 regen ticks, 3x regen while harden"
+Knox,100,Boss_100,142798.08,747.32,10.5,0.05,0.01,0.25,1.832,15.6892,,,,,cifi-tools EnemyStatsDebug; PoG=0; evade always 1%
+Knox,200,Boss_200,3602666.5,15835.18,116.3,0.09,0.01,0.25,2.5,14.2643,,,,,cifi-tools EnemyStatsDebug; PoG=0; Boss#200 ability in WASM

@@ -84,6 +84,11 @@ export const HUNTERS = {
       b.build_name = "Lvl 14 Example";
       return b;
     },
+    emptyBuild: () => {
+      const b = makeDefaultBuild(borgeCosts, "Borge");
+      b.meta.level = 0;
+      return b;
+    },
   },
   ozzy: {
     id: "ozzy",
@@ -122,6 +127,11 @@ export const HUNTERS = {
           wings_of_ibu: 2,
         },
       }),
+    emptyBuild: () => {
+      const b = makeDefaultBuild(ozzyCosts, "Ozzy");
+      b.meta.level = 0;
+      return b;
+    },
   },
   knox: {
     id: "knox",
@@ -161,6 +171,11 @@ export const HUNTERS = {
           timeless_mastery: 5,
         },
       }),
+    emptyBuild: () => {
+      const b = makeDefaultBuild(knoxCosts, "Knox");
+      b.meta.level = 0;
+      return b;
+    },
   },
 };
 

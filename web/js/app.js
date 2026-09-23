@@ -442,22 +442,7 @@ function applyHunterTheme() {
   if (note) note.innerHTML = `Active: <strong>${h.name}</strong>. Builds persist per hunter in this browser.`;
 }
 
-function switchHunter(hunterId) {
-  if (state.running || state.optimizing || state.nextBestRunning) return;
-  if (hunterId === state.hunterId) return;
-  if (!HUNTERS[hunterId]) return;
-
-  saveState();
-  state.hunterId = hunterId;
-  const h = hunter();
-  const saved = loadHunterState(hunterId);
-  state.build = saved ? { ...h.defaultBuild(), ...saved } : h.defaultBuild();
-  // No prior session → Timeless lock stays default ON.
-  if (!saved) {
-    const tmEl = $("#optForceTimeless");
-    if (tmEl) tmEl.checked = true;
-  }
-  if (state.wasmExports) state.engine = engineFor(h, state.wasmExports);
+function clearResultUi() {
   state.lastResult = null;
   clearStatDeltas();
   renderBuildStats(null);
@@ -471,6 +456,76 @@ function switchHunter(hunterId) {
   $("#sMin").textContent = "—";
   $("#sAvg").textContent = "—";
   $("#sMax").textContent = "—";
+}
+
+const RESET_LABELS = ["Reset Stats etc", "Sure?", "Really?"];
+let resetArmStep = 0;
+let resetArmTimer = null;
+
+function disarmResetButton() {
+  resetArmStep = 0;
+  if (resetArmTimer) {
+    clearTimeout(resetArmTimer);
+    resetArmTimer = null;
+  }
+  const btn = $("#btnReset");
+  if (!btn) return;
+  btn.textContent = RESET_LABELS[0];
+  btn.classList.remove("is-confirm-1", "is-confirm-2");
+}
+
+function scheduleResetDisarm() {
+  if (resetArmTimer) clearTimeout(resetArmTimer);
+  resetArmTimer = setTimeout(() => disarmResetButton(), 4000);
+}
+
+function resetCurrentHunter() {
+  const h = hunter();
+  state.build = h.emptyBuild();
+  clearResultUi();
+  buildLeftLists();
+  refreshBudget();
+  saveState();
+  $("#status").textContent = `${h.name} reset — all stats / talents / attributes cleared`;
+}
+
+function onResetClick() {
+  if (state.running || state.optimizing || state.nextBestRunning) return;
+
+  if (resetArmStep < 2) {
+    resetArmStep += 1;
+    const btn = $("#btnReset");
+    if (btn) {
+      btn.textContent = RESET_LABELS[resetArmStep];
+      btn.classList.toggle("is-confirm-1", resetArmStep === 1);
+      btn.classList.toggle("is-confirm-2", resetArmStep === 2);
+    }
+    scheduleResetDisarm();
+    return;
+  }
+
+  disarmResetButton();
+  resetCurrentHunter();
+}
+
+function switchHunter(hunterId) {
+  if (state.running || state.optimizing || state.nextBestRunning) return;
+  if (hunterId === state.hunterId) return;
+  if (!HUNTERS[hunterId]) return;
+
+  disarmResetButton();
+  saveState();
+  state.hunterId = hunterId;
+  const h = hunter();
+  const saved = loadHunterState(hunterId);
+  state.build = saved ? { ...h.defaultBuild(), ...saved } : h.defaultBuild();
+  // No prior session → Timeless lock stays default ON.
+  if (!saved) {
+    const tmEl = $("#optForceTimeless");
+    if (tmEl) tmEl.checked = true;
+  }
+  if (state.wasmExports) state.engine = engineFor(h, state.wasmExports);
+  clearResultUi();
 
   applyHunterTheme();
   buildLeftLists();
@@ -662,6 +717,7 @@ async function init() {
   $("#btnRun").addEventListener("click", runSim);
   $("#btnExport").addEventListener("click", exportBuild);
   $("#btnImport").addEventListener("click", () => $("#fileImport").click());
+  $("#btnReset").addEventListener("click", onResetClick);
   $("#fileImport").addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";

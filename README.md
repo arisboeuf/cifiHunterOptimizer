@@ -1,36 +1,106 @@
-# Hunter Sim (Web)
+# Hunter Sim
 
-Browser-App zum Simulieren und Optimieren von **Hunter**-Builds (CIFI): **Borge**, **Ozzy**, **Knox**.
+Browser app to **simulate** and **optimize** CIFI hunter builds — **Borge**, **Ozzy**, and **Knox**.
 
-Gleicher Combat-Engine wie [cifi-tools](https://cifi-tools.com/borge) (`release.wasm` im Browser).
+Combat evaluation uses the same public WASM engine as [cifi-tools](https://cifi-tools.com/). Everything else (UI, optimizer, packaging) lives in this repo.
 
-## Lokal starten
+---
+
+## Credits & attribution
+
+This project is **not** a from-scratch combat simulator. The fight math and balance data come from the online sim / community tools. **Thank you to the cifi-tools authors and maintainers** — without their WASM engine and hunter definitions, this app would not exist.
+
+### Reused / derived (not our combat engine)
+
+| Item | Source |
+| --- | --- |
+| `release.wasm` combat evaluation | [cifi-tools](https://cifi-tools.com/) (`EVALBORGE_WASM`, `EVALOZZY_WASM`, `EVALKNOX_WASM`) |
+| Eval parameter order & WASM result getters | Same online sim / JS bundle |
+| Talent, attribute, inscryption costs, caps, labels | Online sim hunter definitions |
+| Attribute tree (dependencies, min path points) | Online sim `ATTRIBUTE_DEPENDENCIES` / `MIN_VALUE` |
+| Relic / gem keys wired into WASM | Online sim mappings |
+| Knox enemy formulas (CSV docs) | Online sim EnemyStatsDebug |
+| Borge / Ozzy enemy formulas (CSV docs) | Earlier [hunter-sim](https://github.com/bhnn/hunter-sim) / community formulas |
+
+If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
+
+### Built in this project
+
+| Item | What it does |
+| --- | --- |
+| **Talent / attribute optimizer** | Monte-Carlo search over point budgets: random restarts, local neighbors, refine pass, multi-loop champions, Welch/z stage-mean comparison with loot as tie-break, optional Timeless Mastery 5 lock, apply/discard UI |
+| Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
+| Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |
+| Persistence | Separate `localStorage` builds per hunter |
+| Monster CSV docs | `docs/monster_stats/` + `scripts/export_monster_stats.py` |
+| Deploy | GitHub Actions → GitHub Pages (static `web/` folder) |
+
+The optimizer is the main added value beyond “run the same sim once”: it searches and compares builds against that shared WASM evaluation.
+
+---
+
+## Features
+
+- Simulate Borge, Ozzy, Knox with the cifi-tools WASM combat engine
+- Edit stats, inscryptions, relics/gems, talents, and attributes (tree rules enforced)
+- Run N Monte-Carlo sims; see loot score, stage range, time, boss kill %, charts
+- Optimize talent/attribute spend for average stage (loot on statistical ties)
+- Builds saved per hunter in the browser
+
+---
+
+## Quick start
 
 ```text
 python -m http.server 8080 --directory web
 ```
 
-Oder mit Node: `npx --yes serve web -p 8080`
+Or: `npx --yes serve web -p 8080`
 
-Dann http://localhost:8080 öffnen (kein `file://` — ES-Module + WASM brauchen HTTP).
+Open **http://localhost:8080** (HTTP required — ES modules + WASM do not work via `file://`).
+
+---
 
 ## Deploy (GitHub Pages)
 
-1. **Settings → Pages → Source: GitHub Actions**
-2. Push auf `main`/`master` oder Workflow **Deploy Hunter Sim** manuell
-3. Details: [`web/README.md`](web/README.md)
+1. Repo **Settings → Pages → Source: GitHub Actions**
+2. Push to `main` / `master`, or run workflow **Deploy Hunter Sim** manually
+3. The workflow publishes `web/`. If `wasm/release.wasm` is missing in the repo, it downloads it from cifi-tools.com
 
-## Repo-Inhalt
+---
 
-| Pfad | Zweck |
-|---|---|
-| `web/` | Statische App (HTML/CSS/JS + WASM) |
-| `web/js/hunters/` | Hunter-Module (Borge / Ozzy / Knox) |
-| `.github/workflows/` | Pages-Deploy |
-| `docs/monster_stats/` | Monster-Stat-Tabellen (Doku) |
-| `scripts/export_monster_stats.py` | CSV-Export neu erzeugen |
-| `TODO.md` | Offene Arbeit |
+## Repository layout
 
-## Lizenz
+| Path | Purpose |
+| --- | --- |
+| `web/` | Static app (HTML / CSS / JS + WASM) |
+| `web/js/hunters/` | Per-hunter modules (costs, attr rules, WASM bridge) |
+| `web/js/optimize.js` | Talent / attribute optimizer (our code) |
+| `web/js/app.js` | UI, tabs, sim / optimize wiring |
+| `.github/workflows/` | Pages deploy |
+| `docs/monster_stats/` | Enemy / boss CSV documentation |
+| `scripts/export_monster_stats.py` | Regenerate those CSVs |
+| `TODO.md` | Open work / ideas |
 
-(Noch festzulegen.)
+Regenerate monster CSVs:
+
+```text
+python scripts/export_monster_stats.py
+```
+
+---
+
+## Roadmap (see `TODO.md`)
+
+- Optimizer target: maximize **bosses per hour** (not only avg stage / loot)
+- Ultima talent (level 70) in the UI
+- More overrides / gadgets / CM fields (closer to cifi-tools)
+
+---
+
+## License
+
+Still TBD.
+
+- Combat WASM and balance data derived from it belong to the respective online-sim / community authors.
+- Our UI and optimizer code can take a separate license once one is chosen.

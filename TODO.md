@@ -9,5 +9,6 @@
 
 ### Optional / später
 
+- [ ] **Build Optimizer: meiste Bosse/h farmen** — Zielfunktion auf Boss-Kills pro Stunde (statt Ø Stage / Loot), passende Metrik aus WASM (Boss Kill Rate × Runs/d o.ä.)
 - [ ] Ultima-Talent (Lvl 70) in UI
 - [ ] Mehr Overrides / Gadgets / CM-Felder wie auf cifi-tools

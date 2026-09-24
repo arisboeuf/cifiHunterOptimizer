@@ -24,13 +24,13 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
 
-See **[docs/wasm-combat.md](docs/wasm-combat.md)** for what the binary is, how mechanics are wired, and what you can (and cannot) learn from it — including a short Ozzy Multistrike summary.
+See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, and **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance and bridge limits.
 
 ### Built in this project
 
 | Item | What it does |
 | --- | --- |
-| **Talent / attribute optimizer** | Monte-Carlo search over point budgets: random restarts, local neighbors, refine pass, multi-loop champions, Welch/z stage-mean comparison with loot as tie-break, optional Timeless Mastery 5 lock, apply/discard UI |
+| **Talent / attribute optimizer** | Monte-Carlo search over point budgets: random restarts, local neighbors, refine pass, multi-loop champions, Welch/z stage-mean comparison with loot as tie-break, optional Prioritize Timeless Mastery (max affordable TM first), apply/discard UI |
 | **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |
@@ -93,6 +93,7 @@ HTTP required — ES modules + WASM do not work via `file://`.
 | `web/js/optimize.js` | Talent / attribute optimizer (our code) |
 | `web/js/app.js` | UI, tabs, sim / optimize wiring |
 | `.github/workflows/` | Pages deploy |
+| `docs/mechanics.md` | Crit / Multistrike / Charge (per hunter) |
 | `docs/wasm-combat.md` | WASM provenance, bridge vs engine, mechanics Q&A limits |
 | `docs/monster_stats/` | Enemy / boss CSV documentation |
 | `scripts/export_monster_stats.py` | Regenerate those CSVs |

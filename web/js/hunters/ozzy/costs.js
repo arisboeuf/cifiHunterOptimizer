@@ -166,7 +166,7 @@ export const BUILD_STATS_LABELS = [
   ["atk_speed", "ATK Speed", (v) => `${v} s`],
 ];
 
-/** Optimizer: lock Timeless Mastery 5 + required parents. */
+/** Optimizer: Timeless Mastery key + required parent floors (prioritize path). */
 export const TIMELESS_KEY = "timeless_mastery";
 export const TIMELESS_PARENT_MIN = {
   living_off_the_land: 1,

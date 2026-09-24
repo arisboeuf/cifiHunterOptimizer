@@ -7,7 +7,7 @@ import {
   loadSharedWasm,
   storageKeyFor,
 } from "./hunters/index.js";
-import { downloadJson, formatDuration, validateBudgets } from "./build.js";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
 import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
@@ -479,6 +479,25 @@ function onBuildChanged() {
   saveState();
 }
 
+/** Lowering level: drop talent/attr spends that no longer fit so optimize can start fresh. */
+function onLevelChanged() {
+  const prevLevel = Number(state.build.meta?.level ?? 0);
+  syncMetaFromInputs();
+  const nextLevel = Number(state.build.meta?.level ?? 0);
+  if (nextLevel < prevLevel) {
+    const fit = discardOverBudgetSpend(state.build, hunter());
+    if (fit.any) {
+      state.build = fit.config;
+      buildLeftLists();
+      const parts = [];
+      if (fit.cleared.talents) parts.push("talents");
+      if (fit.cleared.attributes) parts.push("attributes");
+      $("#status").textContent = `Level lowered — ${parts.join(" & ")} reset for new budget`;
+    }
+  }
+  onBuildChanged();
+}
+
 function refreshBudget() {
   syncMetaFromInputs();
   const v = validateBudgets(state.build, hunter());
@@ -522,7 +541,7 @@ function loadHunterState(hunterId) {
     const data = JSON.parse(raw);
     if (data?.config && typeof data.config === "object") {
       if (data.reps) $("#reps").value = String(data.reps);
-      // Timeless lock defaults ON; only stay off if user previously unchecked it.
+      // Prioritize Timeless defaults ON; only stay off if user previously unchecked it.
       const tmEl = $("#optForceTimeless");
       if (tmEl) tmEl.checked = data.optForceTimeless !== false;
       if (data.optLoops != null && $("#optLoops")) {
@@ -625,7 +644,7 @@ function switchHunter(hunterId) {
   const h = hunter();
   const saved = loadHunterState(hunterId);
   state.build = saved ? { ...h.defaultBuild(), ...saved } : h.defaultBuild();
-  // No prior session → Timeless lock stays default ON.
+  // No prior session → Prioritize Timeless stays default ON.
   if (!saved) {
     const tmEl = $("#optForceTimeless");
     if (tmEl) tmEl.checked = true;
@@ -814,7 +833,7 @@ async function init() {
   $("#status").textContent = saved ? "Restored Borge session · loading WASM…" : "Loading WASM…";
 
   $("#buildName").addEventListener("change", onBuildChanged);
-  $("#level").addEventListener("change", onBuildChanged);
+  $("#level").addEventListener("change", onLevelChanged);
   $("#reps").addEventListener("change", saveState);
   $("#optForceTimeless").addEventListener("change", saveState);
   $("#optLoops").addEventListener("change", saveState);
@@ -1037,6 +1056,13 @@ async function runNextBestMisc() {
 async function runOptimize() {
   if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
   syncMetaFromInputs();
+  // Stale high-level talent/attr spends after a level drop: discard and re-plan.
+  const fit = discardOverBudgetSpend(state.build, hunter());
+  if (fit.any) {
+    state.build = fit.config;
+    buildLeftLists();
+    saveState();
+  }
   const v = refreshBudget();
   if (!v.ok) {
     $("#optStatus").textContent = `Invalid build: ${v.msg}`;
@@ -1062,7 +1088,7 @@ async function runOptimize() {
       hunter(),
       {
         loops,
-        forceTimelessMastery5: $("#optForceTimeless").checked,
+        prioritizeTimelessMastery: $("#optForceTimeless").checked,
       },
       {
         isCancelled: () => state.optCancel,

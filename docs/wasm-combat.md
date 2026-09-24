@@ -37,15 +37,4 @@ Example (Ozzy): UI “Multistrike Chance / Power” → eval keys `multichance` 
 
 Prefer: documented tips + external wiki/community, then confirm with WASM runs when the answer matters for balance or the optimizer.
 
-## Ozzy Multistrike (summary)
-
-Community / wiki consensus (engine implements the fight; this is the intended model):
-
-- **Chance** — probability of a second, weaker hit after a successful attack (one extra hit, not a chain).
-- **Power** — damage multiplier/scale of that extra hit.
-- Extra hits can re-roll many on-hit effects; that is often more valuable early than raw Multi damage.
-- Multistrikes generally **do not** grant Trickster evade stacks or Thousand Needles stuns.
-- **Echo Bullets** can trigger their own Multistrike.
-- Soft boosts in-build: Cycle of Death (per revive used), Inscryption #40 (+Multistrike Chance).
-
-UI note in-game: Multistrike count stats have historically shown `0` while Multistrikes still occur (light-blue damage numbers). Our sim does not depend on that UI counter.
+**Player mechanics (Crit / Multistrike / Charge):** see [docs/mechanics.md](mechanics.md).

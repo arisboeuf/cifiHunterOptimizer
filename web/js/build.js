@@ -73,6 +73,33 @@ export function validateBudgets(config, hunter) {
   };
 }
 
+/**
+ * If talent/attribute spend exceeds the level caps, zero those sections so the
+ * build can be re-planned under the new budget (e.g. after lowering level).
+ */
+export function discardOverBudgetSpend(config, hunter) {
+  const { costs, attrs } = hunter;
+  const cfg = clampLevels(config, hunter);
+  const caps = pointBudgets(Number(cfg.meta?.level || 0));
+  const cleared = { talents: false, attributes: false };
+
+  if (talentPointsSpent(cfg) > caps.talents) {
+    const keys = Object.keys(cfg.talents || {}).length
+      ? Object.keys(cfg.talents)
+      : [...(costs.TALENT_ORDER || [])];
+    cfg.talents = Object.fromEntries(keys.map((k) => [k, 0]));
+    cleared.talents = true;
+  }
+  if (attrs.attrSpent(cfg.attributes || {}) > caps.attributes) {
+    const keys = Object.keys(cfg.attributes || {}).length
+      ? Object.keys(cfg.attributes)
+      : [...(costs.ATTR_ORDER || [])];
+    cfg.attributes = Object.fromEntries(keys.map((k) => [k, 0]));
+    cleared.attributes = true;
+  }
+  return { config: cfg, cleared, any: cleared.talents || cleared.attributes };
+}
+
 export function formatDuration(seconds) {
   const total = Math.round(Number(seconds) || 0);
   const h = Math.floor(total / 3600);

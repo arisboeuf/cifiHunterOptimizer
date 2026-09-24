@@ -18,7 +18,12 @@ export const DEFAULT_OPTIMIZE = {
   /** Independent full search passes; champions are compared statistically at the end. */
   loops: 1,
   seed: null,
-  forceTimelessMastery5: true,
+  /**
+   * When true: fill Timeless Mastery to the max level affordable under the attribute
+   * budget (parents included) before other attrs. Ignored if even TM 1 is impossible.
+   * (Legacy alias: forceTimelessMastery5.)
+   */
+  prioritizeTimelessMastery: true,
   /** Two-sided α for Welch/z stage-mean equality (loot tie-break when not different). */
   stageTieAlpha: 0.05,
   /** How strongly elite screen builds bias later random/neighbor moves (0–1). */
@@ -182,20 +187,34 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   function attrsValid(attrsMap, budget) {
     return attrs.attributesTreeValid(attrsMap, budget).ok;
   }
-  function ensureTimelessLock(attrMap, keys) {
-    const out = Object.fromEntries(keys.map((k) => [k, Number(attrMap[k] ?? 0)]));
-    for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
-      if (k in out) out[k] = Math.max(Number(out[k] ?? 0), mn);
-    }
-    if (TIMELESS_KEY in out || keys.includes(TIMELESS_KEY)) out[TIMELESS_KEY] = 5;
-    return attrs.zeroOrphanDependents(out);
-  }
-  function timelessLockCost() {
-    let cost = 5 * attrCost(TIMELESS_KEY);
+  function timelessParentCost() {
+    let cost = 0;
     for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
       cost += mn * attrCost(k);
     }
     return cost;
+  }
+  /** Highest TM level whose parents + TM cost fit in `budget` (0 if even TM 1 does not). */
+  function maxAffordableTimeless(budget) {
+    const tmCost = attrCost(TIMELESS_KEY);
+    if (!(tmCost > 0)) return 0;
+    const parentCost = timelessParentCost();
+    const maxLvl = Number(costs.ATTRIBUTE_COSTS[TIMELESS_KEY]?.max ?? 5);
+    let best = 0;
+    for (let lvl = 1; lvl <= maxLvl; lvl++) {
+      if (parentCost + lvl * tmCost <= budget) best = lvl;
+      else break;
+    }
+    return best;
+  }
+  function ensureTimelessPriority(attrMap, keys, tmLevel) {
+    const out = Object.fromEntries(keys.map((k) => [k, Number(attrMap[k] ?? 0)]));
+    if (tmLevel < 1) return attrs.zeroOrphanDependents(out);
+    for (const [k, mn] of Object.entries(TIMELESS_PARENT_MIN)) {
+      if (k in out) out[k] = Math.max(Number(out[k] ?? 0), mn);
+    }
+    if (TIMELESS_KEY in out || keys.includes(TIMELESS_KEY)) out[TIMELESS_KEY] = tmLevel;
+    return attrs.zeroOrphanDependents(out);
   }
   function randomTalents(rng, keys, budget, talW) {
     const levels = Object.fromEntries(keys.map((k) => [k, 0]));
@@ -209,10 +228,10 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     }
     return levels;
   }
-  function randomAttributes(rng, keys, budget, forceTimeless5, attrW) {
+  function randomAttributes(rng, keys, budget, useTm, tmLevel, attrW) {
     let levels = Object.fromEntries(keys.map((k) => [k, 0]));
-    if (forceTimeless5) {
-      levels = ensureTimelessLock(levels, keys);
+    if (useTm) {
+      levels = ensureTimelessPriority(levels, keys, tmLevel);
       if (attrs.attrSpent(levels) > budget) return levels;
     }
     let remaining = budget - attrs.attrSpent(levels);
@@ -220,7 +239,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       if (remaining <= 0) break;
       const candidates = keys.filter(
         (k) =>
-          (!forceTimeless5 || k !== TIMELESS_KEY) &&
+          (!useTm || k !== TIMELESS_KEY) &&
           attrCost(k) <= remaining &&
           attrs.canIncreaseAttribute(levels, k),
       );
@@ -229,7 +248,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       levels[k] = Number(levels[k] ?? 0) + 1;
       remaining -= attrCost(k);
     }
-    if (forceTimeless5) levels = ensureTimelessLock(levels, keys);
+    if (useTm) levels = ensureTimelessPriority(levels, keys, tmLevel);
     return levels;
   }
   function neighborTalents(rng, talents, keys, talW) {
@@ -248,8 +267,8 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     }
     return null;
   }
-  function neighborAttributes(rng, attrMap, keys, budget, forceTimeless5, attrW) {
-    const lockedFloor = forceTimeless5 ? { ...TIMELESS_PARENT_MIN, [TIMELESS_KEY]: 5 } : {};
+  function neighborAttributes(rng, attrMap, keys, budget, useTm, tmLevel, attrW) {
+    const lockedFloor = useTm ? { ...TIMELESS_PARENT_MIN, [TIMELESS_KEY]: tmLevel } : {};
     const donors = keys.filter((k) => Number(attrMap[k] ?? 0) > (lockedFloor[k] ?? 0));
     if (!donors.length) return null;
     const baseSnap = Object.fromEntries(keys.map((k) => [k, Number(attrMap[k] ?? 0)]));
@@ -265,12 +284,12 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
           out[dep] = 0;
         }
       }
-      out = forceTimeless5 ? ensureTimelessLock(out, keys) : attrs.zeroOrphanDependents(out);
+      out = useTm ? ensureTimelessPriority(out, keys, tmLevel) : attrs.zeroOrphanDependents(out);
       const remaining = budget - attrs.attrSpent(out);
       const receivers = keys.filter(
         (k) =>
           k !== a &&
-          (!forceTimeless5 || k !== TIMELESS_KEY) &&
+          (!useTm || k !== TIMELESS_KEY) &&
           attrs.canIncreaseAttribute(out, k) &&
           attrCost(k) <= remaining,
       );
@@ -278,7 +297,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         const b = rng.weightedChoice(receivers, (x) => attrW[x] ?? 1);
         out[b] = Number(out[b] ?? 0) + 1;
       }
-      if (forceTimeless5) out = ensureTimelessLock(out, keys);
+      if (useTm) out = ensureTimelessPriority(out, keys, tmLevel);
       const changed = keys.some((k) => Number(out[k] ?? 0) !== baseSnap[k]);
       if (attrsValid(out, budget) && changed) return out;
     }
@@ -304,7 +323,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
   const opt = { ...DEFAULT_OPTIMIZE, ...optIn };
   const rng = makeRng(opt.seed);
-  const forceTm = !!opt.forceTimelessMastery5;
+  const prioritizeTm = !!(
+    opt.prioritizeTimelessMastery ?? opt.forceTimelessMastery5 ?? DEFAULT_OPTIMIZE.prioritizeTimelessMastery
+  );
   const onProgress = hooks.onProgress || (() => {});
   const isCancelled = hooks.isCancelled || (() => false);
 
@@ -321,11 +342,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     ? Object.keys(base.attributes)
     : [...costs.ATTR_ORDER];
 
-  if (forceTm && timelessLockCost() > attrCap) {
-    throw new Error(
-      `Timeless Mastery 5 needs at least ${timelessLockCost()} path points (level ${level} has ${attrCap}).`,
-    );
-  }
+  // Max TM under budget; if even 1 is impossible, ignore the prioritize checkbox.
+  const tmTarget = prioritizeTm ? maxAffordableTimeless(attrCap) : 0;
+  const useTm = prioritizeTm && tmTarget >= 1;
 
   const loops = Math.max(1, Math.floor(Number(opt.loops) || 1));
   const refineCap = refineCountFor(opt.maxEvals, opt);
@@ -353,7 +372,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
   const evaluate = async (cfg, n, enforceTimeless) => {
     if (isCancelled()) return null;
-    if (enforceTimeless && Number(cfg.attributes?.[TIMELESS_KEY] ?? 0) !== 5) return null;
+    if (enforceTimeless && Number(cfg.attributes?.[TIMELESS_KEY] ?? 0) !== tmTarget) return null;
     const v = validateBudgets(cfg, hunter);
     if (!v.ok) return null;
     await yieldToUi();
@@ -446,9 +465,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       if (isCancelled() || loopEvals >= opt.maxEvals) break;
 
       let tal = randomTalents(rng, talentKeys, talCap, talW);
-      let attr = randomAttributes(rng, attrKeys, attrCap, forceTm, attrW);
+      let attr = randomAttributes(rng, attrKeys, attrCap, useTm, tmTarget, attrW);
       let localCfg = applyPoints(base, tal, attr);
-      let localRes = await evaluate(localCfg, opt.nSearch, forceTm);
+      let localRes = await evaluate(localCfg, opt.nSearch, useTm);
       if (!localRes) continue;
       evals += 1;
       loopEvals += 1;
@@ -466,11 +485,11 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
           nxtTal = neighborTalents(rng, tal, talentKeys, talW);
           nxtAttr = attr;
           if (!nxtTal) {
-            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm, attrW);
+            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, useTm, tmTarget, attrW);
             nxtTal = tal;
           }
         } else {
-          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, forceTm, attrW);
+          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, useTm, tmTarget, attrW);
           nxtTal = tal;
           if (!nxtAttr) {
             nxtTal = neighborTalents(rng, tal, talentKeys, talW);
@@ -482,7 +501,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         if (!nxtAttr) nxtAttr = attr;
 
         const cand = applyPoints(base, nxtTal, nxtAttr);
-        const candRes = await evaluate(cand, opt.nSearch, forceTm);
+        const candRes = await evaluate(cand, opt.nSearch, useTm);
         if (!candRes) {
           if (isCancelled()) break;
           stagnant += 1;
@@ -537,7 +556,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         sc.avgStage,
         sc.lootScore,
       );
-      const r = await evaluate(cfg, opt.nRefine, forceTm);
+      const r = await evaluate(cfg, opt.nRefine, useTm);
       if (!r) continue;
       evals += 1;
       loopEvals += 1;
@@ -590,7 +609,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       ch.sc?.avgStage,
       ch.sc?.lootScore,
     );
-    const r = await evaluate(ch.cfg, opt.nRefine, forceTm);
+    const r = await evaluate(ch.cfg, opt.nRefine, useTm);
     if (!r) continue;
     evals += 1;
     const sc = scoreOf(r);

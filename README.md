@@ -24,6 +24,8 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
 
+See **[docs/wasm-combat.md](docs/wasm-combat.md)** for what the binary is, how mechanics are wired, and what you can (and cannot) learn from it — including a short Ozzy Multistrike summary.
+
 ### Built in this project
 
 | Item | What it does |
@@ -91,6 +93,7 @@ HTTP required — ES modules + WASM do not work via `file://`.
 | `web/js/optimize.js` | Talent / attribute optimizer (our code) |
 | `web/js/app.js` | UI, tabs, sim / optimize wiring |
 | `.github/workflows/` | Pages deploy |
+| `docs/wasm-combat.md` | WASM provenance, bridge vs engine, mechanics Q&A limits |
 | `docs/monster_stats/` | Enemy / boss CSV documentation |
 | `scripts/export_monster_stats.py` | Regenerate those CSVs |
 | `TODO.md` | Open work / ideas |

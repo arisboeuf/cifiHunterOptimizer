@@ -24,7 +24,10 @@ export const DEFAULT_OPTIMIZE = {
    * (Legacy alias: forceTimelessMastery5.)
    */
   prioritizeTimelessMastery: true,
-  /** Two-sided α for Welch/z stage-mean equality (loot tie-break when not different). */
+  /**
+   * Two-sided α for Welch/z equality on the primary metric
+   * (stage mean, loot/min, or bosses/day — see scoreGt).
+   */
   stageTieAlpha: 0.05,
   /** How strongly elite screen builds bias later random/neighbor moves (0–1). */
   biasBlend: 0.55,
@@ -115,9 +118,16 @@ function scoreOf(res, objective = "stage", bossStages = []) {
   const runsPerDay = Number(res.runsPerDay) || 0;
   const bossStats = bossClearStatsFromCounts(res, bossStages);
   const bossesPerDay = bossStats.mean * runsPerDay;
+  const avgStage = Number(res.avgStage) || st.mean;
+  const lootScore = Number(res.lootScore) || 0;
+  // WASM exposes mean loot/min only (no per-run loot). Approximate loot variance via
+  // delta method under loot ∝ stage: Var(L) ≈ (L/S)² Var(S).
+  const lootVariance =
+    avgStage > 1e-9 ? st.variance * (lootScore / avgStage) * (lootScore / avgStage) : 0;
   return {
-    avgStage: Number(res.avgStage) || st.mean,
-    lootScore: Number(res.lootScore) || 0,
+    avgStage,
+    lootScore,
+    lootVariance,
     n: st.n,
     variance: st.variance,
     bossesPerDay,
@@ -158,6 +168,19 @@ function bossesSignificantlyDifferent(a, b, alpha = 0.05) {
   return z > zCritForAlpha(alpha);
 }
 
+function lootsSignificantlyDifferent(a, b, alpha = 0.05) {
+  const n1 = Number(a.n) || 0;
+  const n2 = Number(b.n) || 0;
+  const diff = Number(a.lootScore) - Number(b.lootScore);
+  if (n1 < 2 || n2 < 2) return Math.abs(diff) > 1e-9;
+
+  const se2 = (Number(a.lootVariance) || 0) / n1 + (Number(b.lootVariance) || 0) / n2;
+  if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
+
+  const z = Math.abs(diff) / Math.sqrt(se2);
+  return z > zCritForAlpha(alpha);
+}
+
 function scoreGt(a, b, alpha = 0.05) {
   if (!a) return false;
   if (!b) return true;
@@ -171,10 +194,12 @@ function scoreGt(a, b, alpha = 0.05) {
     return a.avgStage > b.avgStage;
   }
   if (objective === "loot") {
-    // WASM lootScore is already a rate estimate (loot/min); no per-run variance exposed.
-    if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
-    if (stagesSignificantlyDifferent(a, b, alpha)) return a.avgStage > b.avgStage;
-    return a.avgStage > b.avgStage;
+    // Mirror of stage push: primary = loot/min (Welch/z), secondary = Ø stage.
+    if (lootsSignificantlyDifferent(a, b, alpha)) {
+      return a.lootScore > b.lootScore;
+    }
+    if (a.avgStage !== b.avgStage) return a.avgStage > b.avgStage;
+    return a.lootScore > b.lootScore;
   }
   if (stagesSignificantlyDifferent(a, b, alpha)) {
     return a.avgStage > b.avgStage;

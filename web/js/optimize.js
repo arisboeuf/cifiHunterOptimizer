@@ -34,7 +34,7 @@ export const DEFAULT_OPTIMIZE = {
   /**
    * "stage" = push average stage;
    * "bosses" = maximize selected boss clears / day;
-   * "loot" = push Material/XP (WASM lootScore = loot/min).
+   * "loot" = push Material/XP (WASM lootScore = loot/min); Timeless Mastery max is mandatory.
    */
   objective: "stage",
   /** Boss stages to count when objective is "bosses" (subset of BOSS_STAGE_OPTIONS). */
@@ -449,9 +449,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   }
   const mkScore = (res) => scoreOf(res, objective, bossStages);
   const rng = makeRng(opt.seed);
-  const prioritizeTm = !!(
-    opt.prioritizeTimelessMastery ?? opt.forceTimelessMastery5 ?? DEFAULT_OPTIMIZE.prioritizeTimelessMastery
-  );
+  const prioritizeTm =
+    objective === "loot" ||
+    !!(opt.prioritizeTimelessMastery ?? opt.forceTimelessMastery5 ?? DEFAULT_OPTIMIZE.prioritizeTimelessMastery);
   const onProgress = hooks.onProgress || (() => {});
   const isCancelled = hooks.isCancelled || (() => false);
 
@@ -468,9 +468,21 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     ? Object.keys(base.attributes)
     : [...costs.ATTR_ORDER];
 
-  // Max TM under budget; if even 1 is impossible, ignore the prioritize checkbox.
-  const tmTarget = prioritizeTm ? maxAffordableTimeless(attrCap) : 0;
-  const useTm = prioritizeTm && tmTarget >= 1;
+  const tmMax = Number(costs.ATTRIBUTE_COSTS[TIMELESS_KEY]?.max ?? 5);
+  const affordableTm = maxAffordableTimeless(attrCap);
+  // Material/XP: Timeless Mastery max (5) is mandatory. Other modes: max affordable if prioritized.
+  let tmTarget = 0;
+  if (objective === "loot") {
+    if (affordableTm < tmMax) {
+      throw new Error(
+        `Push Material/XP requires Timeless Mastery ${tmMax} (attribute budget too low; max affordable is ${affordableTm}).`,
+      );
+    }
+    tmTarget = tmMax;
+  } else if (prioritizeTm) {
+    tmTarget = affordableTm;
+  }
+  const useTm = tmTarget >= 1;
 
   const loops = Math.max(1, Math.floor(Number(opt.loops) || 1));
   const refineCap = refineCountFor(opt.maxEvals, opt);

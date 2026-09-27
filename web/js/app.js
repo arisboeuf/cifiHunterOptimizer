@@ -1046,7 +1046,7 @@ async function showOptReport({ mode, modeLabel, result, bossStages }) {
     <p class="opt-report-meta">
       ${result.evals} evals · ${result.loops || 1} iteration(s) · screen ${result.nSearch} / refine ${result.nRefine} sims
       ${mode === "bosses" ? `<br />Boss targets: ${(bossStages || []).join(", ") || "—"}` : ""}
-      ${mode === "loot" ? "<br />Prioritize Timeless Mastery: off" : ""}
+      ${mode === "loot" ? "<br />Timeless Mastery 5: required" : ""}
     </p>
     ${improved ? `<p class="opt-report-ask">Apply talents &amp; attributes from the best build?</p>` : ""}
   `;
@@ -1255,8 +1255,16 @@ async function runOptimize(objective = "stage") {
   $("#btnOptCancel").hidden = false;
   $("#btnTalentClose").disabled = true;
   $("#optProgressBar").style.width = "0%";
-  // Material/XP farm: Timeless Mastery priority is off and the checkbox is inactive.
-  if (mode === "loot") setTimelessOptDisabled(true);
+  // Material/XP farm: Timeless Mastery 5 is mandatory; checkbox is inactive for this run.
+  let tmCheckboxRestore = null;
+  if (mode === "loot") {
+    const tmEl = $("#optForceTimeless");
+    if (tmEl) {
+      tmCheckboxRestore = tmEl.checked;
+      tmEl.checked = true;
+    }
+    setTimelessOptDisabled(true);
+  }
 
   const loops = Math.max(1, Math.min(20, Math.floor(Number($("#optLoops").value) || 1)));
   $("#optLoops").value = String(loops);
@@ -1272,7 +1280,7 @@ async function runOptimize(objective = "stage") {
       hunter(),
       {
         loops,
-        prioritizeTimelessMastery: mode === "loot" ? false : $("#optForceTimeless").checked,
+        prioritizeTimelessMastery: mode === "loot" ? true : $("#optForceTimeless").checked,
         objective: mode,
         bossStages,
       },
@@ -1363,6 +1371,10 @@ async function runOptimize(objective = "stage") {
     state.optimizing = false;
     state.optCancel = false;
     setTimelessOptDisabled(false);
+    if (mode === "loot" && tmCheckboxRestore != null) {
+      const tmEl = $("#optForceTimeless");
+      if (tmEl) tmEl.checked = tmCheckboxRestore;
+    }
     syncActionButtons();
     $("#btnOptCancel").hidden = true;
     $("#btnTalentClose").disabled = false;

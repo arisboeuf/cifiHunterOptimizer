@@ -30,7 +30,7 @@ See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, 
 
 | Item | What it does |
 | --- | --- |
-| **Talent / attribute optimizer** | Monte-Carlo search: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (100/200/300); mutual exclusion while any runs; refine pass, multi-loop champions, objective-specific compare, optional Prioritize Timeless Mastery, apply/discard UI |
+| **Talent / attribute optimizer** | Monte-Carlo search: **Push Average Stage**, **Push Material/XP** (loot/min; Timeless Mastery 5 required), or **Maximize Boss/day** (100/200/300); mutual exclusion while any runs; refine pass, multi-loop champions, objective-specific compare, optional Prioritize Timeless Mastery (stage/boss), apply/discard UI |
 | **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |

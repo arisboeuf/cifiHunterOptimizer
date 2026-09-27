@@ -162,7 +162,9 @@
         <h2 id="talentTitle">Talents &amp; Attributes</h2>
         <div class="opt-panel opt-panel-top">
           <div class="opt-row">
-            <button type="button" class="btn btn-primary" id="btnOptimize">Optimize (WASM)</button>
+            <button type="button" class="btn btn-primary" id="btnOptimize">Push Average Stage</button>
+            <button type="button" class="btn btn-primary" id="btnOptimizeLoot">Push Material/XP</button>
+            <button type="button" class="btn btn-primary" id="btnOptimizeBoss">Maximize Boss/day</button>
             <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
             <label class="opt-field">
               <span>Iterations</span>
@@ -173,9 +175,24 @@
               <span>Prioritize Timeless Mastery</span>
             </label>
           </div>
+          <div class="opt-row opt-boss-row" id="optBossRow">
+            <span class="opt-boss-label">Bosses</span>
+            <label class="opt-check">
+              <input type="checkbox" class="opt-boss" value="100" checked />
+              <span>100</span>
+            </label>
+            <label class="opt-check">
+              <input type="checkbox" class="opt-boss" value="200" />
+              <span>200</span>
+            </label>
+            <label class="opt-check">
+              <input type="checkbox" class="opt-boss" value="300" />
+              <span>300</span>
+            </label>
+          </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). Elite builds bias the next search toward stronger talents/attributes. The Sims field applies only to manual runs / Next-Best (stats, inscryptions, relics/gems).
+            Push Average Stage → Ø stage. Push Material/XP → loot score (mats/XP per minute; Prioritize Timeless Mastery is ignored / inactive). Maximize Boss/day → checked bosses (clears × runs/day). Only one optimize at a time. Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -193,10 +210,11 @@
     </div>
 
     <div class="modal-backdrop confirm-backdrop" id="optConfirmModal" hidden>
-      <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="optConfirmTitle">
-        <h2 id="optConfirmTitle">Apply optimizer result?</h2>
-        <p class="opt-confirm-body" id="optConfirmBody"></p>
+      <div class="modal confirm-modal opt-report-modal" role="dialog" aria-modal="true" aria-labelledby="optConfirmTitle">
+        <h2 id="optConfirmTitle">Optimizer report</h2>
+        <div class="opt-report-body" id="optConfirmBody"></div>
         <div class="modal-actions">
+          <button type="button" class="btn" id="btnOptReportClose" hidden>Close</button>
           <button type="button" class="btn" id="btnOptDiscard">Discard</button>
           <button type="button" class="btn btn-primary" id="btnOptApply">Apply</button>
         </div>

@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, optimizeBuild } from "./optimize.js";
+import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
@@ -178,12 +178,45 @@ function setNextBestButtonsDisabled(disabled) {
   }
 }
 
+function optModeButtons() {
+  return ["btnOptimize", "btnOptimizeLoot", "btnOptimizeBoss"]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
 function syncActionButtons() {
   const busy = state.running || state.optimizing || state.nextBestRunning;
   const ready = !!state.engine && !busy;
   $("#btnRun").disabled = !ready;
-  $("#btnOptimize").disabled = !ready;
+  for (const btn of optModeButtons()) {
+    if (btn.id === "btnOptimizeBoss") {
+      btn.disabled = !ready || selectedBossStages().length === 0;
+    } else {
+      btn.disabled = !ready;
+    }
+  }
+  setOptBossChecksDisabled(busy);
   setNextBestButtonsDisabled(!ready);
+}
+
+function selectedBossStages() {
+  return normalizeBossStages(
+    [...document.querySelectorAll(".opt-boss:checked")].map((el) => el.value),
+  );
+}
+
+function setOptBossChecksDisabled(disabled) {
+  for (const el of document.querySelectorAll(".opt-boss")) {
+    el.disabled = !!disabled;
+  }
+}
+
+function setTimelessOptDisabled(disabled) {
+  const el = $("#optForceTimeless");
+  if (!el) return;
+  el.disabled = !!disabled;
+  const label = el.closest("label");
+  if (label) label.classList.toggle("is-disabled", !!disabled);
 }
 
 function fmtDelta(n, digits = 2) {
@@ -875,7 +908,12 @@ async function init() {
   $("#talentModal").addEventListener("click", (e) => {
     if (e.target === $("#talentModal") && !state.optimizing) $("#talentModal").hidden = true;
   });
-  $("#btnOptimize").addEventListener("click", () => runOptimize());
+  $("#btnOptimize").addEventListener("click", () => runOptimize("stage"));
+  $("#btnOptimizeLoot").addEventListener("click", () => runOptimize("loot"));
+  $("#btnOptimizeBoss").addEventListener("click", () => runOptimize("bosses"));
+  for (const el of document.querySelectorAll(".opt-boss")) {
+    el.addEventListener("change", () => syncActionButtons());
+  }
   $("#btnNextBest").addEventListener("click", () => runNextBest());
   $("#btnNextBestInsc").addEventListener("click", () => runNextBestInsc());
   $("#btnNextBestMisc").addEventListener("click", () => runNextBestMisc());
@@ -899,28 +937,163 @@ async function init() {
   }
 }
 
-async function askApplyOptimize({ baseAvg, bestAvg, baseLoot, bestLoot, evals }) {
+function fmtOptDelta(best, base, digits = 1) {
+  const d = Number(best) - Number(base);
+  if (!Number.isFinite(d) || Math.abs(d) < 1e-9) return { text: "—", cls: "" };
+  return { text: fmtDelta(d, digits), cls: d > 0 ? "is-up" : "is-down" };
+}
+
+function optReportCell(value, cls = "") {
+  return `<span class="v${cls ? ` ${cls}` : ""}">${value}</span>`;
+}
+
+/** Always-on post-optimize report. Returns true only if user applies an improved build. */
+async function showOptReport({ mode, modeLabel, result, bossStages }) {
   const modal = $("#optConfirmModal");
-  $("#optConfirmBody").textContent =
-    `Ø Stage ${bestAvg} (was ${baseAvg})\nLoot ${bestLoot} (was ${baseLoot})\n${evals} evals\n\nApply talents & attributes?`;
+  const body = $("#optConfirmBody");
+  const btnClose = $("#btnOptReportClose");
+  const btnDiscard = $("#btnOptDiscard");
+  const btnApply = $("#btnOptApply");
+  const baseSc = result.baselineScore;
+  const bestSc = result.bestScore;
+  const baseEv = result.baselineEval || {};
+  const bestEv = result.bestEval || {};
+  const improved = !!result.improved;
+
+  const baseStage = Number(baseSc.avgStage) || 0;
+  const bestStage = Number(bestSc.avgStage) || 0;
+  const baseLoot = Number(baseSc.lootScore) || 0;
+  const bestLoot = Number(bestSc.lootScore) || 0;
+  const baseBosses = Number(baseSc.bossesPerDay) || 0;
+  const bestBosses = Number(bestSc.bossesPerDay) || 0;
+  const dStage = fmtOptDelta(bestStage, baseStage, 1);
+  const dLoot = fmtOptDelta(bestLoot, baseLoot, 1);
+  const dBosses = fmtOptDelta(bestBosses, baseBosses, 1);
+
+  const baseBossPct = ((Number(baseEv.bossKillRate) || 0) * 100).toFixed(1);
+  const bestBossPct = ((Number(bestEv.bossKillRate) || 0) * 100).toFixed(1);
+  const baseRuns = Number(baseEv.runsPerDay) || 0;
+  const bestRuns = Number(bestEv.runsPerDay) || 0;
+  const dRuns = fmtOptDelta(bestRuns, baseRuns, 1);
+  const baseTime = formatDuration(Number(baseEv.avgTimeS) || 0);
+  const bestTime = formatDuration(Number(bestEv.avgTimeS) || 0);
+
+  const baseMats = matsPerHour(baseEv);
+  const bestMats = matsPerHour(bestEv);
+  const matDefs = hunter().lootMats || [];
+  const matRows = matDefs
+    .map((def) => {
+      const b = baseMats ? formatCompact(baseMats[def.key]) : "—";
+      const n = bestMats ? formatCompact(bestMats[def.key]) : "—";
+      const rawB = baseMats ? Number(baseMats[def.key]) || 0 : 0;
+      const rawN = bestMats ? Number(bestMats[def.key]) || 0 : 0;
+      const d = baseMats && bestMats ? fmtOptDelta(rawN, rawB, 0) : { text: "—", cls: "" };
+      // Show absolute rates; delta class only when both exist.
+      const deltaCls = d.cls;
+      const deltaTxt =
+        baseMats && bestMats && Number.isFinite(rawN - rawB) && Math.abs(rawN - rawB) >= 0.01
+          ? fmtDelta(rawN - rawB, Math.abs(rawN - rawB) >= 100 ? 0 : 1)
+          : "—";
+      return `<span class="k">${def.short}/h</span>${optReportCell(b)}${optReportCell(
+        `${n}${deltaTxt !== "—" ? ` (${deltaTxt})` : ""}`,
+        deltaCls,
+      )}`;
+    })
+    .join("");
+
+  let primaryLine;
+  if (mode === "bosses") {
+    primaryLine = `Bosses/day ${bestBosses.toFixed(1)} (was ${baseBosses.toFixed(1)}, ${dBosses.text}) · targets ${(bossStages || []).join(", ") || "—"}`;
+  } else if (mode === "loot") {
+    primaryLine = `Loot ${bestLoot.toFixed(1)} (was ${baseLoot.toFixed(1)}, ${dLoot.text})`;
+  } else {
+    primaryLine = `Ø Stage ${bestStage.toFixed(1)} (was ${baseStage.toFixed(1)}, ${dStage.text})`;
+  }
+
+  $("#optConfirmTitle").textContent = improved ? `${modeLabel} — improvement found` : `${modeLabel} — report`;
+  body.innerHTML = `
+    <p class="opt-report-summary">
+      <strong>${improved ? "Improved vs baseline" : "No significant improvement"}</strong><br />
+      ${primaryLine}
+    </p>
+    <div class="opt-report-grid">
+      <span class="h">Metric</span><span class="h">Baseline</span><span class="h">Best</span>
+      <span class="k">Ø Stage</span>${optReportCell(baseStage.toFixed(1))}${optReportCell(
+        `${bestStage.toFixed(1)} (${dStage.text})`,
+        dStage.cls,
+      )}
+      <span class="k">Stage range</span>${optReportCell(
+        `${(Number(baseEv.minStage) || 0).toFixed(0)}–${(Number(baseEv.maxStage) || 0).toFixed(0)}`,
+      )}${optReportCell(
+        `${(Number(bestEv.minStage) || 0).toFixed(0)}–${(Number(bestEv.maxStage) || 0).toFixed(0)}`,
+      )}
+      <span class="k">Loot</span>${optReportCell(baseLoot.toFixed(1))}${optReportCell(
+        `${bestLoot.toFixed(1)} (${dLoot.text})`,
+        dLoot.cls,
+      )}
+      <span class="k">Bosses/day</span>${optReportCell(baseBosses.toFixed(1))}${optReportCell(
+        `${bestBosses.toFixed(1)} (${dBosses.text})`,
+        dBosses.cls,
+      )}
+      <span class="k">Boss kill %</span>${optReportCell(`${baseBossPct}%`)}${optReportCell(`${bestBossPct}%`)}
+      <span class="k">Runs/day</span>${optReportCell(baseRuns.toFixed(1))}${optReportCell(
+        `${bestRuns.toFixed(1)} (${dRuns.text})`,
+        dRuns.cls,
+      )}
+      <span class="k">Avg time</span>${optReportCell(baseTime)}${optReportCell(bestTime)}
+      ${matRows}
+    </div>
+    <p class="opt-report-meta">
+      ${result.evals} evals · ${result.loops || 1} iteration(s) · screen ${result.nSearch} / refine ${result.nRefine} sims
+      ${mode === "bosses" ? `<br />Boss targets: ${(bossStages || []).join(", ") || "—"}` : ""}
+      ${mode === "loot" ? "<br />Prioritize Timeless Mastery: off" : ""}
+    </p>
+    ${improved ? `<p class="opt-report-ask">Apply talents &amp; attributes from the best build?</p>` : ""}
+  `;
+
+  btnClose.hidden = improved;
+  btnDiscard.hidden = !improved;
+  btnApply.hidden = !improved;
   modal.hidden = false;
+
   return new Promise((resolve) => {
     const finish = (ok) => {
       modal.hidden = true;
-      $("#btnOptApply").removeEventListener("click", onApply);
-      $("#btnOptDiscard").removeEventListener("click", onDiscard);
+      btnApply.removeEventListener("click", onApply);
+      btnDiscard.removeEventListener("click", onDiscard);
+      btnClose.removeEventListener("click", onClose);
       modal.removeEventListener("click", onBackdrop);
       resolve(ok);
     };
     const onApply = () => finish(true);
     const onDiscard = () => finish(false);
+    const onClose = () => finish(false);
     const onBackdrop = (e) => {
       if (e.target === modal) finish(false);
     };
-    $("#btnOptApply").addEventListener("click", onApply);
-    $("#btnOptDiscard").addEventListener("click", onDiscard);
+    btnApply.addEventListener("click", onApply);
+    btnDiscard.addEventListener("click", onDiscard);
+    btnClose.addEventListener("click", onClose);
     modal.addEventListener("click", onBackdrop);
   });
+}
+
+function formatOptProgressExtra({ objective, stage, loot, bossesPerDay }) {
+  if (objective === "bosses") {
+    const parts = [];
+    if (bossesPerDay != null) parts.push(`best ${Number(bossesPerDay).toFixed(1)} bosses/d`);
+    if (stage != null) parts.push(`Ø ${Number(stage).toFixed(1)}`);
+    if (loot != null) parts.push(`loot ${Number(loot).toFixed(1)}`);
+    return parts.length ? ` · ${parts.join(" · ")}` : "";
+  }
+  if (objective === "loot") {
+    const parts = [];
+    if (loot != null) parts.push(`best loot ${Number(loot).toFixed(1)}`);
+    if (stage != null) parts.push(`Ø ${Number(stage).toFixed(1)}`);
+    return parts.length ? ` · ${parts.join(" · ")}` : "";
+  }
+  if (stage == null) return "";
+  return ` · best Ø ${Number(stage).toFixed(1)}${loot != null ? ` · loot ${Number(loot).toFixed(1)}` : ""}`;
 }
 
 async function runMarginalNextBest({ kind, clearDeltas, runSweep, applyResult, bestLabelOf, unitLabel }) {
@@ -942,7 +1115,8 @@ async function runMarginalNextBest({ kind, clearDeltas, runSweep, applyResult, b
   const activeBtn = btns[kind];
   if (activeBtn) activeBtn.textContent = "Running…";
   $("#btnRun").disabled = true;
-  $("#btnOptimize").disabled = true;
+  for (const btn of optModeButtons()) btn.disabled = true;
+  setOptBossChecksDisabled(true);
 
   const n = Math.max(1, Number($("#reps").value) || 1000);
   const titleByKind = {
@@ -1053,8 +1227,14 @@ async function runNextBestMisc() {
   });
 }
 
-async function runOptimize() {
+async function runOptimize(objective = "stage") {
   if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
+  const mode = objective === "bosses" || objective === "loot" ? objective : "stage";
+  const bossStages = selectedBossStages();
+  if (mode === "bosses" && !bossStages.length) {
+    $("#optStatus").textContent = "Select at least one boss (100 / 200 / 300).";
+    return;
+  }
   syncMetaFromInputs();
   // Stale high-level talent/attr spends after a level drop: discard and re-plan.
   const fit = discardOverBudgetSpend(state.build, hunter());
@@ -1075,11 +1255,15 @@ async function runOptimize() {
   $("#btnOptCancel").hidden = false;
   $("#btnTalentClose").disabled = true;
   $("#optProgressBar").style.width = "0%";
+  // Material/XP farm: Timeless Mastery priority is off and the checkbox is inactive.
+  if (mode === "loot") setTimelessOptDisabled(true);
 
   const loops = Math.max(1, Math.min(20, Math.floor(Number($("#optLoops").value) || 1)));
   $("#optLoops").value = String(loops);
 
   let runNextBestAfterApply = false;
+  const modeLabel =
+    mode === "bosses" ? "Boss Maximizer" : mode === "loot" ? "Push Material/XP" : "Push Average Stage";
 
   try {
     const result = await optimizeBuild(
@@ -1088,18 +1272,16 @@ async function runOptimize() {
       hunter(),
       {
         loops,
-        prioritizeTimelessMastery: $("#optForceTimeless").checked,
+        prioritizeTimelessMastery: mode === "loot" ? false : $("#optForceTimeless").checked,
+        objective: mode,
+        bossStages,
       },
       {
         isCancelled: () => state.optCancel,
-        onProgress: ({ msg, done, total, stage, loot }) => {
-          const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
+        onProgress: (p) => {
+          const pct = Math.min(100, Math.round((p.done / Math.max(1, p.total)) * 100));
           $("#optProgressBar").style.width = `${pct}%`;
-          const extra =
-            stage != null
-              ? ` · best Ø ${Number(stage).toFixed(1)}${loot != null ? ` · loot ${Number(loot).toFixed(1)}` : ""}`
-              : "";
-          $("#optStatus").textContent = `${msg}${extra}`;
+          $("#optStatus").textContent = `${p.msg}${formatOptProgressExtra(p)}`;
         },
       },
     );
@@ -1113,43 +1295,66 @@ async function runOptimize() {
     const bestAvg = result.bestScore.avgStage.toFixed(1);
     const baseLoot = result.baselineScore.lootScore.toFixed(1);
     const bestLoot = result.bestScore.lootScore.toFixed(1);
+    const baseBosses = Number(result.baselineScore.bossesPerDay) || 0;
+    const bestBosses = Number(result.bestScore.bossesPerDay) || 0;
+    const bossesLabel = bossStages.join(", ");
+    const loopsN = result.loops || 1;
 
-    if (result.improved) {
-      $("#optStatus").textContent =
-        `Improved · Ø ${bestAvg} (was ${baseAvg}) · loot ${bestLoot} (was ${baseLoot}) · ${result.evals} evals — waiting for confirmation`;
-      $("#optProgressBar").style.width = "100%";
+    const improvedLine =
+      mode === "bosses"
+        ? `${bestBosses.toFixed(1)} bosses/d (was ${baseBosses.toFixed(1)}) · bosses ${bossesLabel}`
+        : mode === "loot"
+          ? `loot ${bestLoot} (was ${baseLoot}) · Ø ${bestAvg}`
+          : `Ø ${bestAvg} (was ${baseAvg}) · loot ${bestLoot} (was ${baseLoot})`;
+    const noImproveLine =
+      mode === "bosses"
+        ? `${bestBosses.toFixed(1)} bosses/d (baseline ${baseBosses.toFixed(1)})`
+        : mode === "loot"
+          ? `loot ${bestLoot} (baseline ${baseLoot})`
+          : `Ø ${bestAvg} (baseline ${baseAvg})`;
+    const discardSuggest =
+      mode === "bosses"
+        ? `${bestBosses.toFixed(1)} bosses/d (current ${baseBosses.toFixed(1)})`
+        : mode === "loot"
+          ? `loot ${bestLoot} (current ${baseLoot})`
+          : `Ø ${bestAvg} (current ${baseAvg})`;
 
-      const apply = await askApplyOptimize({
-        baseAvg,
-        bestAvg,
-        baseLoot,
-        bestLoot,
-        evals: result.evals,
-      });
+    $("#optProgressBar").style.width = "100%";
+    $("#optStatus").textContent = result.improved
+      ? `Done · ${improvedLine} · ${result.evals} evals — report open`
+      : `Done · no improvement · ${noImproveLine} · ${result.evals} evals — report open`;
 
-      if (apply) {
-        state.build = {
-          ...state.build,
-          talents: { ...result.bestConfig.talents },
-          attributes: { ...result.bestConfig.attributes },
-        };
-        buildLeftLists();
-        onBuildChanged();
-        if (result.bestEval) showResult(result.bestEval);
+    const apply = await showOptReport({ mode, modeLabel, result, bossStages });
+
+    if (result.improved && apply) {
+      state.build = {
+        ...state.build,
+        talents: { ...result.bestConfig.talents },
+        attributes: { ...result.bestConfig.attributes },
+      };
+      buildLeftLists();
+      onBuildChanged();
+      if (result.bestEval) showResult(result.bestEval);
+      if (mode === "stage") {
         $("#optStatus").textContent =
-          `Applied · Ø ${bestAvg} (was ${baseAvg}) · loot ${bestLoot} (was ${baseLoot}) · ${result.evals} evals · ${result.loops || 1} iteration(s) · Next-Best-Opti…`;
-        $("#status").textContent = `Optimizer: Ø Stage ${bestAvg} (↑ from ${baseAvg}) — applied · Next-Best-Opti…`;
+          `Applied · ${improvedLine} · ${result.evals} evals · ${loopsN} iteration(s) · Next-Best-Opti…`;
+        $("#status").textContent =
+          `${modeLabel}: Ø Stage ${bestAvg} (↑ from ${baseAvg}) — applied · Next-Best-Opti…`;
         runNextBestAfterApply = true;
       } else {
         $("#optStatus").textContent =
-          `Discarded · suggested Ø ${bestAvg} (current ${baseAvg}) · ${result.evals} evals`;
-        $("#status").textContent = `Optimizer: suggestion discarded (Ø ${bestAvg})`;
+          `Applied · ${improvedLine} · ${result.evals} evals · ${loopsN} iteration(s)`;
+        $("#status").textContent = `${modeLabel}: applied · ${improvedLine}`;
       }
+    } else if (result.improved) {
+      $("#optStatus").textContent =
+        `Discarded · suggested ${discardSuggest} · ${result.evals} evals`;
+      $("#status").textContent = `${modeLabel}: suggestion discarded (${discardSuggest})`;
     } else {
       $("#optStatus").textContent =
-        `No improvement · Ø ${bestAvg} (baseline ${baseAvg}) · ${result.evals} evals · ${result.loops || 1} iteration(s)`;
-      $("#status").textContent = `Optimizer: no improvement (Ø ${baseAvg})`;
-      $("#optProgressBar").style.width = "100%";
+        `No improvement · ${noImproveLine} · ${result.evals} evals · ${loopsN} iteration(s)`;
+      $("#status").textContent = `${modeLabel}: no improvement · see report`;
+      if (result.baselineEval) showResult(result.baselineEval);
     }
   } catch (err) {
     console.error(err);
@@ -1157,18 +1362,19 @@ async function runOptimize() {
   } finally {
     state.optimizing = false;
     state.optCancel = false;
+    setTimelessOptDisabled(false);
     syncActionButtons();
     $("#btnOptCancel").hidden = true;
     $("#btnTalentClose").disabled = false;
   }
 
   if (runNextBestAfterApply) {
-    // Stats only — inscription next-best stays manual.
+    // Stats only — inscription next-best stays manual. Loot/boss optimize do not chain this.
     await runNextBest();
   }
 }
 
 $("#btnRun").disabled = true;
-$("#btnOptimize").disabled = true;
+for (const btn of optModeButtons()) btn.disabled = true;
 setNextBestButtonsDisabled(true);
 init();

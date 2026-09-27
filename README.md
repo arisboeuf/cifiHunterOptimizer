@@ -30,7 +30,7 @@ See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, 
 
 | Item | What it does |
 | --- | --- |
-| **Talent / attribute optimizer** | Monte-Carlo search over point budgets: random restarts, local neighbors, refine pass, multi-loop champions, Welch/z stage-mean comparison with loot as tie-break, optional Prioritize Timeless Mastery (max affordable TM first), apply/discard UI |
+| **Talent / attribute optimizer** | Monte-Carlo search: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (100/200/300); mutual exclusion while any runs; refine pass, multi-loop champions, objective-specific compare, optional Prioritize Timeless Mastery, apply/discard UI |
 | **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |
@@ -47,7 +47,7 @@ The optimizer is the main added value beyond “run the same sim once”: it sea
 - Simulate Borge, Ozzy, Knox with the cifi-tools WASM combat engine
 - Edit stats, inscryptions, relics/gems, talents, and attributes (tree rules enforced)
 - Run N Monte-Carlo sims; see loot score, stage range, time, boss kill %, charts
-- Optimize talent/attribute spend for average stage (loot on statistical ties)
+- Optimize talent/attribute spend: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (bosses 100/200/300; only one optimize at a time)
 - **Next-Best-Opti**: for the current build, show Δ Ø-stage of investing +1 in each combat stat (also runs after applying a talent/attribute optimize). Separate on-demand buttons on Inscryptions and Relics/Gems tabs (never auto-chained).
 - Builds saved per hunter in the browser
 
@@ -109,7 +109,7 @@ python scripts/export_monster_stats.py
 
 ## Roadmap (see `TODO.md`)
 
-- Optimizer target: maximize **bosses per hour** (not only avg stage / loot)
+- Separate **Boss Maximizer** refinements (named boss labels, WASM boss-kill rate blend)
 - Ultima talent (level 70) in the UI
 - More overrides / gadgets / CM fields (closer to cifi-tools)
 

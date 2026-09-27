@@ -28,6 +28,14 @@ export const DEFAULT_OPTIMIZE = {
   stageTieAlpha: 0.05,
   /** How strongly elite screen builds bias later random/neighbor moves (0–1). */
   biasBlend: 0.55,
+  /**
+   * "stage" = push average stage;
+   * "bosses" = maximize selected boss clears / day;
+   * "loot" = push Material/XP (WASM lootScore = loot/min).
+   */
+  objective: "stage",
+  /** Boss stages to count when objective is "bosses" (subset of BOSS_STAGE_OPTIONS). */
+  bossStages: [],
 };
 
 function stageStatsFromCounts(res) {
@@ -53,14 +61,75 @@ function stageStatsFromCounts(res) {
   return { n, mean, variance };
 }
 
-function scoreOf(res) {
+/** Boss stages the Boss Maximizer can target (every 100). */
+export const BOSS_STAGE_OPTIONS = [100, 200, 300];
+
+export function normalizeBossStages(raw) {
+  const allowed = new Set(BOSS_STAGE_OPTIONS);
+  const out = [];
+  for (const v of Array.isArray(raw) ? raw : []) {
+    const n = Math.floor(Number(v));
+    if (!allowed.has(n) || out.includes(n)) continue;
+    out.push(n);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * Expected selected-boss clears per run from the stage histogram.
+ * A clear counts when the run ends past that boss stage (stage > boss).
+ */
+function bossClearStatsFromCounts(res, bossStages) {
+  const bosses = normalizeBossStages(bossStages);
+  const counts = res?.stageCounts || {};
+  let n = 0;
+  let sum = 0;
+  let sumSq = 0;
+  for (const [stageRaw, countRaw] of Object.entries(counts)) {
+    const stage = Number(stageRaw);
+    const c = Number(countRaw);
+    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
+    let kills = 0;
+    for (const b of bosses) {
+      if (stage > b) kills += 1;
+    }
+    n += c;
+    sum += kills * c;
+    sumSq += kills * kills * c;
+  }
+  if (n <= 0) {
+    return { n: Math.max(1, Number(res?.n) || 1), mean: 0, variance: 0 };
+  }
+  const mean = sum / n;
+  const variance = n > 1 ? Math.max(0, (sumSq - (sum * sum) / n) / (n - 1)) : 0;
+  return { n, mean, variance };
+}
+
+function normalizeObjective(raw) {
+  if (raw === "bosses" || raw === "loot") return raw;
+  return "stage";
+}
+
+function scoreOf(res, objective = "stage", bossStages = []) {
   const st = stageStatsFromCounts(res);
+  const runsPerDay = Number(res.runsPerDay) || 0;
+  const bossStats = bossClearStatsFromCounts(res, bossStages);
+  const bossesPerDay = bossStats.mean * runsPerDay;
   return {
     avgStage: Number(res.avgStage) || st.mean,
     lootScore: Number(res.lootScore) || 0,
     n: st.n,
     variance: st.variance,
+    bossesPerDay,
+    bossesVariance: bossStats.variance * runsPerDay * runsPerDay,
+    bossesN: bossStats.n,
+    objective: normalizeObjective(objective),
+    bossStages: normalizeBossStages(bossStages),
   };
+}
+
+function zCritForAlpha(alpha = 0.05) {
+  return alpha <= 0.01 ? 2.57582930355 : alpha <= 0.05 ? 1.95996398454 : 1.64485362695;
 }
 
 function stagesSignificantlyDifferent(a, b, alpha = 0.05) {
@@ -73,14 +142,40 @@ function stagesSignificantlyDifferent(a, b, alpha = 0.05) {
   if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
 
   const z = Math.abs(diff) / Math.sqrt(se2);
-  const zCrit =
-    alpha <= 0.01 ? 2.57582930355 : alpha <= 0.05 ? 1.95996398454 : 1.64485362695;
-  return z > zCrit;
+  return z > zCritForAlpha(alpha);
+}
+
+function bossesSignificantlyDifferent(a, b, alpha = 0.05) {
+  const n1 = Number(a.bossesN ?? a.n) || 0;
+  const n2 = Number(b.bossesN ?? b.n) || 0;
+  const diff = Number(a.bossesPerDay) - Number(b.bossesPerDay);
+  if (n1 < 2 || n2 < 2) return Math.abs(diff) > 1e-9;
+
+  const se2 = (Number(a.bossesVariance) || 0) / n1 + (Number(b.bossesVariance) || 0) / n2;
+  if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
+
+  const z = Math.abs(diff) / Math.sqrt(se2);
+  return z > zCritForAlpha(alpha);
 }
 
 function scoreGt(a, b, alpha = 0.05) {
   if (!a) return false;
   if (!b) return true;
+  const objective = normalizeObjective(a.objective ?? b.objective);
+  if (objective === "bosses") {
+    if (bossesSignificantlyDifferent(a, b, alpha)) {
+      return a.bossesPerDay > b.bossesPerDay;
+    }
+    if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
+    if (a.bossesPerDay !== b.bossesPerDay) return a.bossesPerDay > b.bossesPerDay;
+    return a.avgStage > b.avgStage;
+  }
+  if (objective === "loot") {
+    // WASM lootScore is already a rate estimate (loot/min); no per-run variance exposed.
+    if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
+    if (stagesSignificantlyDifferent(a, b, alpha)) return a.avgStage > b.avgStage;
+    return a.avgStage > b.avgStage;
+  }
   if (stagesSignificantlyDifferent(a, b, alpha)) {
     return a.avgStage > b.avgStage;
   }
@@ -322,6 +417,12 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   }
 
   const opt = { ...DEFAULT_OPTIMIZE, ...optIn };
+  const objective = normalizeObjective(opt.objective);
+  const bossStages = normalizeBossStages(opt.bossStages);
+  if (objective === "bosses" && !bossStages.length) {
+    throw new Error("Select at least one boss (100 / 200 / 300).");
+  }
+  const mkScore = (res) => scoreOf(res, objective, bossStages);
   const rng = makeRng(opt.seed);
   const prioritizeTm = !!(
     opt.prioritizeTimelessMastery ?? opt.forceTimelessMastery5 ?? DEFAULT_OPTIMIZE.prioritizeTimelessMastery
@@ -357,13 +458,16 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   let talW = Object.fromEntries(talentKeys.map((k) => [k, 1]));
   let attrW = Object.fromEntries(attrKeys.map((k) => [k, 1]));
 
-  const notify = (msg, done, stage = null, loot = null) => {
+  const notify = (msg, done, stage = null, loot = null, bosses = null) => {
     onProgress({
       msg,
       done: done ?? globalDone,
       total: totalBudget,
       stage,
       loot,
+      bossesPerDay: bosses,
+      objective,
+      bossStages,
       evals,
       loop: null,
       loops,
@@ -413,8 +517,14 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   }
   evals += 1;
   globalDone = 1;
-  const baselineScore = scoreOf(baselineEval);
-  notify("Baseline done", globalDone, baselineScore.avgStage, baselineScore.lootScore);
+  const baselineScore = mkScore(baselineEval);
+  notify(
+    "Baseline done",
+    globalDone,
+    baselineScore.avgStage,
+    baselineScore.lootScore,
+    baselineScore.bossesPerDay,
+  );
 
   // Soft-start: current spend biases the first screens (not a hard lock).
   talW = blendLevelWeights(talentKeys, [curTal], talW, 0.35);
@@ -430,7 +540,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     let loopEvals = 0;
     const loopOffset = 1 + loop * perLoopBudget;
 
-    const loopNotify = (msg, stage = null, loot = null) => {
+    const loopNotify = (msg, stage = null, loot = null, bosses = null) => {
       globalDone = Math.min(totalBudget, loopOffset + loopEvals);
       const prefix = loops > 1 ? `Iteration ${loop + 1}/${loops} · ` : "";
       onProgress({
@@ -439,6 +549,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         total: totalBudget,
         stage,
         loot,
+        bossesPerDay: bosses,
+        objective,
+        bossStages,
         evals,
         loop: loop + 1,
         loops,
@@ -446,7 +559,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     };
 
     const considerScreen = (cfg, res) => {
-      const sc = scoreOf(res);
+      const sc = mkScore(res);
       history.push(sc);
       const key = configKey(cfg);
       const prev = screenedByKey.get(key);
@@ -472,10 +585,10 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       evals += 1;
       loopEvals += 1;
       considerScreen(localCfg, localRes);
-      let localScore = scoreOf(localRes);
+      let localScore = mkScore(localRes);
       let stagnant = 0;
       const show = screenBestScore || localScore;
-      loopNotify(`Screen r${restart + 1}/${opt.restarts}`, show.avgStage, show.lootScore);
+      loopNotify(`Screen r${restart + 1}/${opt.restarts}`, show.avgStage, show.lootScore, show.bossesPerDay);
 
       while (stagnant < opt.stagnationLimit && loopEvals < opt.maxEvals) {
         if (isCancelled()) break;
@@ -509,14 +622,16 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         }
         evals += 1;
         loopEvals += 1;
-        const candScore = scoreOf(candRes);
+        const candScore = mkScore(candRes);
         considerScreen(cand, candRes);
         const betterLocal = scoreGt(candScore, localScore, opt.stageTieAlpha);
-        const accept =
-          betterLocal ||
-          (stagnant > 4 &&
-            candScore.avgStage >= localScore.avgStage - 0.5 &&
-            rng.random() < 0.12);
+        const softOk =
+          objective === "bosses"
+            ? candScore.bossesPerDay >= localScore.bossesPerDay - 0.5
+            : objective === "loot"
+              ? candScore.lootScore >= localScore.lootScore - 0.5
+              : candScore.avgStage >= localScore.avgStage - 0.5;
+        const accept = betterLocal || (stagnant > 4 && softOk && rng.random() < 0.12);
         if (accept) {
           tal = nxtTal;
           attr = nxtAttr;
@@ -531,6 +646,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
           `Screen r${restart + 1} eval ${loopEvals}`,
           screenBestScore?.avgStage,
           screenBestScore?.lootScore,
+          screenBestScore?.bossesPerDay,
         );
       }
 
@@ -555,19 +671,25 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         `Refine ${i + 1}/${refinePool.length} (${opt.nRefine} sims)…`,
         sc.avgStage,
         sc.lootScore,
+        sc.bossesPerDay,
       );
       const r = await evaluate(cfg, opt.nRefine, useTm);
       if (!r) continue;
       evals += 1;
       loopEvals += 1;
-      const rSc = scoreOf(r);
+      const rSc = mkScore(r);
       history.push(rSc);
       if (scoreGt(rSc, refineBestScore, opt.stageTieAlpha)) {
         refineBestScore = rSc;
         refineBestCfg = structuredClone(cfg);
         refineBestEval = r;
       }
-      loopNotify(`Refined ${i + 1}`, refineBestScore?.avgStage, refineBestScore?.lootScore);
+      loopNotify(
+        `Refined ${i + 1}`,
+        refineBestScore?.avgStage,
+        refineBestScore?.lootScore,
+        refineBestScore?.bossesPerDay,
+      );
     }
 
     globalDone = Math.min(totalBudget, 1 + (loop + 1) * perLoopBudget);
@@ -581,7 +703,16 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         res: champEval,
         sc: champScore,
       });
-      loopNotify(`Champion Ø ${champScore.avgStage.toFixed(1)}`, champScore.avgStage, champScore.lootScore);
+      loopNotify(
+        objective === "bosses"
+          ? `Champion ${champScore.bossesPerDay.toFixed(1)} bosses/d`
+          : objective === "loot"
+            ? `Champion loot ${champScore.lootScore.toFixed(1)}`
+            : `Champion Ø ${champScore.avgStage.toFixed(1)}`,
+        champScore.avgStage,
+        champScore.lootScore,
+        champScore.bossesPerDay,
+      );
     }
   }
 
@@ -608,11 +739,12 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       globalDone,
       ch.sc?.avgStage,
       ch.sc?.lootScore,
+      ch.sc?.bossesPerDay,
     );
     const r = await evaluate(ch.cfg, opt.nRefine, useTm);
     if (!r) continue;
     evals += 1;
-    const sc = scoreOf(r);
+    const sc = mkScore(r);
     history.push(sc);
     if (scoreGt(sc, searchBestScore, opt.stageTieAlpha)) {
       searchBestScore = sc;
@@ -620,10 +752,15 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       searchBestEval = r;
     }
     notify(
-      `${prefix}Ø ${sc.avgStage.toFixed(1)} · loot ${sc.lootScore.toFixed(1)}`,
+      objective === "bosses"
+        ? `${prefix}${sc.bossesPerDay.toFixed(1)} bosses/d · loot ${sc.lootScore.toFixed(1)}`
+        : objective === "loot"
+          ? `${prefix}loot ${sc.lootScore.toFixed(1)} · Ø ${sc.avgStage.toFixed(1)}`
+          : `${prefix}Ø ${sc.avgStage.toFixed(1)} · loot ${sc.lootScore.toFixed(1)}`,
       globalDone,
       searchBestScore?.avgStage,
       searchBestScore?.lootScore,
+      searchBestScore?.bossesPerDay,
     );
   }
 
@@ -642,7 +779,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   const bestScore = improved ? searchBestScore : baselineScore;
   const bestEval = improved ? searchBestEval : baselineEval;
 
-  notify("Done", totalBudget, bestScore.avgStage, bestScore.lootScore);
+  notify("Done", totalBudget, bestScore.avgStage, bestScore.lootScore, bestScore.bossesPerDay);
 
   return {
     bestConfig: bestCfg,
@@ -658,6 +795,8 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     loopChampions: loopChampions.length,
     nSearch: opt.nSearch,
     nRefine: opt.nRefine,
+    objective,
+    bossStages,
   };
 }
 

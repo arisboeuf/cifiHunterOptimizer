@@ -36,34 +36,35 @@ export const QUALITY_UNLOCKS = {
  * GU cost models: cost(level) = base * multi^(level-1)
  * (SirRed early-level formulas; high-level extra scaling not modelled.)
  */
+/** stacking: "multi" | "additive" — how levels stack (from wiki-aligned effect wording). */
 export const GU_DEFS = {
   Exodus: [
-    { id: "cells", name: "Cells Multi Bonus", fromQ: 1, max: 999, base: 1, multi: 1.2, effect: "×4 Cells per GU level" },
-    { id: "shards", name: "Shards Multi Bonus", fromQ: 2, max: 999, base: 2, multi: 1.8, effect: "×5 Shards per GU level" },
-    { id: "rp", name: "RP Bonus", fromQ: 3, max: 999, base: 500, multi: 1.9, effect: "×8 RP per GU level" },
-    { id: "mp", name: "MP Bonus", fromQ: 4, max: 999, base: 1e4, multi: 2, effect: "×4 Mod Points per GU level" },
-    { id: "ap", name: "AP Bonus", fromQ: 4, max: 999, base: 1e6, multi: 2.1, effect: "×1.6 Academy Points per GU level" },
+    { id: "cells", name: "Cells Multi Bonus", fromQ: 1, max: 999, base: 1, multi: 1.2, stacking: "multi", effect: "×4 Cells per GU level" },
+    { id: "shards", name: "Shards Multi Bonus", fromQ: 2, max: 999, base: 2, multi: 1.8, stacking: "multi", effect: "×5 Shards per GU level" },
+    { id: "rp", name: "RP Bonus", fromQ: 3, max: 999, base: 500, multi: 1.9, stacking: "multi", effect: "×8 RP per GU level" },
+    { id: "mp", name: "MP Bonus", fromQ: 4, max: 999, base: 1e4, multi: 2, stacking: "multi", effect: "×4 Mod Points per GU level" },
+    { id: "ap", name: "AP Bonus", fromQ: 4, max: 999, base: 1e6, multi: 2.1, stacking: "multi", effect: "×1.6 Academy Points per GU level" },
   ],
   Temporality: [
-    { id: "mp_loop", name: "MP (Loop Mods) Bonus", fromQ: 1, max: 50, base: 1.5, multi: 1.5, effect: "+1% MP per GU level per Loop Mod" },
-    { id: "mp_ticks", name: "MP (Ticks) Bonus", fromQ: 2, max: 50, base: 1.5, multi: 4, effect: "+0.05% MP per GU level per Tick" },
+    { id: "mp_loop", name: "MP (Loop Mods) Bonus", fromQ: 1, max: 50, base: 1.5, multi: 1.5, stacking: "additive", effect: "+1% MP per GU level per Loop Mod" },
+    { id: "mp_ticks", name: "MP (Ticks) Bonus", fromQ: 2, max: 50, base: 1.5, multi: 4, stacking: "additive", effect: "+0.05% MP per GU level per Tick" },
   ],
   Innovation: [
-    { id: "studies", name: "Studies / Study Bonus", fromQ: 1, max: 50, base: 3, multi: 2, effect: "+2 Studies per Study per GU level" },
+    { id: "studies", name: "Studies / Study Bonus", fromQ: 1, max: 50, base: 3, multi: 2, stacking: "additive", effect: "+2 Studies per Study per GU level" },
   ],
   Attraction: [
-    { id: "borge_loot", name: "Borge Loot", fromQ: 1, max: 999, base: 5, multi: 2.5, effect: "×1.07 Borge Loot per GU level" },
-    { id: "ozzy_loot", name: "Ozzy Loot", fromQ: 2, max: 999, base: 20, multi: 2.5, effect: "×1.04 Ozzy Loot per GU level" },
-    { id: "catchup", name: "Catch-Up Power (Borge/Ozzy)", fromQ: 3, max: 5, base: 1, multi: 100, effect: "×1.08 ATK Power & Speed per level (until Frogbloth/Benchy)" },
+    { id: "borge_loot", name: "Borge Loot", fromQ: 1, max: 999, base: 5, multi: 2.5, stacking: "multi", effect: "×1.07 Borge Loot per GU level" },
+    { id: "ozzy_loot", name: "Ozzy Loot", fromQ: 2, max: 999, base: 20, multi: 2.5, stacking: "multi", effect: "×1.04 Ozzy Loot per GU level" },
+    { id: "catchup", name: "Catch-Up Power (Borge/Ozzy)", fromQ: 3, max: 5, base: 1, multi: 100, stacking: "multi", effect: "×1.08 ATK Power & Speed per level (until Frogbloth/Benchy)" },
   ],
   Creation: [
-    { id: "mech_cap", name: "Mechs Bonus Cap", fromQ: 1, max: 999, base: 1, multi: 10, effect: "×1e8 Mech bonus cap per GU level" },
-    { id: "hardware", name: "Hardware Bonus", fromQ: 2, max: 999, base: 1e3, multi: 3, effect: "×10 Hardware tech output per GU level" },
-    { id: "software", name: "Software Bonus", fromQ: 2, max: 999, base: 1e4, multi: 4, effect: "×50 Software tech output per GU level" },
+    { id: "mech_cap", name: "Mechs Bonus Cap", fromQ: 1, max: 999, base: 1, multi: 10, stacking: "multi", effect: "×1e8 Mech bonus cap per GU level" },
+    { id: "hardware", name: "Hardware Bonus", fromQ: 2, max: 999, base: 1e3, multi: 3, stacking: "multi", effect: "×10 Hardware tech output per GU level" },
+    { id: "software", name: "Software Bonus", fromQ: 2, max: 999, base: 1e4, multi: 4, stacking: "multi", effect: "×50 Software tech output per GU level" },
   ],
   Power: [
-    { id: "blueprints", name: "Blueprints", fromQ: 1, max: 999, base: 1, multi: 10, effect: "+8 Blueprints at start of each Traversal per level" },
-    { id: "cores", name: "Innovation Cores", fromQ: 1, max: 999, base: 1, multi: 10, effect: "+4 Innovation Cores at start of each Traversal per level" },
+    { id: "blueprints", name: "Blueprints", fromQ: 1, max: 999, base: 1, multi: 10, stacking: "additive", effect: "+8 Blueprints at start of each Traversal per level" },
+    { id: "cores", name: "Innovation Cores", fromQ: 1, max: 999, base: 1, multi: 10, stacking: "additive", effect: "+4 Innovation Cores at start of each Traversal per level" },
   ],
   Evolution: [],
 };
@@ -144,3 +145,4 @@ export function defaultProgress() {
 }
 
 export const STORAGE_KEY = "cifi_gem_progress_v1";
+export const PLAN_STORAGE_KEY = "cifi_gem_plan_v1";

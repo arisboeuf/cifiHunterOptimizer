@@ -1,6 +1,7 @@
 import {
   GEM_ORDER,
   GU_DEFS,
+  PLAN_STORAGE_KEY,
   QUALITY_COSTS,
   QUALITY_UNLOCKS,
   STORAGE_KEY,
@@ -19,6 +20,97 @@ import {
 let root = null;
 let progress = defaultProgress();
 let filter = "all";
+/** @type {Map<string, number>} plan pick id → OO cost */
+let planPicks = new Map();
+
+const GEM_RESET_LABELS = ["Reset to starter snapshot", "Sure?", "Really?"];
+let gemResetArmStep = 0;
+let gemResetArmTimer = null;
+
+function disarmGemResetButton() {
+  gemResetArmStep = 0;
+  if (gemResetArmTimer) {
+    clearTimeout(gemResetArmTimer);
+    gemResetArmTimer = null;
+  }
+  const btn = root?.querySelector("#gemResetDefaults");
+  if (!btn) return;
+  btn.textContent = GEM_RESET_LABELS[0];
+  btn.classList.remove("is-confirm-1", "is-confirm-2");
+}
+
+function scheduleGemResetDisarm() {
+  if (gemResetArmTimer) clearTimeout(gemResetArmTimer);
+  gemResetArmTimer = setTimeout(() => disarmGemResetButton(), 4000);
+}
+
+function onGemResetClick() {
+  if (gemResetArmStep < 2) {
+    gemResetArmStep += 1;
+    const btn = root?.querySelector("#gemResetDefaults");
+    if (btn) {
+      btn.textContent = GEM_RESET_LABELS[gemResetArmStep];
+      btn.classList.toggle("is-confirm-1", gemResetArmStep === 1);
+      btn.classList.toggle("is-confirm-2", gemResetArmStep === 2);
+    }
+    scheduleGemResetDisarm();
+    return;
+  }
+
+  disarmGemResetButton();
+  progress = defaultProgress();
+  planPicks = new Map();
+  saveProgress();
+  savePlan();
+  renderStatus();
+}
+
+function loadPlan() {
+  try {
+    const raw = localStorage.getItem(PLAN_STORAGE_KEY);
+    if (!raw) return new Map();
+    const data = JSON.parse(raw);
+    const map = new Map();
+    if (data && typeof data === "object") {
+      for (const [id, cost] of Object.entries(data)) {
+        const n = Number(cost);
+        if (id && Number.isFinite(n) && n > 0) map.set(id, n);
+      }
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function savePlan() {
+  try {
+    localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(Object.fromEntries(planPicks)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function planSum() {
+  let sum = 0;
+  for (const c of planPicks.values()) sum += c;
+  return sum;
+}
+
+function ooTap(cost, peers, id, extraClass = "") {
+  const selected = planPicks.has(id);
+  const cls = [
+    "oo-num",
+    "oo-tap",
+    heatClass(cost, peers),
+    extraClass,
+    selected ? "is-planned" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return `<button type="button" class="${cls}" data-plan-id="${esc(id)}" data-plan-cost="${cost}"
+    title="${selected ? "Remove from planned OO" : "Add to planned OO"}" aria-pressed="${selected}">${esc(formatOO(cost))}</button>`;
+}
 
 function cloneProgress(p) {
   return JSON.parse(JSON.stringify(p));
@@ -191,6 +283,13 @@ function renderStatus() {
   const el = root.querySelector("#gemStatus");
   if (!el) return;
 
+  // Rebuilding the panel clears the button DOM; drop any in-progress confirm.
+  if (gemResetArmTimer) {
+    clearTimeout(gemResetArmTimer);
+    gemResetArmTimer = null;
+  }
+  gemResetArmStep = 0;
+
   const rows = activeGuRows(progress);
   const nextQ = findNextQuality(progress);
   const peers = allDisplayedCosts(rows, nextQ);
@@ -208,19 +307,24 @@ function renderStatus() {
     </div>`;
   }).join("");
 
+  const validPlanIds = new Set();
+
   let nextHtml = `<div class="gem-next-quality"><div class="gem-muted">No further quality in the modelled early chain.</div></div>`;
   if (nextQ) {
-    const hm = heatClass(nextQ.cost, peers);
+    const qId = `nq:${nextQ.gem}:Q${nextQ.quality}`;
+    validPlanIds.add(qId);
     const guChips = (nextQ.firstGuCosts || [])
       .map((s, i) => {
+        const pid = `nqgu:${nextQ.gem}:${nextQ.unlocksGu?.id || "gu"}:Lv${s.level}`;
+        validPlanIds.add(pid);
         const label = i === 0 && nextQ.unlocksLabel ? `${nextQ.unlocksLabel} Lv${s.level}` : `Lv${s.level}`;
-        return `<span class="oo-cost ${heatClass(s.cost, peers)}">${esc(label)} · <b>${esc(formatOO(s.cost))}</b></span>`;
+        return `<span class="oo-chip">${esc(label)} · ${ooTap(s.cost, peers, pid)}</span>`;
       })
       .join("");
     const reqOk = !nextQ.blocked;
     nextHtml = `<div class="gem-next-quality" aria-label="Next unlockable gem quality">
       <div><div class="label">Next Gem Quality</div><div class="value">${esc(nextQ.gem)} Q${nextQ.quality}</div></div>
-      <div><div class="label">Cost</div><div class="value oo-cost ${hm}">${esc(formatOO(nextQ.cost))}</div></div>
+      <div><div class="label">Cost</div><div class="value">${ooTap(nextQ.cost, peers, qId)}</div></div>
       <div>
         <div class="label">Requirement</div>
         <div class="value">${esc(nextQ.requirementLabel || "—")} ${reqOk ? "✓" : "✗"}</div>
@@ -252,14 +356,15 @@ function renderStatus() {
       : "";
     const cells = [0, 1, 2].map((i) => {
       const step = row.next[i];
-      if (!step) return `<td class="oo-cost">—</td>`;
-      const bold = i === 0 ? " <b>" : " ";
-      const boldEnd = i === 0 ? "</b>" : "";
-      return `<td class="oo-cost ${heatClass(step.cost, peers)}">Lv${step.level} ·${bold}${esc(formatOO(step.cost))}${boldEnd}</td>`;
+      if (!step) return `<td>—</td>`;
+      const pid = `gu:${row.gem}:${row.def.id}:Lv${step.level}`;
+      validPlanIds.add(pid);
+      return `<td>Lv${step.level} · ${ooTap(step.cost, peers, pid, i === 0 ? "is-next" : "")}</td>`;
     });
+    const stack = row.def.stacking === "additive" ? "additive" : "multi";
     tableRows.push(`<tr>
       ${gemCell}
-      <td>${esc(row.def.name)}</td>
+      <td class="gem-gu-name">${esc(row.def.name)}<sup class="gem-stack gem-stack-${stack}" title="${stack === "multi" ? "Multiplicative stacking" : "Additive stacking"}">${stack}</sup></td>
       <td class="gem-level-cell" data-gu-gem="${row.gem}" data-gu-id="${row.def.id}">
         <div class="gem-stepper gem-stepper-inline">
           <button type="button" class="btn btn-sm" data-act="-" aria-label="${esc(row.def.name)} minus" ${row.current <= 0 ? "disabled" : ""}>−</button>
@@ -278,12 +383,28 @@ function renderStatus() {
     );
   }
 
+  // Drop plan picks that are no longer on screen (levels moved on).
+  for (const id of [...planPicks.keys()]) {
+    if (!validPlanIds.has(id)) planPicks.delete(id);
+  }
+  savePlan();
+
+  const picks = planPicks.size;
+  const sum = planSum();
+
   el.innerHTML = `
     <div class="gem-status-head">
       <h2>My current progress</h2>
-      <p class="gem-muted">Edit qualities and GU levels — next three single-level costs update live. Saved in this browser.</p>
+      <p class="gem-muted">Edit qualities and GU levels — next three single-level costs update live. Tap color-coded OO amounts to build your planned total for the next Traversal.</p>
+      <div class="gem-planned" aria-live="polite">
+        <div>
+          <div class="label">Planned OO for next Traversal</div>
+          <div class="value">${esc(formatOO(sum))}${picks ? ` <span class="gem-muted">· ${picks} pick${picks === 1 ? "" : "s"}</span>` : ""}</div>
+        </div>
+        <button type="button" class="btn btn-sm" id="gemClearPlan" ${picks ? "" : "disabled"}>Clear plan</button>
+      </div>
       <div class="gem-actions">
-        <button type="button" class="btn" id="gemResetDefaults">Reset to starter snapshot</button>
+        <button type="button" class="btn btn-danger" id="gemResetDefaults" title="Reset gem progress to starter snapshot (triple confirm)">Reset to starter snapshot</button>
       </div>
     </div>
     <div class="gem-q-grid">${qualityEditors}</div>
@@ -339,11 +460,25 @@ function renderStatus() {
     });
   });
 
-  el.querySelector("#gemResetDefaults")?.addEventListener("click", () => {
-    progress = defaultProgress();
-    saveProgress();
+  el.querySelectorAll(".oo-tap").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.planId;
+      const cost = Number(btn.dataset.planCost);
+      if (!id || !Number.isFinite(cost)) return;
+      if (planPicks.has(id)) planPicks.delete(id);
+      else planPicks.set(id, cost);
+      savePlan();
+      renderStatus();
+    });
+  });
+
+  el.querySelector("#gemClearPlan")?.addEventListener("click", () => {
+    planPicks = new Map();
+    savePlan();
     renderStatus();
   });
+
+  el.querySelector("#gemResetDefaults")?.addEventListener("click", onGemResetClick);
 }
 
 function pruneUpgradesForQuality(gem) {
@@ -395,6 +530,7 @@ function shellHtml() {
 export function initGemsModule(container) {
   root = container;
   progress = loadProgress();
+  planPicks = loadPlan();
   root.innerHTML = shellHtml();
   root.querySelector("#gemDetailClose")?.addEventListener("click", () => {
     root.querySelector("#gemDetail").hidden = true;

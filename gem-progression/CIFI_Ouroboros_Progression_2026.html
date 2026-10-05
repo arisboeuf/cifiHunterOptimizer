@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CIFI Ouroboros Gem Progression Map</title>
+<style>
+:root{--bg:#07111f;--panel:#0e1b2d;--panel2:#13243a;--text:#eaf1fb;--muted:#9fb0c8;--line:#29405e;--accent:#6ee7b7;--accent2:#7dd3fc;--warn:#fbbf24;--unknown:#94a3b8;--danger:#fb7185}
+*{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#07111f 0%,#0a1525 100%);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+a{color:var(--accent2)} .wrap{max-width:1220px;margin:auto;padding:28px 18px 56px}.hero{display:grid;gap:10px;margin-bottom:20px}.hero h1{margin:0;font-size:clamp(28px,4vw,46px);letter-spacing:-.03em}.sub{color:var(--muted);max-width:900px}.note{border:1px solid #5a4311;background:#211a09;color:#fde68a;padding:12px 14px;border-radius:14px}.toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.btn{border:1px solid var(--line);background:var(--panel);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer}.btn.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}.section{margin-top:28px}.section h2{font-size:21px;margin:0 0 12px}.legend{display:flex;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:13px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}.map{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px;border:1px solid var(--line);border-radius:18px;background:rgba(14,27,45,.78);overflow:auto}.row{display:flex;align-items:stretch;justify-content:center;gap:10px;min-width:max-content}.arrow{color:#7890ad;font-size:24px;align-self:center}.node{width:188px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);padding:11px 12px;cursor:pointer;transition:.15s}.node:hover{transform:translateY(-1px);border-color:#55749b}.node .gem{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.node .q{font-weight:750;font-size:17px}.node .cost{color:var(--accent);font-weight:700;margin-top:3px}.node.gate{border-style:dashed;border-color:#4f7494}.node.branch{border-color:#39516e}.node.dim{opacity:.24}.gate-note{font-size:12px;color:var(--muted);margin-top:4px}.fork{display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:400px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}.card{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:15px}.card h3{margin:0 0 4px;font-size:18px}.quality{font-size:13px;color:var(--muted);margin-bottom:10px}.upgrade{border-top:1px solid var(--line);padding:10px 0}.upgrade:first-of-type{border-top:0}.uhead{display:flex;gap:8px;justify-content:space-between;align-items:start}.uname{font-weight:700}.tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:2px 7px;color:var(--muted);white-space:nowrap}.effect{margin-top:5px}.costline{margin-top:4px;color:#b7c7dc;font-size:13px}.unknown{color:var(--unknown);font-style:italic}.source{margin-top:28px;border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font-size:13px}.detail{position:fixed;right:16px;bottom:16px;max-width:390px;width:calc(100% - 32px);border:1px solid #48698f;background:#0b1728;border-radius:16px;padding:15px;box-shadow:0 18px 55px rgba(0,0,0,.38);display:none;z-index:10}.detail.show{display:block}.detail button{float:right;background:none;border:0;color:var(--muted);font-size:20px;cursor:pointer}.detail h3{margin:0 28px 6px 0}.detail p{margin:5px 0;color:#cfdbeb}.small{font-size:12px;color:var(--muted)}
+@media(max-width:680px){.wrap{padding:20px 12px 44px}.map{align-items:flex-start}.cards{grid-template-columns:1fr}.fork{grid-template-columns:1fr;min-width:220px}.node{width:170px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>CIFI · Ouroboros Gem Progression</h1>
+    <div class="sub">Quality-Kosten, Pflicht-Voraussetzungen und bekannte Gem-Upgrades in einer Übersicht. Die Unlock-Abhängigkeiten stammen aus deiner hochgeladenen <b>SirRed's Gem Costings v0.018</b>; Upgrade-Effekte und aktuelle Quality-Kosten wurden mit der 2026 abrufbaren CIFI-Wiki abgeglichen.</div>
+    <div class="note"><b>Versionshinweis:</b> Die hochgeladene SirRed-Datei weist selbst darauf hin, dass sie nicht mehr gepflegt wird und auf Adams aktualisierte Version verweist. Cross-Gem-Gates sind hier daher als <b>Planner-v0.018-Logik</b> gekennzeichnet. Wo der aktuelle Wiki-Eintrag keinen Effekt nennt, steht bewusst „nicht belegt“.</div>
+  </div>
+
+  <div class="toolbar" id="filters">
+    <button class="btn active" data-filter="all">Alle</button>
+    <button class="btn" data-filter="Exodus">Exodus</button>
+    <button class="btn" data-filter="Temporality">Temporality</button>
+    <button class="btn" data-filter="Innovation">Innovation</button>
+    <button class="btn" data-filter="Attraction">Attraction</button>
+    <button class="btn" data-filter="Creation">Creation</button>
+    <button class="btn" data-filter="Power">Power</button>
+    <button class="btn" data-filter="Evolution">Evolution</button>
+  </div>
+
+  <section class="section">
+    <h2>1. Unlock-Map</h2>
+    <div class="legend"><span><i class="dot" style="background:var(--accent)"></i>OO-Kaufpreis</span><span><i class="dot" style="background:var(--accent2)"></i>Cross-Gem-Gate</span><span><i class="dot" style="background:var(--warn)"></i>GU-Pflichtschritt</span></div>
+    <div class="map" id="map">
+      <div class="row">
+        <div class="node" data-gem="Exodus" data-title="Exodus Q1" data-desc="Start der Ouroboros-Gem-Progression." data-req="Keine" data-cost="1 OO"><div class="gem">Exodus</div><div class="q">Q1</div><div class="cost">1 OO</div></div>
+        <div class="arrow">→</div>
+        <div class="node gate" data-gem="Exodus" data-title="Cells GU Lv.1" data-desc="Pflichtschritt laut Planner. Effekt: ×4 Cells pro GU-Level." data-req="Exodus Q1" data-cost="1 OO"><div class="gem">Pflicht-GU</div><div class="q">Cells Lv.1</div><div class="cost" style="color:var(--warn)">1 OO</div><div class="gate-note">vor Exodus Q2</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Exodus" data-title="Exodus Q2" data-desc="Schaltet Shard Bonus GU frei." data-req="Exodus Q1 + Cells GU Lv.1" data-cost="5 OO"><div class="gem">Exodus</div><div class="q">Q2</div><div class="cost">5 OO</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Temporality" data-title="Temporality Q1" data-desc="Schaltet MP Bonus (Loop Mods) frei." data-req="Exodus Q2" data-cost="5 OO"><div class="gem">Temporality</div><div class="q">Q1</div><div class="cost">5 OO</div><div class="gate-note">Gate: Exodus Q2</div></div>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="row">
+        <div class="node" data-gem="Innovation" data-title="Innovation Q1" data-desc="Schaltet Studies per Study frei: +2 zusätzliche Studies je GU-Level." data-req="Temporality Q1" data-cost="12 OO"><div class="gem">Innovation</div><div class="q">Q1</div><div class="cost">12 OO</div><div class="gate-note">Gate: Temp Q1</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Temporality" data-title="Temporality Q2" data-desc="Schaltet MP Bonus (Ticks) frei." data-req="Innovation Q1" data-cost="18 OO"><div class="gem">Temporality</div><div class="q">Q2</div><div class="cost">18 OO</div><div class="gate-note">Gate: Inno Q1</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Attraction" data-title="Attraction Q1" data-desc="Schaltet Borge Loot GU frei: ×1,07 Borge-Loot pro Level." data-req="Temporality Q2" data-cost="30 OO"><div class="gem">Attraction</div><div class="q">Q1</div><div class="cost">30 OO</div><div class="gate-note">Gate: Temp Q2</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Attraction" data-title="Attraction Q2" data-desc="Schaltet Ozzy Loot GU frei: ×1,04 Ozzy-Loot pro Level." data-req="Attraction Q1" data-cost="150 OO"><div class="gem">Attraction</div><div class="q">Q2</div><div class="cost">150 OO</div></div>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="row">
+        <div class="node" data-gem="Creation" data-title="Creation Q1" data-desc="Schaltet Mechs Bonus Cap GU frei: ×1e8 Mech-Bonus-Cap pro Level." data-req="Attraction Q2" data-cost="555 OO"><div class="gem">Creation</div><div class="q">Q1</div><div class="cost">555 OO</div><div class="gate-note">Gate: Att Q2</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Attraction" data-title="Attraction Q3" data-desc="Schaltet Borge/Ozzy Catch-Up Power frei: ×1,08 ATK Power & ATK Speed pro Level (bis vor Frogbloth/Benchy)." data-req="Creation Q1" data-cost="1k OO"><div class="gem">Attraction</div><div class="q">Q3</div><div class="cost">1k OO</div><div class="gate-note">Gate: Creation Q1</div></div>
+        <div class="arrow">→</div>
+        <div class="node" data-gem="Exodus" data-title="Exodus Q3" data-desc="Schaltet RP Bonus GU frei: ×8 RP pro GU-Level." data-req="Attraction Q3" data-cost="5k OO"><div class="gem">Exodus</div><div class="q">Q3</div><div class="cost">5k OO</div><div class="gate-note">Gate: Att Q3</div></div>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="fork">
+        <div class="node branch" data-gem="Creation" data-title="Creation Q2" data-desc="Schaltet Hardware ×10 und Software ×50 pro GU-Level frei." data-req="Exodus Q3" data-cost="200k OO"><div class="gem">Creation</div><div class="q">Q2</div><div class="cost">200k OO</div><div class="gate-note">Gate: Exodus Q3</div></div>
+        <div class="node branch" data-gem="Power" data-title="Power Q1" data-desc="Schaltet Ship-Rank-Boni sowie +8 Blueprints / +4 Innovation Cores pro GU-Level frei." data-req="Exodus Q3" data-cost="150m OO"><div class="gem">Power</div><div class="q">Q1</div><div class="cost">150m OO</div><div class="gate-note">Gate: Exodus Q3</div></div>
+      </div>
+      <div class="small" style="margin-top:10px;text-align:center">Weitere Quality-Stufen existieren, sind aber in SirRed v0.018 nicht alle als Cross-Gem-Pflichtkette modelliert. Sie stehen unten mit ihren Kosten und freigeschalteten GUs.</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>2. Quality → was wird freigeschaltet?</h2>
+    <div class="cards" id="qualityCards">
+      <div class="card" data-gem="Exodus"><h3>Exodus</h3><div class="quality">Q1 1 · Q2 5 · Q3 5k · Q4 200k · Q5 95t OO</div><div>Q1: Cells Bonus · Q2: Shard Bonus · Q3: RP Bonus · Q4: MP + AP Bonus · Q5: Materials + Orbs Bonus; außerdem neue Gem-Upgrades/Nodes.</div></div>
+      <div class="card" data-gem="Temporality"><h3>Temporality</h3><div class="quality">Q1 5 · Q2 18 · Q3 3b OO</div><div>Q1: MP (Loop Mods) · Q2: MP (Ticks) · Q3: Zag Rank, Low Tier, Zag Crew, Loop Reset GUs + neue Loop Mods/Boons.</div></div>
+      <div class="card" data-gem="Innovation"><h3>Innovation</h3><div class="quality">Q1 12 · Q2 10b · Q3 8t OO</div><div>Q1: Studies per Study · Q2: Cells/MP/Shards/RP/AP · Q3: Materials, Bonus Blueprints, Bonus Innovation Cores.</div></div>
+      <div class="card" data-gem="Attraction"><h3>Attraction</h3><div class="quality">Q1 30 · Q2 150 · Q3 1k · Q4 20t OO</div><div>Q1: Borge Loot · Q2: Ozzy Loot · Q3: Catch-Up Power Borge/Ozzy · Q4: Knox Loot, Knox Catch-Up, Ship Evolution + Eternal Milestone Bonus 5.</div></div>
+      <div class="card" data-gem="Creation"><h3>Creation</h3><div class="quality">Q1 555 · Q2 200k · Q3 400k · Q4 6t OO</div><div>Q1: Mech Cap · Q2: Hardware/Software · Q3: Cells/MP/Shards/RP · Q4: F-Trinket Tier + Borge/Ozzy/Knox Stats + 3 Mechs/4 Trinkets.</div></div>
+      <div class="card" data-gem="Power"><h3>Power</h3><div class="quality">Q1 150m · Q2 1t · Q3 1.2qa OO</div><div>Q1 installiert die Power-Gem-Upgrades inkl. Ship-Rank-Boni, Blueprints und Innovation Cores. Q2 schaltet 12 Construction Milestones frei.</div></div>
+      <div class="card" data-gem="Evolution"><h3>Evolution</h3><div class="quality">Q1 50t OO</div><div>Q1: All Gens Output, LP Bonus, MK9 Core Stability, MK9 Core Resonance + MK9 Generator. Kein Cross-Gem-Gate aus SirRed v0.018 belegt.</div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>3. Gem Upgrades: Effekt pro Level + Startkosten</h2>
+    <div class="cards" id="upgradeCards">
+      <div class="card" data-gem="Exodus"><h3>Exodus GUs</h3><div class="quality">Kostenformeln aus SirRed v0.018</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Cells Bonus</span><span class="tag">ab Q1</span></div><div class="effect">×4 Cells gained pro Level (multiplikativ).</div><div class="costline">Lv1: 1 OO · Basis 1 · Kostenmulti 1,2; zusätzliche Skalierung ab hohen Leveln.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Shard Bonus</span><span class="tag">ab Q2</span></div><div class="effect">×5 Shards gained pro Level (multiplikativ).</div><div class="costline">Lv1: 2 OO · Basis 2 · Kostenmulti 1,8.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">RP Bonus</span><span class="tag">ab Q3</span></div><div class="effect">×8 Research Points gained pro Level.</div><div class="costline">Lv1: 500 OO · Basis 500 · Kostenmulti 1,9.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">MP Bonus</span><span class="tag">ab Q4</span></div><div class="effect">×4 Mod Points gained pro Level.</div><div class="costline">Lv1: 10k OO · Kostenmulti 2.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">AP Bonus</span><span class="tag">ab Q4</span></div><div class="effect">×1,6 Academy Points gained pro Level.</div><div class="costline">Lv1: 1m OO · Kostenmulti 2,1.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Materials / Orbs</span><span class="tag">ab Q5</span></div><div class="effect unknown">Effekt in der aktuellen Wiki noch nicht belegt.</div></div>
+      </div>
+
+      <div class="card" data-gem="Temporality"><h3>Temporality GUs</h3><div class="quality">MP-Skalierung / Loop-System</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">MP Bonus (Loop Mods)</span><span class="tag">ab Q1</span></div><div class="effect">+1% MP pro GU-Level für jeden Loop Mod im Besitz.</div><div class="costline">Lv1: 1,5 OO · Kostenmulti 1,5.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">MP Bonus (Ticks)</span><span class="tag">ab Q2</span></div><div class="effect">+0,05% MP pro GU-Level für jeden Tick in diesem Traversal.</div><div class="costline">Lv1: 1,5 OO · Kostenmulti 4.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Zag Rank / Low Tier / Zag Crew / Loop Resets</span><span class="tag">ab Q3</span></div><div class="effect unknown">Die aktuelle Wiki nennt die Upgrade-Namen, aber die genauen Effekte noch nicht.</div><div class="costline">SirRed-Basen: 1k / 20m / 100k / 10b OO.</div></div>
+      </div>
+
+      <div class="card" data-gem="Innovation"><h3>Innovation GUs</h3><div class="quality">Fokus: Studies und Ressourcenskalierung</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Studies per Study</span><span class="tag">ab Q1</span></div><div class="effect"><b>+2 zusätzliche Studies</b> jedes Mal, wenn du eine Study abschließt, pro GU-Level.</div><div class="costline">Lv1: 3 OO · Kostenmulti 2; Zusatzskalierung ab höheren Leveln.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Cells / MP / Shards / RP / AP</span><span class="tag">ab Q2</span></div><div class="effect unknown">Konkrete Stat-Multiplikatoren in der aktuellen Wiki noch nicht belegt.</div><div class="costline">SirRed-Basen: 1k / 200k / 3m / 40m / 500m OO; jeweils Kostenmulti 10.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Materials / Blueprints / Innovation Cores</span><span class="tag">ab Q3</span></div><div class="effect unknown">Upgrade-Namen bekannt; genaue Effekte derzeit nicht belegt.</div></div>
+      </div>
+
+      <div class="card" data-gem="Attraction"><h3>Attraction GUs</h3><div class="quality">Hunter-Loot und Catch-up</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Borge Loot</span><span class="tag">ab Q1</span></div><div class="effect">×1,07 Loot Rewards auf Exon-12 pro Level.</div><div class="costline">Lv1: 5 OO · Kostenmulti 2,5; Zusatzskalierungen später.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Ozzy Loot</span><span class="tag">ab Q2</span></div><div class="effect">×1,04 Loot Rewards auf Endo Prime pro Level.</div><div class="costline">Lv1: 20 OO · Kostenmulti 2,5.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Catch-Up Power (Borge/Ozzy)</span><span class="tag">ab Q3</span></div><div class="effect">×1,08 Borge/Ozzy ATK Power & ATK Speed pro Level; deaktiviert ab Frogbloth/Benchy.</div><div class="costline">Lv1: 1 OO · Kostenmulti 100 · max. 5 Level.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Knox Loot / Knox Catch-Up / Ship Evolution</span><span class="tag">ab Q4</span></div><div class="effect unknown">Namen bekannt; genaue Effekte aktuell nicht belegt.</div></div>
+      </div>
+
+      <div class="card" data-gem="Creation"><h3>Creation GUs</h3><div class="quality">Mechs, Tech und skalierende Ressourcen</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Mechs Bonus Cap</span><span class="tag">ab Q1</span></div><div class="effect">×1e8 Bonus-Cap jedes Mechs pro Level.</div><div class="costline">Lv1: 1 OO · Kostenmulti 10.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Hardware Bonus</span><span class="tag">ab Q2</span></div><div class="effect">×10 Hardware-Tech-Upgrade-Output pro Level.</div><div class="costline">Lv1: 1k OO · Kostenmulti 3.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Software Bonus</span><span class="tag">ab Q2</span></div><div class="effect">×50 Software-Tech-Upgrade-Output pro Level.</div><div class="costline">Lv1: 10k OO · Kostenmulti 4.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Cells</span><span class="tag">ab Q3</span></div><div class="effect">×1,005 (+0,005 je GU-Level) Cells pro gekauftem Tech Upgrade dieses Loop Resets.</div><div class="costline">Lv1: 50k OO · Kostenmulti 1,8; massive Zusatzskalierung nach Lv8.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">MP / Shards</span><span class="tag">ab Q3</span></div><div class="effect">Jeweils ×1,001 (+0,001 je GU-Level) pro gekauftem Tech Upgrade dieses Loop Resets.</div><div class="costline">Lv1: 60k / 70k OO.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">RP</span><span class="tag">ab Q3</span></div><div class="effect">×1,0007 (+0,0007 je GU-Level) RP pro gekauftem Tech Upgrade dieses Loop Resets.</div><div class="costline">Lv1: 80k OO.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">F-Trinket / Hunter Stats</span><span class="tag">ab Q4</span></div><div class="effect unknown">Upgrade-Namen bekannt; exakte GU-Effekte aktuell nicht belegt.</div></div>
+      </div>
+
+      <div class="card" data-gem="Power"><h3>Power GUs</h3><div class="quality">Ship-Ranks und Startressourcen</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Cradle</span><span class="tag">ab Q1</span></div><div class="effect">×1,0012 auf finalen Bonus aller Cradle Rank Installs pro Crew Member + ×1,02 pro Cradle Rank.</div><div class="costline">Lv1: 1m OO · Kostenmulti 3.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Auxesia</span><span class="tag">ab Q1</span></div><div class="effect">×1,0014 pro Crew Member + ×1,02 pro Rank.</div><div class="costline">Lv1: 2m OO · Kostenmulti 4.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Zagreus</span><span class="tag">ab Q1</span></div><div class="effect">×1,002 pro Crew Member + ×1,03 pro Rank.</div><div class="costline">Lv1: 3m OO · Kostenmulti 5.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Hephaestus / Demeter / Koios / Zeus</span><span class="tag">ab Q1</span></div><div class="effect">Crew-/Rank-basierte Multiplikatoren; Wiki: Heph ×1,0012/×1,02 · Demeter ×1,0034/×1,02 · Koios ×1,0014/×1,02 · Zeus ×1,0012/×1,02.</div><div class="costline">Lv1: 40m / 50m / 600m / 700m OO.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Blueprints</span><span class="tag">ab Q1</span></div><div class="effect">+8 Blueprints am Start jedes Traversals pro Level.</div><div class="costline">Lv1: 1 OO · Kostenmulti 10.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">Innovation Cores</span><span class="tag">ab Q1</span></div><div class="effect">+4 Innovation Cores am Start jedes Traversals pro Level.</div><div class="costline">Lv1: 1 OO · Kostenmulti 10.</div></div>
+      </div>
+
+      <div class="card" data-gem="Evolution"><h3>Evolution GUs</h3><div class="quality">Q1 · 50t OO</div>
+        <div class="upgrade"><div class="uhead"><span class="uname">All Gens Output</span><span class="tag">ab Q1</span></div><div class="effect unknown">Genauer Effekt aktuell nicht belegt.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">LP Bonus</span><span class="tag">ab Q1</span></div><div class="effect unknown">Genauer Effekt aktuell nicht belegt.</div></div>
+        <div class="upgrade"><div class="uhead"><span class="uname">MK9 Core Stability / Resonance</span><span class="tag">ab Q1</span></div><div class="effect unknown">Genauer Effekt aktuell nicht belegt.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="source">
+    <b>Quellen:</b><br>
+    • Hochgeladene Datei: SirRed's Gem Costings v0.018 – Unlock-Reihenfolge, Cross-Gem-Prüfformeln, GU-Basispreise und Kostenmultiplikatoren.<br>
+    • CIFI Wiki, „Ouroboros Gems Collection“ – 2026 abrufbare Quality-Kosten und bekannte GU-Effekte: <a href="https://cifi.game-vault.net/wiki/Ouroboros_Gems_Collection">cifi.game-vault.net/wiki/Ouroboros_Gems_Collection</a><br>
+    • Die SirRed-Datei verweist auf eine neuere Adam-Version; deshalb sollten insbesondere spätere Gates vor einer langfristigen Farm-Planung nochmals mit der aktuellen Planner-Version gegengeprüft werden.
+  </div>
+</div>
+
+<div class="detail" id="detail"><button id="close" aria-label="Schließen">×</button><h3 id="dt"></h3><p id="dd"></p><p><b>Kosten:</b> <span id="dc"></span></p><p><b>Voraussetzung:</b> <span id="dr"></span></p><div class="small">Klick auf einen anderen Knoten zeigt dessen Details.</div></div>
+<script>
+const detail=document.getElementById('detail');
+document.querySelectorAll('.node').forEach(n=>n.addEventListener('click',()=>{document.getElementById('dt').textContent=n.dataset.title;document.getElementById('dd').textContent=n.dataset.desc;document.getElementById('dc').textContent=n.dataset.cost;document.getElementById('dr').textContent=n.dataset.req;detail.classList.add('show')}));
+document.getElementById('close').addEventListener('click',()=>detail.classList.remove('show'));
+document.querySelectorAll('#filters .btn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#filters .btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');const f=b.dataset.filter;document.querySelectorAll('[data-gem]').forEach(el=>el.classList.toggle('dim',f!=='all'&&el.dataset.gem!==f));}));
+</script>
+
+<section id="current-game-overview" style="margin-top:32px;padding-top:24px;border-top:2px solid #334155;font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#e5e7eb">
+<style>
+#current-game-overview .oo-cost{font-weight:700;border-left:3px solid rgba(255,255,255,.10)}
+#current-game-overview .hm-1{background:#123a2a;color:#d1fae5}
+#current-game-overview .hm-2{background:#24472a;color:#ecfccb}
+#current-game-overview .hm-3{background:#5a4b16;color:#fef3c7}
+#current-game-overview .hm-4{background:#67351c;color:#ffedd5}
+#current-game-overview .hm-5{background:#642828;color:#fee2e2}
+#current-game-overview .next-quality{display:grid;grid-template-columns:minmax(160px,1fr) minmax(90px,.45fr) minmax(220px,1.35fr) minmax(260px,1.5fr);gap:10px;align-items:center;background:#111827;border:1px solid #475569;border-radius:12px;padding:14px;margin:14px 0 14px}
+#current-game-overview .next-quality .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8}
+#current-game-overview .next-quality .value{font-weight:800;font-size:1.08rem}
+#current-game-overview .heat-legend{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px;color:#cbd5e1;font-size:.82rem}
+#current-game-overview .heat-legend span{padding:4px 8px;border-radius:999px}
+@media(max-width:720px){#current-game-overview .next-quality{grid-template-columns:1fr}.next-quality .value{font-size:1rem}}
+</style>
+<h2 style="margin:0 0 6px;font-size:1.5rem">Mein aktueller Game-Stand</h2>
+<p style="margin:0 0 8px;color:#94a3b8">Stand 05.10.2026 · Die drei Kosten-Spalten zeigen jeweils den Preis des nächsten einzelnen GU-Levels, ausgehend vom eingetragenen aktuellen Level.</p>
+<div class="next-quality" aria-label="Nächstes freischaltbares Gem Quality">
+  <div><div class="label">Nächstes Gem Quality</div><div class="value">Attraction Q1</div></div>
+  <div><div class="label">Kosten</div><div class="value oo-cost hm-4" style="display:inline-block;padding:6px 10px;border-radius:8px">30 OO</div></div>
+  <div><div class="label">Voraussetzung</div><div class="value">Temporality Q2 ✓</div><div style="color:#94a3b8;font-size:.85rem;margin-top:3px">Schaltet Borge Loot GU frei (×1,07 Borge-Loot pro GU-Level).</div></div>
+  <div><div class="label">Erste 3 GU-Kosten nach Kauf</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><span class="oo-cost hm-2" style="padding:6px 9px;border-radius:8px">Borge Lv1 · <b>5 OO</b></span><span class="oo-cost hm-3" style="padding:6px 9px;border-radius:8px">Lv2 · <b>12,5 OO</b></span><span class="oo-cost hm-4" style="padding:6px 9px;border-radius:8px">Lv3 · <b>31,25 OO</b></span></div><div style="color:#94a3b8;font-size:.8rem;margin-top:5px">Nur GU-Kosten; Attraction Q1 selbst kostet zusätzlich 30 OO.</div></div>
+</div>
+<div class="heat-legend"><span class="hm-1">sehr günstig</span><span class="hm-2">günstig</span><span class="hm-3">mittel</span><span class="hm-4">teuer</span><span class="hm-5">sehr teuer</span></div>
+<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:850px;background:#0f172a;border-radius:12px;overflow:hidden">
+<thead><tr style="background:#1e293b;text-align:left"><th style="padding:12px">Gem / Quality</th><th style="padding:12px">GU</th><th style="padding:12px">Aktuell</th><th style="padding:12px">Nächstes GU</th><th style="padding:12px">Danach</th><th style="padding:12px">3. nächstes</th><th style="padding:12px">GU-Effekt</th></tr></thead>
+<tbody>
+<tr><td style="padding:12px;border-top:1px solid #334155" rowspan="2"><b>Exodus Q2</b></td><td style="padding:12px;border-top:1px solid #334155">Cells Multi Bonus</td><td style="padding:12px;border-top:1px solid #334155"><b>2 / 999</b></td><td class="oo-cost hm-1" style="padding:12px;border-top:1px solid #334155">Lv3 · <b>1,44 OO</b></td><td class="oo-cost hm-1" style="padding:12px;border-top:1px solid #334155">Lv4 · 1,728 OO</td><td class="oo-cost hm-1" style="padding:12px;border-top:1px solid #334155">Lv5 · 2,0736 OO</td><td style="padding:12px;border-top:1px solid #334155">×4 Cells pro Level</td></tr>
+<tr><td style="padding:12px;border-top:1px solid #334155">Shards Multi Bonus</td><td style="padding:12px;border-top:1px solid #334155"><b>1 / 999</b></td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv2 · <b>3,6 OO</b></td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv3 · 6,48 OO</td><td class="oo-cost hm-3" style="padding:12px;border-top:1px solid #334155">Lv4 · 11,664 OO</td><td style="padding:12px;border-top:1px solid #334155">×5 Shards pro Level</td></tr>
+<tr><td style="padding:12px;border-top:1px solid #334155" rowspan="2"><b>Temporality Q2</b></td><td style="padding:12px;border-top:1px solid #334155">MP (Loop Mods) Bonus</td><td style="padding:12px;border-top:1px solid #334155"><b>1 / 50</b></td><td class="oo-cost hm-1" style="padding:12px;border-top:1px solid #334155">Lv2 · <b>2,25 OO</b></td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv3 · 3,375 OO</td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv4 · 5,0625 OO</td><td style="padding:12px;border-top:1px solid #334155">+1% MP pro Level je Loop Mod</td></tr>
+<tr><td style="padding:12px;border-top:1px solid #334155">MP (Ticks) Bonus</td><td style="padding:12px;border-top:1px solid #334155"><b>1 / 50</b></td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv2 · <b>6 OO</b></td><td class="oo-cost hm-3" style="padding:12px;border-top:1px solid #334155">Lv3 · 24 OO</td><td class="oo-cost hm-5" style="padding:12px;border-top:1px solid #334155">Lv4 · 96 OO</td><td style="padding:12px;border-top:1px solid #334155">+0,05% MP pro Level je Tick</td></tr>
+<tr><td style="padding:12px;border-top:1px solid #334155"><b>Innovation Q1</b></td><td style="padding:12px;border-top:1px solid #334155">Studies / Study Bonus</td><td style="padding:12px;border-top:1px solid #334155"><b>0 / 50</b></td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv1 · <b>3 OO</b></td><td class="oo-cost hm-2" style="padding:12px;border-top:1px solid #334155">Lv2 · 6 OO</td><td class="oo-cost hm-3" style="padding:12px;border-top:1px solid #334155">Lv3 · 12 OO</td><td style="padding:12px;border-top:1px solid #334155">+2 Studies pro Study je Level</td></tr>
+</tbody></table></div>
+<p style="margin:12px 0 0;color:#94a3b8;font-size:.9rem">Heatmap: grün = niedrige absolute OO-Kosten, gelb/orange = mittlere bis hohe Kosten, rot = sehr hohe Kosten innerhalb deines aktuellen Kaufhorizonts. Quelle der GU-Kosten: hochgeladene SirRed Gem Costings v0.018. Beim nächsten Status-Update werden Level, Folgepreise und das nächste freischaltbare Gem Quality gemeinsam weitergeschoben.</p>
+</section>
+</body></html>

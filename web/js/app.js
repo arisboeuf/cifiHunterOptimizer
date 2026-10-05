@@ -10,11 +10,15 @@ import {
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
 import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
+import { initGemsModule } from "./gems/ui.js";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
+const MODULE_STORAGE_KEY = "cifi_web_module_v1";
 
 const state = {
   hunterId: DEFAULT_HUNTER_ID,
+  module: "hunters",
+  gemsReady: false,
   build: null,
   wasmExports: null,
   engine: null,
@@ -709,6 +713,52 @@ function setupHunterTabs() {
   }
 }
 
+function switchModule(moduleId) {
+  const id = moduleId === "gems" ? "gems" : "hunters";
+  state.module = id;
+  document.body.dataset.module = id;
+
+  const huntersEl = $("#moduleHunters");
+  const gemsEl = $("#moduleGems");
+  if (huntersEl) huntersEl.hidden = id !== "hunters";
+  if (gemsEl) gemsEl.hidden = id !== "gems";
+
+  $$("#moduleTabs .module-tab").forEach((btn) => {
+    btn.setAttribute("aria-selected", String(btn.dataset.module === id));
+  });
+
+  const title = $("#appTitle");
+  const sub = $("#appSubtitle");
+  if (id === "gems") {
+    if (title) title.textContent = "Gem Progression";
+    if (sub) {
+      sub.textContent =
+        "Live Ouroboros quality & GU costs — edit your levels, see the next three upgrades and the next unlock";
+    }
+    if (!state.gemsReady && gemsEl) {
+      initGemsModule(gemsEl);
+      state.gemsReady = true;
+    }
+  } else {
+    if (title) title.textContent = "Hunter Sim";
+    if (sub) {
+      sub.textContent = "Compare builds and optimize your performance — same WASM engine as cifi-tools";
+    }
+  }
+
+  try {
+    localStorage.setItem(MODULE_STORAGE_KEY, id);
+  } catch {
+    /* ignore */
+  }
+}
+
+function setupModuleTabs() {
+  $$("#moduleTabs .module-tab").forEach((btn) => {
+    btn.addEventListener("click", () => switchModule(btn.dataset.module));
+  });
+}
+
 function setupTabs() {
   $$("#leftPanel .tab[data-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -847,8 +897,17 @@ async function importBuild(file) {
 }
 
 async function init() {
+  setupModuleTabs();
   setupHunterTabs();
   setupTabs();
+
+  let savedModule = "hunters";
+  try {
+    const m = localStorage.getItem(MODULE_STORAGE_KEY);
+    if (m === "gems" || m === "hunters") savedModule = m;
+  } catch {
+    /* ignore */
+  }
 
   // Always start on Borge
   state.hunterId = DEFAULT_HUNTER_ID;
@@ -935,6 +994,8 @@ async function init() {
     $("#status").textContent = `WASM load failed: ${err.message || err}`;
     syncActionButtons();
   }
+
+  switchModule(savedModule);
 }
 
 function fmtOptDelta(best, base, digits = 1) {

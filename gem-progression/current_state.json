@@ -1,0 +1,103 @@
+{
+  "as_of": "2026-10-05",
+  "currency": "Ouroboros Orbs (OO)",
+  "source_planner": {
+    "file": "Kopie von SirRed's Gem Costings 0.018_.xlsx",
+    "version": "0.018",
+    "maintenance_warning": "Planner states that this SirRed version is no longer maintained and points to a newer Adam-maintained version."
+  },
+  "current_progress": {
+    "Exodus": {
+      "quality": 2,
+      "upgrades": {
+        "Cells Multi Bonus": {
+          "current_level": 2,
+          "max_level": 999,
+          "next_three": [
+            {"level": 3, "cost_oo": 1.44},
+            {"level": 4, "cost_oo": 1.728},
+            {"level": 5, "cost_oo": 2.0736}
+          ],
+          "effect": "x4 Cells per GU level"
+        },
+        "Shards Multi Bonus": {
+          "current_level": 1,
+          "max_level": 999,
+          "next_three": [
+            {"level": 2, "cost_oo": 3.6},
+            {"level": 3, "cost_oo": 6.48},
+            {"level": 4, "cost_oo": 11.664}
+          ],
+          "effect": "x5 Shards per GU level"
+        }
+      }
+    },
+    "Temporality": {
+      "quality": 2,
+      "upgrades": {
+        "MP (Loop Mods) Bonus": {
+          "current_level": 1,
+          "max_level": 50,
+          "next_three": [
+            {"level": 2, "cost_oo": 2.25},
+            {"level": 3, "cost_oo": 3.375},
+            {"level": 4, "cost_oo": 5.0625}
+          ],
+          "effect": "+1% MP per GU level per Loop Mod"
+        },
+        "MP (Ticks) Bonus": {
+          "current_level": 1,
+          "max_level": 50,
+          "next_three": [
+            {"level": 2, "cost_oo": 6},
+            {"level": 3, "cost_oo": 24},
+            {"level": 4, "cost_oo": 96}
+          ],
+          "effect": "+0.05% MP per GU level per Tick"
+        }
+      }
+    },
+    "Innovation": {
+      "quality": 1,
+      "upgrades": {
+        "Studies / Study Bonus": {
+          "current_level": 0,
+          "max_level": 50,
+          "next_three": [
+            {"level": 1, "cost_oo": 3},
+            {"level": 2, "cost_oo": 6},
+            {"level": 3, "cost_oo": 12}
+          ],
+          "effect": "+2 Studies per Study per GU level"
+        }
+      }
+    }
+  },
+  "next_quality": {
+    "gem": "Attraction",
+    "quality": 1,
+    "cost_oo": 30,
+    "requirement": "Temporality Q2",
+    "requirement_met": true,
+    "unlocks": "Borge Loot GU",
+    "gu_effect": "x1.07 Borge Loot per GU level",
+    "first_three_gu_costs": [
+      {"level": 1, "cost_oo": 5},
+      {"level": 2, "cost_oo": 12.5},
+      {"level": 3, "cost_oo": 31.25}
+    ]
+  },
+  "early_unlock_chain": [
+    {"node": "Exodus Q1", "cost_oo": 1},
+    {"node": "Cells GU Lv1", "cost_oo": 1, "type": "mandatory_gate"},
+    {"node": "Exodus Q2", "cost_oo": 5},
+    {"node": "Temporality Q1", "cost_oo": 5},
+    {"node": "Innovation Q1", "cost_oo": 12},
+    {"node": "Temporality Q2", "cost_oo": 18},
+    {"node": "Attraction Q1", "cost_oo": 30},
+    {"node": "Attraction Q2", "cost_oo": 150},
+    {"node": "Creation Q1", "cost_oo": 555},
+    {"node": "Attraction Q3", "cost_oo": 1000},
+    {"node": "Exodus Q3", "cost_oo": 5000}
+  ]
+}

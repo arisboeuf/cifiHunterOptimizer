@@ -1,21 +1,27 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hunter Sim</title>
-    <meta name="description" content="Hunter simulator & optimizer for CIFI — WASM combat, stage distribution, loot score." />
+    <title>CIFI Tools</title>
+    <meta name="description" content="CIFI hunter simulator & Ouroboros gem progression — WASM combat, stage distribution, live GU costs." />
     <link rel="stylesheet" href="./css/app.css" />
   </head>
-  <body data-hunter="borge">
+  <body data-hunter="borge" data-module="hunters">
     <header class="app-header">
       <div class="wrap" style="padding-top: 0; padding-bottom: 0">
-        <h1>Hunter Sim</h1>
-        <p>Compare builds and optimize your performance — same WASM engine as cifi-tools</p>
+        <h1 id="appTitle">Hunter Sim</h1>
+        <p id="appSubtitle">Compare builds and optimize your performance — same WASM engine as cifi-tools</p>
       </div>
     </header>
 
     <main class="wrap">
+      <div class="module-tabs" id="moduleTabs" role="tablist" aria-label="App module">
+        <button type="button" class="module-tab" role="tab" data-module="hunters" aria-selected="true">Hunters</button>
+        <button type="button" class="module-tab" role="tab" data-module="gems" aria-selected="false">Gems</button>
+      </div>
+
+      <div id="moduleHunters">
       <div class="hunter-tabs" id="hunterTabs" role="tablist" aria-label="Hunter"></div>
 
       <div class="toolbar">
@@ -155,6 +161,9 @@
         <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).
         Active: <strong>Borge</strong>. Builds persist per hunter in this browser.
       </p>
+      </div>
+
+      <div id="moduleGems" class="gems-module" hidden></div>
     </main>
 
     <div class="modal-backdrop" id="talentModal" hidden>

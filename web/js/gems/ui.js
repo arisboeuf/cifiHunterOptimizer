@@ -22,6 +22,8 @@ let progress = defaultProgress();
 let filter = "all";
 /** @type {Map<string, number>} plan pick id → OO cost */
 let planPicks = new Map();
+/** Already banked OO (subtracted from planned total). */
+let bankedOO = 0;
 
 const GEM_RESET_LABELS = ["Reset to starter snapshot", "Sure?", "Really?"];
 let gemResetArmStep = 0;
@@ -68,24 +70,38 @@ function onGemResetClick() {
 function loadPlan() {
   try {
     const raw = localStorage.getItem(PLAN_STORAGE_KEY);
-    if (!raw) return new Map();
+    if (!raw) return { picks: new Map(), banked: 0 };
     const data = JSON.parse(raw);
     const map = new Map();
+    let banked = 0;
     if (data && typeof data === "object") {
-      for (const [id, cost] of Object.entries(data)) {
+      // New shape: { picks, banked } — old shape was id→cost map.
+      const picksObj =
+        data.picks && typeof data.picks === "object" && !Array.isArray(data.picks)
+          ? data.picks
+          : data.banked == null && data.picks == null
+            ? data
+            : {};
+      for (const [id, cost] of Object.entries(picksObj)) {
+        if (id === "picks" || id === "banked") continue;
         const n = Number(cost);
         if (id && Number.isFinite(n) && n > 0) map.set(id, n);
       }
+      const b = Number(data.banked);
+      if (Number.isFinite(b) && b > 0) banked = b;
     }
-    return map;
+    return { picks: map, banked };
   } catch {
-    return new Map();
+    return { picks: new Map(), banked: 0 };
   }
 }
 
 function savePlan() {
   try {
-    localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(Object.fromEntries(planPicks)));
+    localStorage.setItem(
+      PLAN_STORAGE_KEY,
+      JSON.stringify({ picks: Object.fromEntries(planPicks), banked: bankedOO }),
+    );
   } catch {
     /* ignore */
   }
@@ -95,6 +111,10 @@ function planSum() {
   let sum = 0;
   for (const c of planPicks.values()) sum += c;
   return sum;
+}
+
+function planRemaining() {
+  return Math.max(0, planSum() - bankedOO);
 }
 
 function ooTap(cost, peers, id, extraClass = "") {
@@ -391,16 +411,26 @@ function renderStatus() {
 
   const picks = planPicks.size;
   const sum = planSum();
+  const remaining = planRemaining();
+  const bankedDisplay = bankedOO > 0 ? String(bankedOO) : "";
 
   el.innerHTML = `
     <div class="gem-status-head">
       <h2>My current progress</h2>
       <p class="gem-muted">Edit qualities and GU levels — next three single-level costs update live. Tap color-coded OO amounts to build your planned total for the next Traversal.</p>
       <div class="gem-planned" aria-live="polite">
-        <div>
-          <div class="label">Planned OO for next Traversal</div>
-          <div class="value">${esc(formatOO(sum))}${picks ? ` <span class="gem-muted">· ${picks} pick${picks === 1 ? "" : "s"}</span>` : ""}</div>
+        <div class="gem-planned-main">
+          <div class="label">Still needed for next Traversal</div>
+          <div class="value">${esc(formatOO(remaining))}${
+            picks || bankedOO
+              ? ` <span class="gem-muted">· plan ${esc(formatOO(sum))}${bankedOO ? ` − banked ${esc(formatOO(bankedOO))}` : ""}${picks ? ` · ${picks} pick${picks === 1 ? "" : "s"}` : ""}</span>`
+              : ""
+          }</div>
         </div>
+        <label class="gem-banked">
+          <span class="label">Banked OO</span>
+          <input id="gemBankedOO" type="number" min="0" step="any" inputmode="decimal" placeholder="0" value="${esc(bankedDisplay)}" aria-label="Banked Ouroboros Orbs" />
+        </label>
         <button type="button" class="btn btn-sm" id="gemClearPlan" ${picks ? "" : "disabled"}>Clear plan</button>
       </div>
       <div class="gem-actions">
@@ -478,6 +508,29 @@ function renderStatus() {
     renderStatus();
   });
 
+  const bankedInput = el.querySelector("#gemBankedOO");
+  if (bankedInput) {
+    const commitBanked = () => {
+      const n = Number(bankedInput.value);
+      bankedOO = Number.isFinite(n) && n > 0 ? n : 0;
+      savePlan();
+      renderStatus();
+      const again = root.querySelector("#gemBankedOO");
+      if (again) {
+        again.focus();
+        const len = again.value.length;
+        again.setSelectionRange(len, len);
+      }
+    };
+    bankedInput.addEventListener("change", commitBanked);
+    bankedInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitBanked();
+      }
+    });
+  }
+
   el.querySelector("#gemResetDefaults")?.addEventListener("click", onGemResetClick);
 }
 
@@ -530,7 +583,9 @@ function shellHtml() {
 export function initGemsModule(container) {
   root = container;
   progress = loadProgress();
-  planPicks = loadPlan();
+  const plan = loadPlan();
+  planPicks = plan.picks;
+  bankedOO = plan.banked;
   root.innerHTML = shellHtml();
   root.querySelector("#gemDetailClose")?.addEventListener("click", () => {
     root.querySelector("#gemDetail").hidden = true;

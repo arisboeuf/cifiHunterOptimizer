@@ -1466,14 +1466,18 @@ button.oo-tap.is-planned {
 .gem-planned {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  align-items: flex-end;
+  gap: 0.85rem 1rem;
   margin: 0.85rem 0 0.55rem;
   padding: 0.85rem 1rem;
   border: 1px solid #475569;
   border-radius: 12px;
   background: #111827;
+}
+
+.gem-planned-main {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .gem-planned .label {
@@ -1487,6 +1491,30 @@ button.oo-tap.is-planned {
   font-weight: 800;
   font-size: 1.2rem;
   margin-top: 0.15rem;
+}
+
+.gem-banked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 7.5rem;
+}
+
+.gem-banked input {
+  width: 7.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.35rem 0.5rem;
+}
+
+.gem-banked input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .gem-table-wrap {

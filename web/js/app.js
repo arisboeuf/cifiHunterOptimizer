@@ -11,14 +11,17 @@ import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend }
 import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
+const MODULE_IDS = new Set(["hunters", "gems", "mechs"]);
 
 const state = {
   hunterId: DEFAULT_HUNTER_ID,
   module: "hunters",
   gemsReady: false,
+  mechsReady: false,
   build: null,
   wasmExports: null,
   engine: null,
@@ -714,14 +717,19 @@ function setupHunterTabs() {
 }
 
 function switchModule(moduleId) {
-  const id = moduleId === "gems" ? "gems" : "hunters";
+  const id = MODULE_IDS.has(moduleId) ? moduleId : "hunters";
+  if (state.module === "mechs" && id !== "mechs" && state.mechsReady) {
+    persistMechsState();
+  }
   state.module = id;
   document.body.dataset.module = id;
 
   const huntersEl = $("#moduleHunters");
   const gemsEl = $("#moduleGems");
+  const mechsEl = $("#moduleMechs");
   if (huntersEl) huntersEl.hidden = id !== "hunters";
   if (gemsEl) gemsEl.hidden = id !== "gems";
+  if (mechsEl) mechsEl.hidden = id !== "mechs";
 
   $$("#moduleTabs .module-tab").forEach((btn) => {
     btn.setAttribute("aria-selected", String(btn.dataset.module === id));
@@ -738,6 +746,16 @@ function switchModule(moduleId) {
     if (!state.gemsReady && gemsEl) {
       initGemsModule(gemsEl);
       state.gemsReady = true;
+    }
+  } else if (id === "mechs") {
+    if (title) title.textContent = "Mech Upgrades";
+    if (sub) {
+      sub.textContent =
+        "Compare Unit / Multi / Timer for each mech. Ranked by daily-factor gain per emerald (Tokens: tokens/day per emerald). Emerald costs from Helper v0.03.02 formulas.";
+    }
+    if (!state.mechsReady && mechsEl) {
+      initMechsModule(mechsEl);
+      state.mechsReady = true;
     }
   } else {
     if (title) title.textContent = "Hunter Sim";
@@ -904,7 +922,7 @@ async function init() {
   let savedModule = "hunters";
   try {
     const m = localStorage.getItem(MODULE_STORAGE_KEY);
-    if (m === "gems" || m === "hunters") savedModule = m;
+    if (MODULE_IDS.has(m)) savedModule = m;
   } catch {
     /* ignore */
   }

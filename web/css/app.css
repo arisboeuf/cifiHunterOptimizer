@@ -74,6 +74,23 @@ body[data-module="gems"] {
   --glow-b: rgba(56, 189, 248, 0.16);
 }
 
+body[data-module="mechs"] {
+  --bg: #0a0e14;
+  --bg-elev: #111821;
+  --panel: #151c27;
+  --card: #1a2330;
+  --card-hover: #222c3c;
+  --border: #2d3a4d;
+  --accent: #64748b;
+  --accent-hover: #94a3b8;
+  --accent-soft: rgba(148, 163, 184, 0.16);
+  --header-from: #1e293b;
+  --header-mid: #334155;
+  --header-to: #0a0e14;
+  --glow-a: rgba(148, 163, 184, 0.12);
+  --glow-b: rgba(100, 116, 139, 0.1);
+}
+
 *,
 *::before,
 *::after {
@@ -187,6 +204,13 @@ body {
   margin: 0.35rem 0 0;
   color: rgba(241, 245, 249, 0.82);
   font-size: 0.95rem;
+  max-width: 42rem;
+  line-height: 1.4;
+}
+
+body[data-module="mechs"] .app-header p {
+  max-width: 36rem;
+  font-size: 0.88rem;
 }
 
 .wrap {
@@ -1633,5 +1657,284 @@ button.oo-tap.is-planned {
 
   .gem-cards {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── Mechs module ────────────────────────────────────────── */
+
+.mechs-module {
+  padding-bottom: 3rem;
+}
+
+.mech-muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0.35rem 0;
+}
+
+.mech-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.85rem;
+}
+
+.mech-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: 7.5rem;
+}
+
+.mech-tab:hover {
+  background: var(--card-hover);
+}
+
+.mech-tab[aria-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+  background: var(--accent-soft);
+}
+
+.mech-tab-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.mech-tab-out {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.mech-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.mech-inputs,
+.mech-results {
+  padding: 0.9rem;
+}
+
+.mech-input-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.mech-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem 0.75rem;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.mech-row-state,
+.mech-row-gains,
+.mech-row-costs {
+  border-color: var(--border);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.mech-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.mech-col-title {
+  margin: 0;
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+  color: #e2e8f0;
+}
+
+.mech-col-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.mech-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.mech-fields-row {
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  margin-top: 0;
+}
+
+.mech-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.mech-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+}
+
+.mech-subhead {
+  margin: 1rem 0 0;
+  font-size: 0.95rem;
+}
+
+.mech-pick {
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.mech-pick.is-ready {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mech-pick .k {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mech-pick .v {
+  font-size: 1.55rem;
+  font-weight: 700;
+  margin-top: 0.15rem;
+}
+
+.mech-pick-sub {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-top: 0.25rem;
+}
+
+.mech-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.mech-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.mech-table th,
+.mech-table td {
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.mech-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.mech-table tr.is-best {
+  background: var(--accent-soft);
+}
+
+.mech-table tr.is-bad td {
+  color: var(--danger);
+}
+
+.mech-table td.mech-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.mech-table td.mech-score.hm-1 {
+  color: #34d399;
+}
+
+.mech-table td.mech-score.hm-2 {
+  color: #a3e635;
+}
+
+.mech-table td.mech-score.hm-3 {
+  color: #fbbf24;
+}
+
+.mech-table td.mech-score.hm-4 {
+  color: #fb923c;
+}
+
+.mech-table td.mech-score.hm-5 {
+  color: #f87171;
+}
+
+.mech-table td.mech-score.is-top {
+  background: rgba(52, 211, 153, 0.18);
+  color: #d1fae5;
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.4);
+}
+
+.mech-field-static .mech-static-value {
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.mech-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.mech-save-hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.mech-save-hint[data-ok="0"] {
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .mech-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mech-fields-row {
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
   }
 }

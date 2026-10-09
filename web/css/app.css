@@ -1726,6 +1726,100 @@ button.oo-tap.is-planned {
   padding: 0.9rem;
 }
 
+.mech-upgrade-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.mech-upgrade-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 0.8rem 0.85rem;
+  background: rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.mech-upgrade-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.mech-upgrade-spin {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr 2.25rem;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.15rem 0 0.1rem;
+}
+
+.mech-upgrade-spin .btn {
+  width: 2.25rem;
+  padding-left: 0;
+  padding-right: 0;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.mech-upgrade-spin .btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mech-level-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.45rem 0.4rem;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.mech-level-input::-webkit-outer-spin-button,
+.mech-level-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.mech-upgrade-gain {
+  color: #cbd5e1;
+  font-size: 0.86rem;
+}
+
+.mech-upgrade-state {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.mech-upgrade-cost {
+  margin-top: 0.25rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.mech-upgrade-cost .k {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.1rem;
+}
+
 .mech-input-rows {
   display: flex;
   flex-direction: column;
@@ -1936,5 +2030,9 @@ button.oo-tap.is-planned {
 
   .mech-fields-row {
     grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  }
+
+  .mech-upgrade-grid {
+    grid-template-columns: 1fr;
   }
 }

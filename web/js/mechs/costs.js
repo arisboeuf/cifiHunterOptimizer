@@ -151,15 +151,23 @@ export function calculateTokensPerMission(p, units, multiLevel) {
   return p.multiBonusPerLevel * Math.max(0, Number(multiLevel) || 0) * Math.max(0, Number(units) || 0);
 }
 
-/** Timer in minutes from timer level (no Creation1 gem offset). */
+/** Timer in whole minutes from timer level (no Creation1 gem offset). */
 export function calculateTimerMinutes(p, timerLevel) {
   const level = Math.max(0, Number(timerLevel) || 0);
   const seconds = p.timerBaseSeconds - p.timerReductionSeconds * level;
-  return Math.max(0, seconds / 60);
+  return Math.max(0, Math.round(seconds / 60));
 }
 
+/** Fixed whole-minute step per timer upgrade (from Helper timerReductionPerLevel). */
 export function timerReductionMinutes(p) {
-  return p.timerReductionSeconds / 60;
+  return Math.round(p.timerReductionSeconds / 60);
+}
+
+/** Max timer level while mission time stays > 0 with fixed minute steps. */
+export function maxTimerLevelForPositiveTime(p) {
+  const step = p.timerReductionSeconds;
+  if (!(step > 0)) return 0;
+  return Math.max(0, Math.floor((p.timerBaseSeconds - step) / step));
 }
 
 /** Displayed “multi per mech” = multiBonusPerLevel * multiLevel (unit upgrade gain). */

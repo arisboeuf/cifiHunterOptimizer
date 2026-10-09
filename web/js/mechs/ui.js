@@ -7,16 +7,22 @@ import {
   STORAGE_KEY,
   cloneMech,
   defaultState,
+  hydrateMechFromLegacy,
   syncDerivedFields,
 } from "./data.js";
-import { formatEmeraldCost } from "./costs.js";
+import {
+  MECH_COST_PARAMS,
+  formatEmeraldCost,
+  inferTimerLevel,
+  maxTimerLevelForPositiveTime,
+  timerReductionMinutes,
+} from "./costs.js";
 import {
   UPGRADE_LABELS,
   evaluateAll,
   formatCost,
   formatNum,
   formatTimer,
-  parseTimer,
   scoreHeatClass,
 } from "./calc.js";
 
@@ -39,14 +45,7 @@ function readStorageRaw() {
 }
 
 function applyPersistedMech(id, src) {
-  const next = cloneMech(DEFAULT_MECHS[id]);
-  if (!src || typeof src !== "object") return next;
-  for (const key of PERSIST_KEYS) {
-    if (key === "multiLevel" || key === "timerLevel") continue;
-    const n = Number(src[key]);
-    if (Number.isFinite(n)) next[key] = n;
-  }
-  return syncDerivedFields(next);
+  return hydrateMechFromLegacy(cloneMech(DEFAULT_MECHS[id]), src);
 }
 
 /** Clean snapshot of every editable field for all mechs. */
@@ -55,20 +54,15 @@ function serializeState() {
   const mechs = {};
   for (const id of MECH_ORDER) {
     const m = state.mechs[id] || DEFAULT_MECHS[id];
-    const row = {
-      costs: {
-        unit: Number(m.costs.unit),
-        multi: Number(m.costs.multi),
-        timer: Number(m.costs.timer),
-      },
-    };
+    /** @type {Record<string, number>} */
+    const row = {};
     for (const key of PERSIST_KEYS) {
       row[key] = Number(m[key]);
     }
     mechs[id] = row;
   }
   return {
-    version: 2,
+    version: 4,
     activeId: state.activeId,
     mechs,
   };
@@ -154,30 +148,75 @@ function shellHtml() {
   `;
 }
 
-function numField(id, label, value, step = "any") {
-  return `
-    <label class="mech-field">
-      <span>${label}</span>
-      <input type="number" id="${id}" value="${value}" step="${step}" />
-    </label>
-  `;
+function levelLimits(mech, kind) {
+  const p = MECH_COST_PARAMS[mech.id];
+  if (kind === "units") return { min: 0, max: 999 };
+  if (kind === "multi") return { min: 0, max: p?.maxMultiLevel ?? 99 };
+  if (kind === "timer") {
+    // Soft formula max can be exceeded (surcharge), but keep timer > 0 with fixed minute steps.
+    const byTime = p ? maxTimerLevelForPositiveTime(p) : 99;
+    const soft = p?.maxTimerLevel ?? 99;
+    return { min: 0, max: Math.max(byTime, soft) };
+  }
+  return { min: 0, max: 99 };
 }
 
-function timerField(id, label, minutes) {
-  return `
-    <label class="mech-field">
-      <span>${label}</span>
-      <input type="text" id="${id}" value="${formatTimer(minutes)}" inputmode="numeric" placeholder="hh:mm:ss" spellcheck="false" />
-    </label>
-  `;
+function timerStepMinutes(mech) {
+  const p = MECH_COST_PARAMS[mech.id];
+  return p ? timerReductionMinutes(p) : Math.round(mech.timerReductionMinutes || 2);
 }
 
-function staticField(label, value, derivedKey = "") {
-  const attr = derivedKey ? ` data-derived="${derivedKey}"` : "";
+function upgradeCard(mech, kind) {
+  const limits = levelLimits(mech, kind);
+  const level =
+    kind === "units" ? mech.units : kind === "multi" ? mech.multiLevel : mech.timerLevel;
+  const cost =
+    kind === "units" ? mech.costs.unit : kind === "multi" ? mech.costs.multi : mech.costs.timer;
+  const atMax = level >= limits.max;
+  const atMin = level <= limits.min;
+  const stepMin = timerStepMinutes(mech);
+
+  let gain = "";
+  let stateLine = "";
+  let inputValue = String(level);
+  let inputLabel = `${UPGRADE_LABELS[kind === "units" ? "unit" : kind]} level`;
+  let inputStep = "1";
+  if (kind === "units") {
+    gain =
+      mech.mode === "token"
+        ? `+1 unit (+${formatNum(mech.tokensPerMech, 0)} tokens)`
+        : `+1 unit (+${formatNum(mech.multiPerMech, 3)} multi)`;
+    stateLine =
+      mech.mode === "token"
+        ? `${formatNum(mech.tokensPerMission, 0)} tokens / mission`
+        : `Multi ${formatNum(mech.missionMultiplier, 3)} · ${formatNum(mech.multiPerMech, 3)}/mech`;
+  } else if (kind === "multi") {
+    gain =
+      mech.mode === "token"
+        ? `+${formatNum(mech.tokensPerMech, 0)} tokens × units`
+        : `+${formatNum(mech.multiUpgradeIncrement, 3)} per mech`;
+    stateLine = `Level ${level}${limits.max < 999 ? ` / ${MECH_COST_PARAMS[mech.id]?.maxMultiLevel ?? "—"}` : ""}`;
+  } else {
+    gain = `Each upgrade −${stepMin} min (fixed)`;
+    stateLine = formatTimer(mech.timerMinutes);
+    inputValue = String(Math.round(mech.timerMinutes));
+    inputLabel = "Mission timer (minutes)";
+    inputStep = String(stepMin);
+  }
+
+  const title = UPGRADE_LABELS[kind === "units" ? "unit" : kind];
+  // Timer: − lengthens (undo), + shortens (buy upgrade) — same as level −/+.
   return `
-    <div class="mech-field mech-field-static">
-      <span>${label}</span>
-      <div class="mech-static-value"${attr}>${value}</div>
+    <div class="mech-upgrade-card" data-kind="${kind}">
+      <div class="mech-upgrade-title">${title}</div>
+      <div class="mech-upgrade-spin">
+        <button type="button" class="btn mech-step" data-kind="${kind}" data-delta="-1" ${atMin ? "disabled" : ""} aria-label="${kind === "timer" ? `Lengthen timer by ${stepMin} min` : `Decrease ${title}`}">−</button>
+        <input type="number" class="mech-level-input" data-kind="${kind}" value="${inputValue}" step="${inputStep}" aria-label="${inputLabel}" />
+        <button type="button" class="btn mech-step" data-kind="${kind}" data-delta="1" ${atMax ? "disabled" : ""} aria-label="${kind === "timer" ? `Shorten timer by ${stepMin} min` : `Increase ${title}`}">+</button>
+      </div>
+      <div class="mech-upgrade-gain" data-derived="${kind}Gain">${gain}</div>
+      <div class="mech-upgrade-state" data-derived="${kind}State">${stateLine}</div>
+      <div class="mech-upgrade-cost"><span class="k">Next cost</span> <span data-derived="${kind}Cost">${formatEmeraldCost(cost)}</span></div>
     </div>
   `;
 }
@@ -190,22 +229,51 @@ function refreshDerivedLabels() {
     const node = el.querySelector(`[data-derived="${key}"]`);
     if (node) node.textContent = text;
   };
-  set("multiPerMech", formatNum(m.multiPerMech, 3));
-  set("tokensPerMech", formatNum(m.tokensPerMech, 0));
-  set("unitGain", m.mode === "multiplier"
-    ? `+1 unit (+${formatNum(m.multiPerMech, 3)} multi)`
-    : `+1 unit (+${formatNum(m.tokensPerMech, 0)} tokens)`);
-  set("multiGain", m.mode === "multiplier"
-    ? `+${formatNum(m.multiUpgradeIncrement, 3)}`
-    : `+${formatNum(m.tokensPerMech, 0)} tokens × units`);
-  set("timerGain", `−${formatNum(m.timerReductionMinutes, 0)} min`);
-  set("unitCost", formatEmeraldCost(m.costs.unit));
+  set(
+    "unitsGain",
+    m.mode === "token"
+      ? `+1 unit (+${formatNum(m.tokensPerMech, 0)} tokens)`
+      : `+1 unit (+${formatNum(m.multiPerMech, 3)} multi)`,
+  );
+  set(
+    "unitsState",
+    m.mode === "token"
+      ? `${formatNum(m.tokensPerMission, 0)} tokens / mission`
+      : `Multi ${formatNum(m.missionMultiplier, 3)} · ${formatNum(m.multiPerMech, 3)}/mech`,
+  );
+  set(
+    "multiGain",
+    m.mode === "token"
+      ? `+${formatNum(m.tokensPerMech, 0)} tokens × units`
+      : `+${formatNum(m.multiUpgradeIncrement, 3)} per mech`,
+  );
+  set(
+    "multiState",
+    `Level ${m.multiLevel}${
+      MECH_COST_PARAMS[m.id] ? ` / ${MECH_COST_PARAMS[m.id].maxMultiLevel}` : ""
+    }`,
+  );
+  const stepMin = timerStepMinutes(m);
+  set("timerGain", `Each upgrade −${stepMin} min (fixed)`);
+  set("timerState", formatTimer(m.timerMinutes));
+  set("unitsCost", formatEmeraldCost(m.costs.unit));
   set("multiCost", formatEmeraldCost(m.costs.multi));
   set("timerCost", formatEmeraldCost(m.costs.timer));
-  set(
-    "gainsHint",
-    `From Helper MechData (multi L${m.multiLevel}, timer L${m.timerLevel})`,
-  );
+
+  for (const kind of ["units", "multi", "timer"]) {
+    const limits = levelLimits(m, kind);
+    const level =
+      kind === "units" ? m.units : kind === "multi" ? m.multiLevel : m.timerLevel;
+    const input = el.querySelector(`.mech-level-input[data-kind="${kind}"]`);
+    if (input && document.activeElement !== input) {
+      input.value = kind === "timer" ? String(Math.round(m.timerMinutes)) : String(level);
+      if (kind === "timer") input.step = String(stepMin);
+    }
+    el.querySelectorAll(`.mech-step[data-kind="${kind}"]`).forEach((btn) => {
+      const delta = Number(btn.dataset.delta);
+      btn.disabled = delta < 0 ? level <= limits.min : level >= limits.max;
+    });
+  }
 }
 
 function afterStateChange() {
@@ -217,122 +285,76 @@ function afterStateChange() {
   renderFooter();
 }
 
+function setLevel(kind, value) {
+  const m = activeMech();
+  const limits = levelLimits(m, kind);
+  const p = MECH_COST_PARAMS[m.id];
+
+  if (kind === "timer") {
+    // Value is mission timer in whole minutes; snap to the fixed step grid.
+    const step = timerStepMinutes(m);
+    const baseMin = p ? Math.round(p.timerBaseSeconds / 60) : Math.round(m.timerMinutes);
+    let minutes = Math.round(Number(value) || 0);
+    if (step > 0) {
+      const stepsFromBase = Math.round((baseMin - minutes) / step);
+      minutes = baseMin - stepsFromBase * step;
+    }
+    minutes = Math.max(step, minutes); // keep at least one step of time
+    m.timerLevel = p ? inferTimerLevel(p, minutes) : Math.max(0, Math.round((baseMin - minutes) / step));
+    m.timerLevel = Math.max(limits.min, Math.min(limits.max, m.timerLevel));
+    afterStateChange();
+    return;
+  }
+
+  const n = Math.max(limits.min, Math.min(limits.max, Math.floor(Number(value) || 0)));
+  if (kind === "units") m.units = n;
+  else m.multiLevel = n;
+  afterStateChange();
+}
+
+function stepLevel(kind, delta) {
+  const m = activeMech();
+  if (kind === "timer") {
+    // +1 = buy upgrade (shorter by fixed minutes), −1 = undo (longer).
+    setLevel("timer", Math.round(m.timerMinutes) - delta * timerStepMinutes(m));
+    return;
+  }
+  const cur = kind === "units" ? m.units : m.multiLevel;
+  setLevel(kind, cur + delta);
+}
+
 function renderInputs() {
   const m = activeMech();
   syncDerivedFields(m);
   const el = root.querySelector("#mechInputs");
   if (!el) return;
 
-  const currentStateFields =
-    m.mode === "multiplier"
-      ? `
-        ${numField("mech_units", "Units", m.units, "1")}
-        ${numField("mech_missionMultiplier", "Mission multiplier (shown)", m.missionMultiplier, "0.001")}
-        ${staticField("Multi per mech", formatNum(m.multiPerMech, 3), "multiPerMech")}
-        ${timerField("mech_timerMinutes", "Mission timer (hh:mm:ss)", m.timerMinutes)}
-      `
-      : `
-        ${numField("mech_units", "Units", m.units, "1")}
-        ${numField("mech_tokensPerMission", "Tokens / mission", m.tokensPerMission, "1")}
-        ${staticField("Tokens / mech", formatNum(m.tokensPerMech, 0), "tokensPerMech")}
-        ${timerField("mech_timerMinutes", "Mission timer (hh:mm:ss)", m.timerMinutes)}
-      `;
-
-  const upgradeGainFields =
-    m.mode === "multiplier"
-      ? `
-        ${staticField("Unit gain", `+1 unit (+${formatNum(m.multiPerMech, 3)} multi)`, "unitGain")}
-        ${staticField("Multi upgrade (+per mech)", `+${formatNum(m.multiUpgradeIncrement, 3)}`, "multiGain")}
-        ${staticField("Timer upgrade", `−${formatNum(m.timerReductionMinutes, 0)} min`, "timerGain")}
-      `
-      : `
-        ${staticField("Unit gain", `+1 unit (+${formatNum(m.tokensPerMech, 0)} tokens)`, "unitGain")}
-        ${staticField("Multi upgrade", `+${formatNum(m.tokensPerMech, 0)} tokens × units`, "multiGain")}
-        ${staticField("Timer upgrade", `−${formatNum(m.timerReductionMinutes, 0)} min`, "timerGain")}
-      `;
-
   el.innerHTML = `
     <h3 class="section-title">${m.name}</h3>
     <p class="mech-muted">Output: <strong>${m.output}</strong>${m.note ? ` — ${m.note}` : ""}</p>
-    <div class="mech-input-rows">
-      <div class="mech-row mech-row-state">
-        <div class="mech-row-head">
-          <h4 class="mech-col-title">Current state</h4>
-          <p class="mech-col-hint">Edit units, shown multiplier/tokens, and timer — levels inferred for costs</p>
-        </div>
-        <div class="mech-fields mech-fields-row">${currentStateFields}</div>
-      </div>
-      <div class="mech-row mech-row-gains">
-        <div class="mech-row-head">
-          <h4 class="mech-col-title">Upgrade gains</h4>
-          <p class="mech-col-hint" data-derived="gainsHint">From Helper MechData (multi L${m.multiLevel}, timer L${m.timerLevel})</p>
-        </div>
-        <div class="mech-fields mech-fields-row">${upgradeGainFields}</div>
-      </div>
-      <div class="mech-row mech-row-costs">
-        <div class="mech-row-head">
-          <h4 class="mech-col-title">Emerald costs</h4>
-          <p class="mech-col-hint">${COST_SOURCE}</p>
-        </div>
-        <div class="mech-fields mech-fields-row">
-          ${staticField("Unit cost", formatEmeraldCost(m.costs.unit), "unitCost")}
-          ${staticField("Multi cost", formatEmeraldCost(m.costs.multi), "multiCost")}
-          ${staticField("Timer cost", formatEmeraldCost(m.costs.timer), "timerCost")}
-        </div>
-      </div>
+    <p class="mech-muted">${COST_SOURCE}. Timer steps in fixed whole minutes per mech (e.g. Cradler −2, Zag −3).</p>
+    <div class="mech-upgrade-grid">
+      ${upgradeCard(m, "units")}
+      ${upgradeCard(m, "multi")}
+      ${upgradeCard(m, "timer")}
     </div>
   `;
 
-  el.querySelectorAll("input").forEach((input) => {
-    input.addEventListener("input", onInputChange);
-    input.addEventListener("change", onInputChange);
-    if (input.id === "mech_timerMinutes") {
-      input.addEventListener("blur", onTimerBlur);
-    }
+  el.querySelectorAll(".mech-step").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      stepLevel(btn.dataset.kind, Number(btn.dataset.delta));
+    });
   });
-}
-
-function onTimerBlur(ev) {
-  const m = activeMech();
-  const parsed = parseTimer(ev.target.value);
-  if (parsed == null) {
-    ev.target.value = formatTimer(m.timerMinutes);
-    return;
-  }
-  m.timerMinutes = parsed;
-  ev.target.value = formatTimer(parsed);
-  afterStateChange();
-}
-
-function onInputChange(ev) {
-  const m = activeMech();
-  const id = ev.target.id;
-
-  if (id === "mech_timerMinutes") {
-    const parsed = parseTimer(ev.target.value);
-    if (parsed == null) return;
-    m.timerMinutes = parsed;
-    afterStateChange();
-    return;
-  }
-
-  const v = Number(ev.target.value);
-  if (!Number.isFinite(v)) return;
-
-  const map = {
-    mech_units: () => {
-      m.units = v;
-    },
-    mech_missionMultiplier: () => {
-      m.missionMultiplier = v;
-    },
-    mech_tokensPerMission: () => {
-      m.tokensPerMission = v;
-    },
-  };
-  if (!map[id]) return;
-  map[id]();
-  afterStateChange();
+  el.querySelectorAll(".mech-level-input").forEach((input) => {
+    input.addEventListener("change", () => setLevel(input.dataset.kind, input.value));
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        setLevel(input.dataset.kind, input.value);
+        input.blur();
+      }
+    });
+  });
 }
 
 function renderMechTabs() {

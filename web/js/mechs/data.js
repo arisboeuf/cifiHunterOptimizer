@@ -2,29 +2,28 @@ import {
   COST_FORMULA_SOURCE,
   MECH_COST_PARAMS,
   calculateMissionMultiplier,
-  calculateTokensPerMission,
+  calculateMultiCost,
+  calculateNextUnitCost,
+  calculateTimerCost,
   calculateTimerMinutes,
-  computeCostsForState,
+  calculateTokensPerMission,
+  inferMultiLevelFromMultiplier,
+  inferMultiLevelFromTokens,
+  inferTimerLevel,
   multiPerMechFromLevel,
   timerReductionMinutes,
 } from "./costs.js";
 
-export const STORAGE_KEY = "cifi_mechs_state_v3";
-export const LEGACY_STORAGE_KEYS = ["cifi_mechs_state_v2", "cifi_mechs_state_v1"];
+export const STORAGE_KEY = "cifi_mechs_state_v4";
+export const LEGACY_STORAGE_KEYS = [
+  "cifi_mechs_state_v3",
+  "cifi_mechs_state_v2",
+  "cifi_mechs_state_v1",
+];
 export const COST_SOURCE = COST_FORMULA_SOURCE;
 
-/** Editable numeric fields persisted per mech (costs are derived). */
-export const PERSIST_KEYS = [
-  "units",
-  "missionMultiplier",
-  "multiPerMech",
-  "multiUpgradeIncrement",
-  "tokensPerMission",
-  "tokensPerMech",
-  "timerMinutes",
-  "multiLevel",
-  "timerLevel",
-];
+/** Level fields are the editable source of truth; display values are derived. */
+export const PERSIST_KEYS = ["units", "multiLevel", "timerLevel"];
 
 export const MECH_ORDER = ["cradler", "zag", "demshah", "techUp", "token"];
 
@@ -96,33 +95,69 @@ function buildDefaultMech(id, meta) {
 }
 
 /**
- * Refresh emerald costs + upgrade gains from Helper formulas.
- * Keeps user-facing units / mission multiplier (or tokens) / timer as source of truth
- * and infers multi/timer levels for the cost curves.
+ * Apply units / multiLevel / timerLevel → display stats + emerald costs.
+ * Levels are the editable source of truth.
  */
 export function syncDerivedFields(mech) {
   const p = MECH_COST_PARAMS[mech.id];
   if (!p) return mech;
 
-  const computed = computeCostsForState(mech.id, {
-    units: mech.units,
-    missionMultiplier: mech.missionMultiplier,
-    tokensPerMission: mech.tokensPerMission,
-    timerMinutes: mech.timerMinutes,
-    mode: mech.mode,
-  });
-  if (!computed.ok) return mech;
+  mech.units = Math.max(0, Math.floor(Number(mech.units) || 0));
+  mech.multiLevel = Math.max(0, Math.floor(Number(mech.multiLevel) || 0));
+  mech.timerLevel = Math.max(0, Math.floor(Number(mech.timerLevel) || 0));
 
-  mech.costs = { ...computed.costs };
-  mech.multiLevel = computed.multiLevel;
-  mech.timerLevel = computed.timerLevel;
-  mech.multiUpgradeIncrement = computed.multiUpgradeIncrement;
-  mech.timerReductionMinutes = computed.timerReductionMinutes;
-  mech.tokensPerMech = mech.mode === "token" ? p.multiBonusPerLevel : 0;
-  if (mech.mode === "multiplier") {
-    mech.multiPerMech = computed.multiPerMech;
+  mech.multiUpgradeIncrement = p.multiBonusPerLevel;
+  mech.timerReductionMinutes = timerReductionMinutes(p);
+  mech.timerMinutes = Math.round(calculateTimerMinutes(p, mech.timerLevel));
+
+  if (mech.mode === "token") {
+    mech.tokensPerMech = p.multiBonusPerLevel;
+    mech.tokensPerMission = calculateTokensPerMission(p, mech.units, mech.multiLevel);
+    mech.missionMultiplier = 0;
+    mech.multiPerMech = 0;
+  } else {
+    mech.tokensPerMech = 0;
+    mech.tokensPerMission = 0;
+    mech.missionMultiplier = calculateMissionMultiplier(p, mech.units, mech.multiLevel);
+    mech.multiPerMech = multiPerMechFromLevel(p, mech.multiLevel);
   }
+
+  mech.costs = {
+    unit: calculateNextUnitCost(p, mech.units),
+    multi: calculateMultiCost(p, mech.multiLevel),
+    timer: calculateTimerCost(p, mech.timerLevel),
+  };
   return mech;
+}
+
+/** Migrate older saves that stored multiplier/timer instead of levels. */
+export function hydrateMechFromLegacy(mech, src) {
+  const p = MECH_COST_PARAMS[mech.id];
+  if (!p || !src || typeof src !== "object") return syncDerivedFields(mech);
+
+  const hasLevels =
+    Number.isFinite(Number(src.multiLevel)) || Number.isFinite(Number(src.timerLevel));
+  if (Number.isFinite(Number(src.units))) mech.units = Number(src.units);
+
+  if (hasLevels) {
+    if (Number.isFinite(Number(src.multiLevel))) mech.multiLevel = Number(src.multiLevel);
+    if (Number.isFinite(Number(src.timerLevel))) mech.timerLevel = Number(src.timerLevel);
+    return syncDerivedFields(mech);
+  }
+
+  if (Number.isFinite(Number(src.timerMinutes))) {
+    mech.timerLevel = inferTimerLevel(p, Number(src.timerMinutes));
+  }
+  if (mech.mode === "token" && Number.isFinite(Number(src.tokensPerMission))) {
+    mech.multiLevel = inferMultiLevelFromTokens(p, mech.units, Number(src.tokensPerMission));
+  } else if (Number.isFinite(Number(src.missionMultiplier))) {
+    mech.multiLevel = inferMultiLevelFromMultiplier(
+      p,
+      mech.units,
+      Number(src.missionMultiplier),
+    );
+  }
+  return syncDerivedFields(mech);
 }
 
 /** @type {Record<string, MechDef>} */

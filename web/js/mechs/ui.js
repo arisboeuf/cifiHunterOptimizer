@@ -453,7 +453,7 @@ function renderResults() {
       <div class="mech-pick-sub">
         ${
           best?.ok
-            ? `${formatNum(best.percentDailyFactorGainPerEmerald, 8)} % / emerald`
+            ? `${formatNum(best.percentDailyFactorGainPerEmerald * 1000, 5)} % / 1000 emeralds`
             : best?.error || "Enter valid values"
         }
       </div>
@@ -469,14 +469,14 @@ function renderResults() {
             <th>New timer</th>
             <th>Missions/day</th>
             <th>Δ daily factor %</th>
-            <th>% / emerald</th>
+            <th>% / 1000 emeralds</th>
           </tr>
         </thead>
         <tbody>
           ${ranked
             .map((r, i) => {
               const scoreFmt = r.ok
-                ? formatNum(r.percentDailyFactorGainPerEmerald, 8)
+                ? formatNum(r.percentDailyFactorGainPerEmerald * 1000, 5)
                 : r.error || "—";
               return `
                 <tr class="${r.kind === bestKind ? "is-best" : ""} ${r.ok ? "" : "is-bad"}">

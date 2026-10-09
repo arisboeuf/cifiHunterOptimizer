@@ -77,7 +77,7 @@ export function evaluateMultiplierUpgrade(mech, kind) {
       percentDailyFactorGainPerEmerald: 0,
       logDailyGrowthGainPerEmerald: 0,
       score: -Infinity,
-      scoreLabel: "% / emerald",
+      scoreLabel: "% / 1000 emeralds",
     };
   }
 
@@ -98,7 +98,7 @@ export function evaluateMultiplierUpgrade(mech, kind) {
     percentDailyFactorGainPerEmerald: pct / cost,
     logDailyGrowthGainPerEmerald: deltaLog / cost,
     score: pct / cost,
-    scoreLabel: "% / emerald",
+    scoreLabel: "% / 1000 emeralds",
   };
 }
 

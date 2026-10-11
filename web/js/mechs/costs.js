@@ -245,3 +245,34 @@ export function formatEmeraldCost(n) {
   if (n >= 100) return Math.round(n).toLocaleString("en-US");
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
+
+/** Compact integer emeralds for dense UI (15k, 2m) — no decimals. */
+export function formatCompactEmerald(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return "—";
+  const abs = Math.abs(v);
+  if (abs < 1000) return String(v);
+  const units = ["", "k", "m", "b", "t", "qa", "qu"];
+  let exp = Math.min(units.length - 1, Math.floor(Math.log10(abs) / 3));
+  let scaled = Math.round(v / 10 ** (exp * 3));
+  if (Math.abs(scaled) >= 1000 && exp < units.length - 1) {
+    scaled = Math.round(scaled / 1000);
+    exp += 1;
+  }
+  return `${scaled}${units[exp]}`;
+}
+
+/** Lower cost among peers → greener (hm-1) … red (hm-5). */
+export function costHeatClass(cost, peers) {
+  const vals = peers.filter((c) => Number.isFinite(c) && c > 0);
+  if (!vals.length || !Number.isFinite(cost) || cost <= 0) return "hm-3";
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  if (max <= min) return "hm-1";
+  const t = Math.log(cost / min) / Math.log(max / min);
+  if (t < 0.2) return "hm-1";
+  if (t < 0.4) return "hm-2";
+  if (t < 0.6) return "hm-3";
+  if (t < 0.8) return "hm-4";
+  return "hm-5";
+}

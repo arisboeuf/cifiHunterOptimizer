@@ -12,6 +12,8 @@ import {
 } from "./data.js";
 import {
   MECH_COST_PARAMS,
+  costHeatClass,
+  formatCompactEmerald,
   formatEmeraldCost,
   inferTimerLevel,
   maxTimerLevelForPositiveTime,
@@ -130,8 +132,18 @@ function activeMech() {
   return state.mechs[state.activeId];
 }
 
+/** Short labels for the cross-mech best-buy summary line. */
+const SUMMARY_NAMES = {
+  cradler: "Cradle",
+  zag: "Zag",
+  demshah: "Demshah",
+  techUp: "Tech-Up",
+  token: "Token",
+};
+
 function shellHtml() {
   return `
+    <div class="mech-summary" id="mechSummary" aria-live="polite"></div>
     <div class="mech-tabs" id="mechTabs" role="tablist" aria-label="Mech"></div>
 
     <div class="mech-layout">
@@ -281,6 +293,7 @@ function afterStateChange() {
   syncDerivedFields(m);
   saveState();
   refreshDerivedLabels();
+  renderSummary();
   renderResults();
   renderFooter();
 }
@@ -355,6 +368,43 @@ function renderInputs() {
       }
     });
   });
+}
+
+function renderSummary() {
+  const el = root?.querySelector("#mechSummary");
+  if (!el) return;
+
+  /** @type {{ id: string, label: string, kind: string, cost: number }[]} */
+  const parts = [];
+  for (const id of MECH_ORDER) {
+    const m = state.mechs[id];
+    syncDerivedFields(m);
+    const { best } = evaluateAll(m);
+    if (!best?.ok) {
+      parts.push({ id, label: SUMMARY_NAMES[id] || m.name, kind: "", cost: NaN });
+      continue;
+    }
+    parts.push({
+      id,
+      label: SUMMARY_NAMES[id] || m.name,
+      kind: UPGRADE_LABELS[best.kind] || best.kind,
+      cost: best.cost,
+    });
+  }
+
+  const peers = parts.map((p) => p.cost).filter((c) => Number.isFinite(c) && c > 0);
+  el.innerHTML = parts
+    .map((p, i) => {
+      const sep =
+        i > 0 ? `<span class="mech-summary-sep" aria-hidden="true">›</span>` : "";
+      if (!p.kind || !Number.isFinite(p.cost)) {
+        return `${sep}<span class="mech-summary-item is-bad">${p.label} (—)</span>`;
+      }
+      const heat = costHeatClass(p.cost, peers);
+      const costTxt = formatCompactEmerald(p.cost);
+      return `${sep}<span class="mech-summary-item ${heat}">${p.label} (${p.kind}, ${costTxt} Em.)</span>`;
+    })
+    .join("");
 }
 
 function renderMechTabs() {
@@ -509,6 +559,7 @@ function renderFooter() {
 }
 
 function render() {
+  renderSummary();
   renderMechTabs();
   renderInputs();
   renderResults();

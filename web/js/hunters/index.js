@@ -108,6 +108,7 @@ export const HUNTERS = {
       { short: "HBM", label: "Hellish-Biomatter", icon: "./img/hbm.png" },
     ),
     showTrample: true,
+    diamondCard: { mod: "gaiden", label: "Gaiden card" },
     defaultBuild: () => {
       const b = makeDefaultBuild(borgeCosts, "Borge", borgeExample);
       b.build_name = "Lvl 14 Example";
@@ -134,6 +135,7 @@ export const HUNTERS = {
       { short: "Vectid", label: "Vectid", icon: "./img/vectid.png" },
     ),
     showTrample: false,
+    diamondCard: { mod: "iridian", label: "Iridian card" },
     defaultBuild: () =>
       makeDefaultBuild(ozzyCosts, "Ozzy", {
         stats: {

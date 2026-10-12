@@ -184,6 +184,7 @@ export function buildToEvalValues(config, iterations) {
   for (const [k, v] of Object.entries(wasmExtra)) {
     if (k in values) values[k] = v;
   }
+  values["upgrades.diamondcards.gaiden"] = mods.gaiden ? 1 : 0;
 
   values.iterations = Math.max(1, Number(iterations) || 1);
   return values;

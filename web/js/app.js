@@ -463,6 +463,13 @@ function buildLeftLists() {
   const trampleRow = $("#trampleRow");
   if (trampleRow) trampleRow.hidden = !h.showTrample;
   $("#trample").checked = !!state.build.mods?.trample;
+  const card = h.diamondCard;
+  const cardRow = $("#diamondCardRow");
+  if (cardRow) cardRow.hidden = !card;
+  const cardLabel = $("#diamondCardLabel");
+  if (card && cardLabel) cardLabel.textContent = `${card.label} · Max HP, ATK, HP Regen, loot`;
+  const cardInput = $("#diamondCard");
+  if (cardInput) cardInput.checked = !!(card && state.build.mods?.[card.mod]);
   $("#buildName").value = state.build.build_name || "";
   $("#level").value = String(state.build.meta?.level ?? 0);
   applyHideMaxed();
@@ -509,7 +516,9 @@ function syncMetaFromInputs() {
   state.build.meta = state.build.meta || {};
   state.build.meta.hunter = h.name;
   state.build.meta.level = Math.max(0, Number($("#level").value) || 0);
-  state.build.mods = { trample: h.showTrample ? $("#trample").checked : false };
+  const mods = { trample: h.showTrample ? $("#trample").checked : false };
+  if (h.diamondCard) mods[h.diamondCard.mod] = !!$("#diamondCard")?.checked;
+  state.build.mods = mods;
 }
 
 function onBuildChanged() {
@@ -948,6 +957,7 @@ async function init() {
   $("#optForceTimeless").addEventListener("change", saveState);
   $("#optLoops").addEventListener("change", saveState);
   $("#trample").addEventListener("change", onBuildChanged);
+  $("#diamondCard").addEventListener("change", onBuildChanged);
   $("#btnRun").addEventListener("click", runSim);
   $("#btnExport").addEventListener("click", exportBuild);
   $("#btnImport").addEventListener("click", () => $("#fileImport").click());

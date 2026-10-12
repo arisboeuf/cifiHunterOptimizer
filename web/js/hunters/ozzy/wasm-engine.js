@@ -121,6 +121,7 @@ export function buildToEvalValues(config, iterations) {
   const insc = config.inscryptions || {};
   const relics = config.relics || {};
   const gems = config.gems || {};
+  const mods = config.mods || {};
   const wasmExtra = config.wasm || {};
 
   const values = Object.fromEntries(EVAL_PARAMS.map((k) => [k, 0]));
@@ -180,6 +181,7 @@ export function buildToEvalValues(config, iterations) {
   for (const [k, v] of Object.entries(wasmExtra)) {
     if (k in values) values[k] = v;
   }
+  values["upgrades.diamondcards.iridian"] = mods.iridian ? 1 : 0;
 
   values.iterations = Math.max(1, Number(iterations) || 1);
   return values;

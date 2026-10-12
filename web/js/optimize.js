@@ -837,6 +837,155 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   };
 }
 
+/** bosses/day must exceed this so two-decimal display is above 0.00. */
+const FIRST_BOSS_RATE_MIN = 0.005;
+
+/** Combat stat points added per hunter level, all inside one random material class. */
+const STAT_POINTS_PER_LEVEL = 3;
+
+function materialStatClasses(hunter) {
+  const slots = hunter.statResource || {};
+  const grouped = { mat1: [], mat2: [], mat3: [] };
+  for (const [stat, slot] of Object.entries(slots)) {
+    if (grouped[slot]) grouped[slot].push(stat);
+  }
+  return ["mat1", "mat2", "mat3"].map((slot) => grouped[slot]).filter((keys) => keys.length);
+}
+
+/** Add `points` levels, each on a random stat in `classKeys` that is still under its cap. */
+function grantClassPoints(stats, classKeys, statMax, random, points) {
+  const next = { ...stats };
+  for (let i = 0; i < points; i++) {
+    const open = classKeys.filter((key) => {
+      const mxRaw = Number(statMax?.[key]);
+      const cap = Number.isFinite(mxRaw) ? mxRaw : 9999;
+      return (Number(next[key]) || 0) < cap;
+    });
+    if (!open.length) break;
+    const key = open[Math.floor(random() * open.length)];
+    next[key] = (Number(next[key]) || 0) + 1;
+  }
+  return next;
+}
+
+/**
+ * From `fromLevel` upward, each level puts STAT_POINTS_PER_LEVEL into one
+ * material class chosen at random, then splits those points across that class.
+ */
+function statsAlongLevels(baseStats, fromLevel, toLevel, hunter, random) {
+  const classes = materialStatClasses(hunter);
+  const statMax = hunter.costs?.STAT_MAX || {};
+  const byLevel = new Map();
+  let stats = { ...(baseStats || {}) };
+  byLevel.set(fromLevel, stats);
+  for (let level = fromLevel + 1; level <= toLevel; level++) {
+    if (classes.length) {
+      const classKeys = classes[Math.floor(random() * classes.length)];
+      stats = grantClassPoints(stats, classKeys, statMax, random, STAT_POINTS_PER_LEVEL);
+    }
+    byLevel.set(level, stats);
+  }
+  return byLevel;
+}
+
+/**
+ * One optimize pass per hunter level, starting at the current level.
+ * Each pass uses that level's talent/attribute budget (1 talent and 3 attribute
+ * points per level). Combat stats gain 3 points per level inside one random material class.
+ * Always 1 iteration per level. Refine is capped at 3 builds (the main optimizers use up to 6).
+ * Does not write the caller's config.
+ */
+export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const onProgress = hooks.onProgress || (() => {});
+  const isCancelled = hooks.isCancelled || (() => false);
+  const maxLevel = Math.max(0, Math.min(999, Math.floor(Number(optIn.maxLevel ?? 999))));
+  const loops = 1;
+  const bossStages = normalizeBossStages(optIn.bossStages);
+  const bossStage = bossStages[0];
+  if (!bossStage) {
+    throw new Error("Select at least one boss (100 / 200 / 300).");
+  }
+
+  const base = structuredClone(baseConfig);
+  const baseLevel = Math.max(0, Math.min(maxLevel, Math.floor(Number(base.meta?.level) || 0)));
+  base.meta = { ...(base.meta || {}), level: baseLevel };
+  const stages = [bossStage];
+  const rng = makeRng(optIn.seed == null ? Math.floor(Math.random() * 0x7fffffff) + 1 : optIn.seed);
+  const statsByLevel = statsAlongLevels(base.stats, baseLevel, maxLevel, hunter, rng.random);
+  let currentBossesPerDay = 0;
+  let last = null;
+
+  const finish = (row, found) => {
+    return {
+      cancelled: false,
+      found,
+      baseLevel,
+      level: row.level,
+      levelsNeeded: Math.max(0, row.level - baseLevel),
+      bossesPerDay: row.bossesPerDay,
+      currentBossesPerDay,
+      avgStage: row.avgStage,
+      bossStage,
+      statsBefore: base.stats || {},
+      statsAfter: row.cfg?.stats || {},
+      loops,
+    };
+  };
+
+  for (let level = baseLevel; level <= maxLevel; level++) {
+    if (isCancelled()) return { cancelled: true };
+    const grown = statsByLevel.get(level) || base.stats;
+    const cfg = structuredClone(base);
+    cfg.meta = { ...(cfg.meta || {}), level };
+    cfg.stats = { ...grown };
+    const caps = pointBudgets(level);
+    let optimized;
+    try {
+      optimized = await optimizeBuild(
+        cfg,
+        engine,
+        hunter,
+        {
+          loops,
+          refineMin: 3,
+          refineMax: 3,
+          objective: "bosses",
+          bossStages: stages,
+          prioritizeTimelessMastery: !!optIn.prioritizeTimelessMastery,
+        },
+        {
+          isCancelled,
+          onProgress: (p) => {
+            onProgress({
+              ...p,
+              msg: `Level ${level} · talents ${caps.talents} · attributes ${caps.attributes} · ${p.msg}`,
+            });
+          },
+        },
+      );
+    } catch (err) {
+      if (isCancelled()) return { cancelled: true };
+      throw err;
+    }
+    if (isCancelled()) return { cancelled: true };
+
+    if (level === baseLevel) {
+      currentBossesPerDay = Number(optimized.baselineScore?.bossesPerDay) || 0;
+    }
+    const best = optimized.bestScore || optimized.baselineScore;
+    const row = {
+      level,
+      bossesPerDay: Number(best?.bossesPerDay) || 0,
+      avgStage: Number(best?.avgStage) || 0,
+      cfg: optimized.bestConfig || cfg,
+    };
+    last = row;
+    if (row.bossesPerDay > FIRST_BOSS_RATE_MIN) return finish(row, true);
+  }
+
+  return finish(last || { level: baseLevel, bossesPerDay: 0, avgStage: 0, cfg: base }, false);
+}
+
 /** Stats that are combat spendables for +1 marginal analysis (not progress metadata). */
 const MARGINAL_STAT_SKIP = new Set(["highest_stage_reached"]);
 

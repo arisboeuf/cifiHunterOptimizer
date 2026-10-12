@@ -176,6 +176,14 @@
             <button type="button" class="btn btn-primary" id="btnOptimize">Push Average Stage</button>
             <button type="button" class="btn btn-primary" id="btnOptimizeLoot">Push Material/XP</button>
             <button type="button" class="btn btn-primary" id="btnOptimizeBoss">Maximize Boss/day</button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              id="btnFirstBoss"
+              title="Starts at the current hunter level. Each higher level adds 3 stat points in one random material class, then runs 1 iteration and 3 refinements. The Iterations field is not used. Does not change the build."
+            >
+              First Bosskill Finder
+            </button>
             <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
             <label class="opt-field">
               <span>Iterations</span>
@@ -203,7 +211,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Push Average Stage → Ø stage. Push Material/XP → loot score (mats/XP per minute; Timeless Mastery 5 is required). Maximize Boss/day → checked bosses (clears × runs/day). Only one optimize at a time. Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). The Sims field applies only to manual runs / Next-Best.
+            Push Average Stage → Ø stage. Push Material/XP → loot score (mats/XP per minute; Timeless Mastery 5 is required). Maximize Boss/day → checked bosses (clears × runs/day). First Bosskill Finder → from the current level upward, each level adds 3 stat points into one random material class, then tests builds with 1 iteration and 3 refinements on that level's talent/attribute budget. Stops at the first level with bosses/day &gt; 0.00. Does not change the build. The Iterations field applies to the other three buttons. Only one optimize at a time. Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">

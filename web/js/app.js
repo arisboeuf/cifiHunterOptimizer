@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js";
+import { findFirstBossKill, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -186,7 +186,7 @@ function setNextBestButtonsDisabled(disabled) {
 }
 
 function optModeButtons() {
-  return ["btnOptimize", "btnOptimizeLoot", "btnOptimizeBoss"]
+  return ["btnOptimize", "btnOptimizeLoot", "btnOptimizeBoss", "btnFirstBoss"]
     .map((id) => document.getElementById(id))
     .filter(Boolean);
 }
@@ -196,7 +196,7 @@ function syncActionButtons() {
   const ready = !!state.engine && !busy;
   $("#btnRun").disabled = !ready;
   for (const btn of optModeButtons()) {
-    if (btn.id === "btnOptimizeBoss") {
+    if (btn.id === "btnOptimizeBoss" || btn.id === "btnFirstBoss") {
       btn.disabled = !ready || selectedBossStages().length === 0;
     } else {
       btn.disabled = !ready;
@@ -988,6 +988,7 @@ async function init() {
   $("#btnOptimize").addEventListener("click", () => runOptimize("stage"));
   $("#btnOptimizeLoot").addEventListener("click", () => runOptimize("loot"));
   $("#btnOptimizeBoss").addEventListener("click", () => runOptimize("bosses"));
+  $("#btnFirstBoss").addEventListener("click", () => runFirstBossFinder());
   for (const el of document.querySelectorAll(".opt-boss")) {
     el.addEventListener("change", () => syncActionButtons());
   }
@@ -1304,6 +1305,163 @@ async function runNextBestMisc() {
     },
     unitLabel: "item",
   });
+}
+
+function formatScaledStatLines(before, after) {
+  const labels = hunter().costs.STAT_LABELS || {};
+  const lines = [];
+  for (const key of Object.keys(labels)) {
+    if (key === "highest_stage_reached") continue;
+    const b = Number(before?.[key]) || 0;
+    const a = Number(after?.[key]) || 0;
+    if (b === a) continue;
+    const cls = a > b ? "is-up" : "is-down";
+    lines.push(`<span class="k">${labels[key]}</span>${optReportCell(String(b))}${optReportCell(String(a), cls)}`);
+  }
+  return lines.join("");
+}
+
+/** Close-only report. Does not apply a build. */
+function showInfoReport({ title, bodyHtml }) {
+  const modal = $("#optConfirmModal");
+  const body = $("#optConfirmBody");
+  const btnClose = $("#btnOptReportClose");
+  const btnDiscard = $("#btnOptDiscard");
+  const btnApply = $("#btnOptApply");
+  $("#optConfirmTitle").textContent = title;
+  body.innerHTML = bodyHtml;
+  btnClose.hidden = false;
+  btnDiscard.hidden = true;
+  btnApply.hidden = true;
+  modal.hidden = false;
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      modal.hidden = true;
+      btnClose.removeEventListener("click", onClose);
+      modal.removeEventListener("click", onBackdrop);
+      resolve();
+    };
+    const onClose = () => finish();
+    const onBackdrop = (e) => {
+      if (e.target === modal) finish();
+    };
+    btnClose.addEventListener("click", onClose);
+    modal.addEventListener("click", onBackdrop);
+  });
+}
+
+async function runFirstBossFinder() {
+  if (!state.engine || state.running || state.optimizing || state.nextBestRunning) return;
+  const bossStages = selectedBossStages();
+  if (!bossStages.length) {
+    $("#optStatus").textContent = "Select at least one boss (100 / 200 / 300).";
+    return;
+  }
+  syncMetaFromInputs();
+  const fit = discardOverBudgetSpend(state.build, hunter());
+  if (fit.any) {
+    state.build = fit.config;
+    buildLeftLists();
+    saveState();
+  }
+  const v = refreshBudget();
+  if (!v.ok) {
+    $("#optStatus").textContent = `Invalid build: ${v.msg}`;
+    return;
+  }
+
+  state.optimizing = true;
+  state.optCancel = false;
+  syncActionButtons();
+  $("#btnOptCancel").hidden = false;
+  $("#btnTalentClose").disabled = true;
+  $("#optProgressBar").style.width = "0%";
+  const startLevel = Math.max(0, Math.floor(Number(state.build.meta?.level) || 0));
+  $("#optStatus").textContent =
+    `First Bosskill Finder · ${hunter().name} · starting at level ${startLevel} · 1 iteration, 3 refinements per level`;
+
+  const bossStage = bossStages[0];
+
+  try {
+    const result = await findFirstBossKill(
+      state.build,
+      state.engine,
+      hunter(),
+      {
+        bossStages,
+        prioritizeTimelessMastery: $("#optForceTimeless").checked,
+      },
+      {
+        isCancelled: () => state.optCancel,
+        onProgress: (p) => {
+          const pct = Math.min(95, Math.round((p.done / Math.max(1, p.total)) * 100));
+          $("#optProgressBar").style.width = `${pct}%`;
+          $("#optStatus").textContent = `First Bosskill Finder · ${p.msg}`;
+        },
+      },
+    );
+
+    if (result.cancelled || state.optCancel) {
+      $("#optStatus").textContent = "First Bosskill Finder cancelled.";
+      return;
+    }
+
+    $("#optProgressBar").style.width = "100%";
+    $("#btnOptCancel").hidden = true;
+    const rate = Number(result.bossesPerDay) || 0;
+    const statRows = formatScaledStatLines(result.statsBefore, result.statsAfter);
+    const matLabels = (hunter().lootMats || []).map((m) => m.label).filter(Boolean);
+    const scaleNote = `Each level adds 3 stat points into one random class (${matLabels.join(", ")}), split at random across that class. Highest Stage Reached stays.`;
+
+    let summary;
+    let status;
+    if (!result.found) {
+      summary = `No bosses/day above 0.00 by level ${result.level} (stage ${bossStage}). Last result ${rate.toFixed(2)} bosses/day.`;
+      status = `First Bosskill Finder · no kill by level ${result.level} · ${rate.toFixed(2)} bosses/d`;
+    } else if (result.levelsNeeded <= 0) {
+      summary = `A tested build at level ${result.baseLevel} already reaches ${rate.toFixed(2)} bosses/day on stage ${bossStage}.`;
+      status = `First Bosskill Finder · build at level ${result.baseLevel} reaches ${rate.toFixed(2)} bosses/d`;
+    } else {
+      summary = `First tested build above 0.00 is level ${result.level} (+${result.levelsNeeded} from ${result.baseLevel}): ${rate.toFixed(2)} bosses/day on stage ${bossStage}.`;
+      status = `First Bosskill Finder · +${result.levelsNeeded} levels (level ${result.level}) · ${rate.toFixed(2)} bosses/d`;
+    }
+
+    $("#optStatus").textContent = `${status} · build unchanged`;
+    $("#status").textContent = status;
+
+    await showInfoReport({
+      title: "First Bosskill Finder",
+      bodyHtml: `
+        <p class="opt-report-summary"><strong>${summary}</strong></p>
+        <div class="opt-report-grid">
+          <span class="h">Metric</span><span class="h">Now</span><span class="h">At level ${result.level}</span>
+          <span class="k">Hunter level</span>${optReportCell(String(result.baseLevel))}${optReportCell(
+            result.levelsNeeded > 0 ? `${result.level} (+${result.levelsNeeded})` : String(result.level),
+          )}
+          <span class="k">Bosses/day</span>${optReportCell((Number(result.currentBossesPerDay) || 0).toFixed(2))}${optReportCell(
+            rate.toFixed(2),
+            rate > (Number(result.currentBossesPerDay) || 0) ? "is-up" : "",
+          )}
+          <span class="k">Ø Stage</span>${optReportCell("—")}${optReportCell((Number(result.avgStage) || 0).toFixed(1))}
+          ${statRows}
+        </div>
+        <p class="opt-report-meta">
+          Boss target: ${bossStage} (lowest checked). Each level from ${result.baseLevel} upward gets 1 iteration and 3 refinements, using that level's talent and attribute budget. ${scaleNote}
+          The searched build is not written onto your current hunter.
+        </p>
+      `,
+    });
+  } catch (err) {
+    console.error(err);
+    $("#optStatus").textContent = `First Bosskill Finder error: ${err.message || err}`;
+  } finally {
+    state.optimizing = false;
+    state.optCancel = false;
+    syncActionButtons();
+    $("#btnOptCancel").hidden = true;
+    $("#btnTalentClose").disabled = false;
+  }
 }
 
 async function runOptimize(objective = "stage") {

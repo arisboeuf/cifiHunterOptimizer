@@ -1307,6 +1307,57 @@ async function runNextBestMisc() {
   });
 }
 
+function escapeReportText(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
+function formatPointCompareLines(current, found, entries, labels) {
+  const lines = [];
+  for (const entry of entries) {
+    const key = typeof entry === "string" ? entry : entry.key;
+    const depth = typeof entry === "string" ? 0 : Number(entry.depth) || 0;
+    const before = Math.max(0, Math.floor(Number(current?.[key]) || 0));
+    const after = Math.max(0, Math.floor(Number(found?.[key]) || 0));
+    if (before === 0 && after === 0) continue;
+    const cls = after > before ? "is-up" : after < before ? "is-down" : "";
+    const pad = depth > 0 ? ` style="padding-left:${depth * 0.7}rem"` : "";
+    lines.push(
+      `<span class="k"${pad}>${escapeReportText(labels[key] || key)}</span>${optReportCell(String(before))}${optReportCell(String(after), cls)}`,
+    );
+  }
+  return lines.join("");
+}
+
+/** Talents and attributes of the earliest clear, next to the current hunter. */
+function formatBossFinderBuildRows(foundTalents, foundAttributes) {
+  const h = hunter();
+  const costs = h.costs || {};
+  const talentOrder = costs.TALENT_ORDER || Object.keys(costs.TALENT_LABELS || {});
+  const talentLines = formatPointCompareLines(
+    state.build?.talents,
+    foundTalents,
+    talentOrder,
+    costs.TALENT_LABELS || {},
+  );
+  const attrKeys = costs.ATTR_ORDER || Object.keys(costs.ATTRIBUTE_LABELS || {});
+  const attrEntries = h.attrs?.attributeTreeEntries ? h.attrs.attributeTreeEntries(attrKeys) : attrKeys;
+  const attrLines = formatPointCompareLines(
+    state.build?.attributes,
+    foundAttributes,
+    attrEntries,
+    costs.ATTRIBUTE_LABELS || {},
+  );
+  return `${talentLines ? `<span class="section">Talents</span>${talentLines}` : ""}${
+    attrLines ? `<span class="section">Attributes</span>${attrLines}` : ""
+  }`;
+}
+
 function formatScaledStatLines(before, after) {
   const labels = hunter().costs.STAT_LABELS || {};
   const lines = [];
@@ -1379,7 +1430,7 @@ async function runFirstBossFinder() {
   $("#optProgressBar").style.width = "0%";
   const startLevel = Math.max(0, Math.floor(Number(state.build.meta?.level) || 0));
   $("#optStatus").textContent =
-    `First Bosskill Finder · ${hunter().name} · starting at level ${startLevel} · 1 iteration, 3 refinements per level`;
+    `First Bosskill Finder · ${hunter().name} · starting at level ${startLevel} · steps +4, then −2, then +1`;
 
   const bossStage = bossStages[0];
 
@@ -1390,7 +1441,6 @@ async function runFirstBossFinder() {
       hunter(),
       {
         bossStages,
-        prioritizeTimelessMastery: $("#optForceTimeless").checked,
       },
       {
         isCancelled: () => state.optCancel,
@@ -1410,21 +1460,32 @@ async function runFirstBossFinder() {
     $("#optProgressBar").style.width = "100%";
     $("#btnOptCancel").hidden = true;
     const rate = Number(result.bossesPerDay) || 0;
+    const peakLevel = Number(result.peakLevel ?? result.level);
+    const peakRate = Number(result.peakBossesPerDay ?? rate) || 0;
+    const peakStage = Number(result.peakAvgStage ?? result.avgStage) || 0;
+    const peakRuns = Number(result.peakRunsPerDay ?? result.runsPerDay) || 0;
+    const walkedDown = !!(result.found && peakLevel > result.level);
     const statRows = formatScaledStatLines(result.statsBefore, result.statsAfter);
     const matLabels = (hunter().lootMats || []).map((m) => m.label).filter(Boolean);
     const scaleNote = `Each level adds 3 stat points into one random class (${matLabels.join(", ")}), split at random across that class. Highest Stage Reached stays.`;
+    const cliffNote = `Bosses/day stays 0.00 until runs finish past stage ${bossStage}. Once they do, bosses/day becomes about the number of runs per day (${peakRuns.toFixed(1)} runs/day, average stage ${peakStage.toFixed(1)}). Each of those runs clears the boss about once.`;
 
     let summary;
     let status;
+    let levelHeader = `At level ${result.level}`;
     if (!result.found) {
-      summary = `No bosses/day above 0.00 by level ${result.level} (stage ${bossStage}). Last result ${rate.toFixed(2)} bosses/day.`;
+      summary = `No bosses/day of at least 0.20 by level ${result.level} (stage ${bossStage}). Last result ${rate.toFixed(2)} bosses/day.`;
       status = `First Bosskill Finder · no kill by level ${result.level} · ${rate.toFixed(2)} bosses/d`;
-    } else if (result.levelsNeeded <= 0) {
+    } else if (result.levelsNeeded <= 0 && !walkedDown) {
       summary = `A tested build at level ${result.baseLevel} already reaches ${rate.toFixed(2)} bosses/day on stage ${bossStage}.`;
       status = `First Bosskill Finder · build at level ${result.baseLevel} reaches ${rate.toFixed(2)} bosses/d`;
+    } else if (walkedDown) {
+      summary = `The +4 scan first reached 0.20 bosses/day at level ${peakLevel} (${peakRate.toFixed(2)}). Stepping down by 2, then up by 1 after a step fell under 0.20, the earliest level still at or above 0.20 is ${result.level} (+${result.levelsNeeded} from ${result.baseLevel}): ${rate.toFixed(2)} bosses/day. ${cliffNote}`;
+      status = `First Bosskill Finder · earliest clear is level ${result.level} · ${rate.toFixed(2)} bosses/d`;
+      levelHeader = `Earliest clear at ${result.level}`;
     } else {
-      summary = `First tested build above 0.00 is level ${result.level} (+${result.levelsNeeded} from ${result.baseLevel}): ${rate.toFixed(2)} bosses/day on stage ${bossStage}.`;
-      status = `First Bosskill Finder · +${result.levelsNeeded} levels (level ${result.level}) · ${rate.toFixed(2)} bosses/d`;
+      summary = `Earliest checked level at or above 0.20 bosses/day on stage ${bossStage} is ${result.level} (+${result.levelsNeeded} from ${result.baseLevel}): ${rate.toFixed(2)} bosses/day. ${cliffNote}`;
+      status = `First Bosskill Finder · level ${result.level} · ${rate.toFixed(2)} bosses/d`;
     }
 
     $("#optStatus").textContent = `${status} · build unchanged`;
@@ -1435,7 +1496,7 @@ async function runFirstBossFinder() {
       bodyHtml: `
         <p class="opt-report-summary"><strong>${summary}</strong></p>
         <div class="opt-report-grid">
-          <span class="h">Metric</span><span class="h">Now</span><span class="h">At level ${result.level}</span>
+          <span class="h">Metric</span><span class="h">Now</span><span class="h">${levelHeader}</span>
           <span class="k">Hunter level</span>${optReportCell(String(result.baseLevel))}${optReportCell(
             result.levelsNeeded > 0 ? `${result.level} (+${result.levelsNeeded})` : String(result.level),
           )}
@@ -1445,9 +1506,10 @@ async function runFirstBossFinder() {
           )}
           <span class="k">Ø Stage</span>${optReportCell("—")}${optReportCell((Number(result.avgStage) || 0).toFixed(1))}
           ${statRows}
+          ${result.found ? formatBossFinderBuildRows(result.talents, result.attributes) : ""}
         </div>
         <p class="opt-report-meta">
-          Boss target: ${bossStage} (lowest checked). Each level from ${result.baseLevel} upward gets 1 iteration and 3 refinements, using that level's talent and attribute budget. ${scaleNote}
+          Boss target: ${bossStage} (lowest checked). The scan steps up by 4 levels until bosses/day is at least 0.20, then down by 2. The first step under 0.20 is followed by steps of +1 until the rate is back at or above 0.20. Each checked level uses that level's stat points and searches talents and attributes again. Timeless Mastery is not locked. ${scaleNote}
           The searched build is not written onto your current hunter.
         </p>
       `,

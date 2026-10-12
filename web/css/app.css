@@ -971,7 +971,7 @@ body[data-module="mechs"] .app-header p {
 }
 
 .opt-report-modal {
-  width: min(480px, 100%);
+  width: min(640px, 100%);
 }
 
 .opt-confirm-body {
@@ -1016,6 +1016,16 @@ body[data-module="mechs"] .app-header p {
 
 .opt-report-grid .k {
   color: var(--muted);
+}
+
+.opt-report-grid .section {
+  grid-column: 1 / -1;
+  margin-top: 0.45rem;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .opt-report-grid .v {

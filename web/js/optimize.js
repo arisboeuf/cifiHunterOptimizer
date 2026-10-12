@@ -564,8 +564,11 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   );
 
   // Soft-start: current spend biases the first screens (not a hard lock).
-  talW = blendLevelWeights(talentKeys, [curTal], talW, 0.35);
-  attrW = blendLevelWeights(attrKeys, [curAttr], attrW, 0.35);
+  // The boss finder starts cold so a failing build does not pull every sample toward itself.
+  if (!opt.coldStart) {
+    talW = blendLevelWeights(talentKeys, [curTal], talW, 0.35);
+    attrW = blendLevelWeights(attrKeys, [curAttr], attrW, 0.35);
+  }
 
   for (let loop = 0; loop < loops; loop++) {
     if (isCancelled()) break;
@@ -613,11 +616,13 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
     for (let restart = 0; restart < opt.restarts; restart++) {
       if (isCancelled() || loopEvals >= opt.maxEvals) break;
+      // Boss finder: some restarts skip Timeless Mastery so combat builds are in the pool.
+      const restartUseTm = useTm && !(opt.diverseTimeless && rng.random() < 0.5);
 
       let tal = randomTalents(rng, talentKeys, talCap, talW);
-      let attr = randomAttributes(rng, attrKeys, attrCap, useTm, tmTarget, attrW);
+      let attr = randomAttributes(rng, attrKeys, attrCap, restartUseTm, tmTarget, attrW);
       let localCfg = applyPoints(base, tal, attr);
-      let localRes = await evaluate(localCfg, opt.nSearch, useTm);
+      let localRes = await evaluate(localCfg, opt.nSearch, restartUseTm);
       if (!localRes) continue;
       evals += 1;
       loopEvals += 1;
@@ -631,15 +636,23 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         if (isCancelled()) break;
         let nxtTal;
         let nxtAttr;
-        if (rng.random() < 0.5) {
+        if ((Number(opt.jumpChance) || 0) > 0 && rng.random() < Number(opt.jumpChance)) {
+          if (rng.random() < 0.5) {
+            nxtTal = randomTalents(rng, talentKeys, talCap, talW);
+            nxtAttr = attr;
+          } else {
+            nxtAttr = randomAttributes(rng, attrKeys, attrCap, restartUseTm, tmTarget, attrW);
+            nxtTal = tal;
+          }
+        } else if (rng.random() < 0.5) {
           nxtTal = neighborTalents(rng, tal, talentKeys, talW);
           nxtAttr = attr;
           if (!nxtTal) {
-            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, useTm, tmTarget, attrW);
+            nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, restartUseTm, tmTarget, attrW);
             nxtTal = tal;
           }
         } else {
-          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, useTm, tmTarget, attrW);
+          nxtAttr = neighborAttributes(rng, attr, attrKeys, attrCap, restartUseTm, tmTarget, attrW);
           nxtTal = tal;
           if (!nxtAttr) {
             nxtTal = neighborTalents(rng, tal, talentKeys, talW);
@@ -651,7 +664,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         if (!nxtAttr) nxtAttr = attr;
 
         const cand = applyPoints(base, nxtTal, nxtAttr);
-        const candRes = await evaluate(cand, opt.nSearch, useTm);
+        const candRes = await evaluate(cand, opt.nSearch, restartUseTm);
         if (!candRes) {
           if (isCancelled()) break;
           stagnant += 1;
@@ -710,7 +723,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         sc.lootScore,
         sc.bossesPerDay,
       );
-      const r = await evaluate(cfg, opt.nRefine, useTm);
+      const r = await evaluate(cfg, opt.nRefine, useTm && !opt.diverseTimeless);
       if (!r) continue;
       evals += 1;
       loopEvals += 1;
@@ -778,7 +791,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       ch.sc?.lootScore,
       ch.sc?.bossesPerDay,
     );
-    const r = await evaluate(ch.cfg, opt.nRefine, useTm);
+    const r = await evaluate(ch.cfg, opt.nRefine, useTm && !opt.diverseTimeless);
     if (!r) continue;
     evals += 1;
     const sc = mkScore(r);
@@ -837,10 +850,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   };
 }
 
-/** bosses/day must exceed this so two-decimal display is above 0.00. */
-const FIRST_BOSS_RATE_MIN = 0.005;
+/** Lowest bosses/day that still counts as a clear. Below this, keep searching. */
+const FIRST_BOSS_RATE_MIN = 0.2;
 
-/** Combat stat points added per hunter level, all inside one random material class. */
 const STAT_POINTS_PER_LEVEL = 3;
 
 function materialStatClasses(hunter) {
@@ -892,14 +904,15 @@ function statsAlongLevels(baseStats, fromLevel, toLevel, hunter, random) {
  * One optimize pass per hunter level, starting at the current level.
  * Each pass uses that level's talent/attribute budget (1 talent and 3 attribute
  * points per level). Combat stats gain 3 points per level inside one random material class.
- * Always 1 iteration per level. Refine is capped at 3 builds (the main optimizers use up to 6).
+ * Always 1 iteration per level, with many independent talent/attribute mixes.
+ * Timeless Mastery is not locked. Levels are scanned +4, then down by 2, then up by 1.
+ * 0.2 bosses/day is the floor. The reported level is the lowest that still reaches it.
  * Does not write the caller's config.
  */
 export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
   const isCancelled = hooks.isCancelled || (() => false);
   const maxLevel = Math.max(0, Math.min(999, Math.floor(Number(optIn.maxLevel ?? 999))));
-  const loops = 1;
   const bossStages = normalizeBossStages(optIn.bossStages);
   const bossStage = bossStages[0];
   if (!bossStage) {
@@ -910,12 +923,27 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   const baseLevel = Math.max(0, Math.min(maxLevel, Math.floor(Number(base.meta?.level) || 0)));
   base.meta = { ...(base.meta || {}), level: baseLevel };
   const stages = [bossStage];
+  const loops = 1;
+  const finderSearch = {
+    loops,
+    refineMin: 3,
+    refineMax: 3,
+    objective: "bosses",
+    bossStages: stages,
+    prioritizeTimelessMastery: false,
+    coldStart: true,
+    biasBlend: 0,
+    restarts: 24,
+    stagnationLimit: 6,
+    maxEvals: 240,
+    jumpChance: 0.45,
+  };
   const rng = makeRng(optIn.seed == null ? Math.floor(Math.random() * 0x7fffffff) + 1 : optIn.seed);
   const statsByLevel = statsAlongLevels(base.stats, baseLevel, maxLevel, hunter, rng.random);
   let currentBossesPerDay = 0;
   let last = null;
 
-  const finish = (row, found) => {
+  const finish = (row, found, similarStop = "") => {
     return {
       cancelled: false,
       found,
@@ -926,13 +954,36 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
       currentBossesPerDay,
       avgStage: row.avgStage,
       bossStage,
+      runsPerDay: Number(row.runsPerDay) || 0,
+      peakLevel: row.peakLevel ?? row.level,
+      peakBossesPerDay: Number(row.peakBossesPerDay ?? row.bossesPerDay) || 0,
+      peakAvgStage: Number(row.peakAvgStage ?? row.avgStage) || 0,
+      peakRunsPerDay: Number(row.peakRunsPerDay ?? row.runsPerDay) || 0,
+      similarStop,
       statsBefore: base.stats || {},
       statsAfter: row.cfg?.stats || {},
+      talents: { ...(row.cfg?.talents || {}) },
+      attributes: { ...(row.cfg?.attributes || {}) },
       loops,
     };
   };
 
-  for (let level = baseLevel; level <= maxLevel; level++) {
+  const searched = new Map();
+
+  function stampPeak(row, peak) {
+    if (!peak) return row;
+    return {
+      ...row,
+      peakLevel: peak.level,
+      peakBossesPerDay: peak.bossesPerDay,
+      peakAvgStage: peak.avgStage,
+      peakRunsPerDay: peak.runsPerDay,
+    };
+  }
+
+  async function searchLevel(level, phase) {
+    const cached = searched.get(level);
+    if (cached) return cached;
     if (isCancelled()) return { cancelled: true };
     const grown = statsByLevel.get(level) || base.stats;
     const cfg = structuredClone(base);
@@ -941,49 +992,85 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     const caps = pointBudgets(level);
     let optimized;
     try {
-      optimized = await optimizeBuild(
-        cfg,
-        engine,
-        hunter,
-        {
-          loops,
-          refineMin: 3,
-          refineMax: 3,
-          objective: "bosses",
-          bossStages: stages,
-          prioritizeTimelessMastery: !!optIn.prioritizeTimelessMastery,
+      optimized = await optimizeBuild(cfg, engine, hunter, finderSearch, {
+        isCancelled,
+        onProgress: (p) => {
+          onProgress({
+            ...p,
+            msg: `${phase} · level ${level} · talents ${caps.talents} · attributes ${caps.attributes} · ${p.msg}`,
+          });
         },
-        {
-          isCancelled,
-          onProgress: (p) => {
-            onProgress({
-              ...p,
-              msg: `Level ${level} · talents ${caps.talents} · attributes ${caps.attributes} · ${p.msg}`,
-            });
-          },
-        },
-      );
+      });
     } catch (err) {
       if (isCancelled()) return { cancelled: true };
       throw err;
     }
     if (isCancelled()) return { cancelled: true };
-
     if (level === baseLevel) {
       currentBossesPerDay = Number(optimized.baselineScore?.bossesPerDay) || 0;
     }
     const best = optimized.bestScore || optimized.baselineScore;
+    const bestEval = optimized.bestEval || optimized.baselineEval;
     const row = {
       level,
       bossesPerDay: Number(best?.bossesPerDay) || 0,
       avgStage: Number(best?.avgStage) || 0,
+      runsPerDay: Number(bestEval?.runsPerDay) || 0,
       cfg: optimized.bestConfig || cfg,
+      peakLevel: level,
+      peakBossesPerDay: Number(best?.bossesPerDay) || 0,
+      peakAvgStage: Number(best?.avgStage) || 0,
+      peakRunsPerDay: Number(bestEval?.runsPerDay) || 0,
     };
+    searched.set(level, row);
     last = row;
-    if (row.bossesPerDay > FIRST_BOSS_RATE_MIN) return finish(row, true);
+    return row;
   }
 
-  return finish(last || { level: baseLevel, bossesPerDay: 0, avgStage: 0, cfg: base }, false);
+  let level = baseLevel;
+  let firstHit = null;
+  while (level <= maxLevel) {
+    const row = await searchLevel(level, "Up +4");
+    if (row?.cancelled) return { cancelled: true };
+    if (row.bossesPerDay >= FIRST_BOSS_RATE_MIN) {
+      firstHit = row;
+      break;
+    }
+    if (level >= maxLevel) break;
+    const next = Math.min(maxLevel, level + 4);
+    if (next === level) break;
+    level = next;
+  }
+
+  if (!firstHit) {
+    return finish(last || { level: baseLevel, bossesPerDay: 0, avgStage: 0, cfg: base }, false);
+  }
+
+  let cursor = firstHit;
+  let dropped = null;
+  while (cursor.level - 2 >= baseLevel) {
+    const row = await searchLevel(cursor.level - 2, "Down −2");
+    if (row?.cancelled) return { cancelled: true };
+    if (row.bossesPerDay < FIRST_BOSS_RATE_MIN) {
+      dropped = row;
+      break;
+    }
+    cursor = row;
+  }
+
+  if (!dropped) {
+    return finish(stampPeak(cursor, firstHit), true, "grid");
+  }
+
+  for (let up = dropped.level + 1; up <= cursor.level; up++) {
+    const row = await searchLevel(up, "Up +1");
+    if (row?.cancelled) return { cancelled: true };
+    if (row.bossesPerDay >= FIRST_BOSS_RATE_MIN) {
+      return finish(stampPeak(row, firstHit), true, "step");
+    }
+  }
+
+  return finish(stampPeak(cursor, firstHit), true, "step");
 }
 
 /** Stats that are combat spendables for +1 marginal analysis (not progress metadata). */

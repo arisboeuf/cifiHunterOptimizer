@@ -853,6 +853,68 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 /** Lowest bosses/day that still counts as a clear. Below this, keep searching. */
 const FIRST_BOSS_RATE_MIN = 0.2;
 
+function fitTalentsToBudget(talents, cap, costs) {
+  const keys = Object.keys(talents || {});
+  const original = {};
+  for (const key of keys) {
+    const lvl = Math.max(0, Math.floor(Number(talents[key]) || 0));
+    const mxRaw = Number(costs?.TALENT_COSTS?.[key]?.max);
+    original[key] = Number.isFinite(mxRaw) ? Math.min(lvl, mxRaw) : lvl;
+  }
+  let spent = Object.values(original).reduce((sum, value) => sum + value, 0);
+  if (spent <= cap) return { ...original };
+  const scale = cap / spent;
+  const out = {};
+  spent = 0;
+  for (const key of keys) {
+    out[key] = Math.floor(original[key] * scale);
+    spent += out[key];
+  }
+  const order = keys.slice().sort((a, b) => original[b] - original[a] || a.localeCompare(b));
+  let guard = 0;
+  while (spent < cap && guard < 10000) {
+    let placed = false;
+    for (const key of order) {
+      if (spent >= cap) break;
+      if (out[key] < original[key]) {
+        out[key] += 1;
+        spent += 1;
+        placed = true;
+      }
+    }
+    if (!placed) break;
+    guard += 1;
+  }
+  return out;
+}
+
+function fitAttributesToBudget(attributes, budget, rules) {
+  let out = rules.zeroOrphanDependents({ ...(attributes || {}) });
+  const keys = Object.keys(out);
+  const dependent = new Set();
+  for (const key of keys) {
+    for (const child of rules.dependentsOf(key)) dependent.add(child);
+  }
+  let guard = 0;
+  while (guard < 10000) {
+    guard += 1;
+    out = rules.zeroOrphanDependents(out);
+    const spent = rules.attrSpent(out);
+    const tree = rules.attributesTreeValid(out, budget);
+    if (tree.ok && spent <= budget) break;
+    const candidates = keys.filter((key) => Number(out[key]) > 0);
+    if (!candidates.length) break;
+    candidates.sort((a, b) => {
+      const aDep = dependent.has(a) ? 1 : 0;
+      const bDep = dependent.has(b) ? 1 : 0;
+      if (aDep !== bDep) return bDep - aDep;
+      return Number(out[b]) - Number(out[a]);
+    });
+    out[candidates[0]] = Number(out[candidates[0]]) - 1;
+  }
+  return rules.zeroOrphanDependents(out);
+}
+
 const STAT_POINTS_PER_LEVEL = 3;
 
 function materialStatClasses(hunter) {
@@ -981,15 +1043,29 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     };
   }
 
-  async function searchLevel(level, phase) {
+  async function searchLevel(level, phase, seed) {
     const cached = searched.get(level);
-    if (cached) return cached;
+    // A miss from the +4 scan is not final. Down/−2 and +1 search that level again.
+    if (cached && (cached.bossesPerDay >= FIRST_BOSS_RATE_MIN || phase === "Up +4")) return cached;
     if (isCancelled()) return { cancelled: true };
     const grown = statsByLevel.get(level) || base.stats;
+    const caps = pointBudgets(level);
     const cfg = structuredClone(base);
     cfg.meta = { ...(cfg.meta || {}), level };
     cfg.stats = { ...grown };
-    const caps = pointBudgets(level);
+    if (seed?.cfg) {
+      const fittedTalents = fitTalentsToBudget(seed.cfg.talents, caps.talents, hunter.costs);
+      const fittedAttrs = fitAttributesToBudget(seed.cfg.attributes, caps.attributes, hunter.attrs);
+      const talentKeys = Object.keys(base.talents || {}).length ? Object.keys(base.talents) : Object.keys(fittedTalents);
+      const attrKeys = Object.keys(base.attributes || {}).length ? Object.keys(base.attributes) : Object.keys(fittedAttrs);
+      cfg.talents = Object.fromEntries(talentKeys.map((key) => [key, Number(fittedTalents[key]) || 0]));
+      cfg.attributes = Object.fromEntries(attrKeys.map((key) => [key, Number(fittedAttrs[key]) || 0]));
+      const seeded = validateBudgets(cfg, hunter);
+      if (!seeded.ok) {
+        cfg.talents = structuredClone(base.talents || {});
+        cfg.attributes = structuredClone(base.attributes || {});
+      }
+    }
     let optimized;
     try {
       optimized = await optimizeBuild(cfg, engine, hunter, finderSearch, {
@@ -1049,7 +1125,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   let cursor = firstHit;
   let dropped = null;
   while (cursor.level - 2 >= baseLevel) {
-    const row = await searchLevel(cursor.level - 2, "Down −2");
+    const row = await searchLevel(cursor.level - 2, "Down −2", cursor);
     if (row?.cancelled) return { cancelled: true };
     if (row.bossesPerDay < FIRST_BOSS_RATE_MIN) {
       dropped = row;
@@ -1063,7 +1139,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   }
 
   for (let up = dropped.level + 1; up <= cursor.level; up++) {
-    const row = await searchLevel(up, "Up +1");
+    const row = await searchLevel(up, "Up +1", cursor);
     if (row?.cancelled) return { cancelled: true };
     if (row.bossesPerDay >= FIRST_BOSS_RATE_MIN) {
       return finish(stampPeak(row, firstHit), true, "step");

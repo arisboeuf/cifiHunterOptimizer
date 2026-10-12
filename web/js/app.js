@@ -1091,6 +1091,7 @@ async function showOptReport({ mode, modeLabel, result, bossStages }) {
   }
 
   $("#optConfirmTitle").textContent = improved ? `${modeLabel} — improvement found` : `${modeLabel} — report`;
+  body.classList.remove("is-boss-find");
   body.innerHTML = `
     <p class="opt-report-summary">
       <strong>${improved ? "Improved vs baseline" : "No significant improvement"}</strong><br />
@@ -1317,59 +1318,68 @@ function escapeReportText(value) {
   }[ch]));
 }
 
-function formatPointCompareLines(current, found, entries, labels) {
-  const lines = [];
-  for (const entry of entries) {
-    const key = typeof entry === "string" ? entry : entry.key;
-    const depth = typeof entry === "string" ? 0 : Number(entry.depth) || 0;
-    const before = Math.max(0, Math.floor(Number(current?.[key]) || 0));
-    const after = Math.max(0, Math.floor(Number(found?.[key]) || 0));
-    if (before === 0 && after === 0) continue;
-    const cls = after > before ? "is-up" : after < before ? "is-down" : "";
-    const pad = depth > 0 ? ` style="padding-left:${depth * 0.7}rem"` : "";
-    lines.push(
-      `<span class="k"${pad}>${escapeReportText(labels[key] || key)}</span>${optReportCell(String(before))}${optReportCell(String(after), cls)}`,
+function bossFindTable(result, bossStage) {
+  const rate = Number(result.bossesPerDay) || 0;
+  const nowRate = Number(result.currentBossesPerDay) || 0;
+  const rows = [];
+  const pair = (label, before, after, { numeric = false } = {}) => {
+    const bNum = Number(before);
+    const aNum = Number(after);
+    const cls = numeric && aNum > bNum ? "is-up" : numeric && aNum < bNum ? "is-down" : "";
+    rows.push(
+      `<tr><th>${escapeReportText(label)}</th><td>${escapeReportText(before)}</td><td class="${cls}">${escapeReportText(after)}</td></tr>`,
     );
-  }
-  return lines.join("");
-}
+  };
+  const section = (label) => {
+    rows.push(`<tr class="sec"><th colspan="3">${escapeReportText(label)}</th></tr>`);
+  };
+  pair("Level", String(result.baseLevel), result.levelsNeeded > 0 ? `${result.level} (+${result.levelsNeeded})` : String(result.level));
+  pair("Bosses/day", nowRate.toFixed(2), rate.toFixed(2), { numeric: true });
+  pair("Ø Stage", "—", (Number(result.avgStage) || 0).toFixed(1));
+  pair("Boss", String(bossStage), String(bossStage));
 
-/** Talents and attributes of the earliest clear, next to the current hunter. */
-function formatBossFinderBuildRows(foundTalents, foundAttributes) {
-  const h = hunter();
-  const costs = h.costs || {};
-  const talentOrder = costs.TALENT_ORDER || Object.keys(costs.TALENT_LABELS || {});
-  const talentLines = formatPointCompareLines(
-    state.build?.talents,
-    foundTalents,
-    talentOrder,
-    costs.TALENT_LABELS || {},
-  );
-  const attrKeys = costs.ATTR_ORDER || Object.keys(costs.ATTRIBUTE_LABELS || {});
-  const attrEntries = h.attrs?.attributeTreeEntries ? h.attrs.attributeTreeEntries(attrKeys) : attrKeys;
-  const attrLines = formatPointCompareLines(
-    state.build?.attributes,
-    foundAttributes,
-    attrEntries,
-    costs.ATTRIBUTE_LABELS || {},
-  );
-  return `${talentLines ? `<span class="section">Talents</span>${talentLines}` : ""}${
-    attrLines ? `<span class="section">Attributes</span>${attrLines}` : ""
-  }`;
-}
-
-function formatScaledStatLines(before, after) {
-  const labels = hunter().costs.STAT_LABELS || {};
-  const lines = [];
-  for (const key of Object.keys(labels)) {
+  const statLabels = hunter().costs.STAT_LABELS || {};
+  let statOpen = false;
+  for (const key of Object.keys(statLabels)) {
     if (key === "highest_stage_reached") continue;
-    const b = Number(before?.[key]) || 0;
-    const a = Number(after?.[key]) || 0;
-    if (b === a) continue;
-    const cls = a > b ? "is-up" : "is-down";
-    lines.push(`<span class="k">${labels[key]}</span>${optReportCell(String(b))}${optReportCell(String(a), cls)}`);
+    const before = Number(result.statsBefore?.[key]) || 0;
+    const after = Number(result.statsAfter?.[key]) || 0;
+    if (before === after) continue;
+    if (!statOpen) {
+      section("Stats");
+      statOpen = true;
+    }
+    pair(statLabels[key], String(before), String(after), { numeric: true });
   }
-  return lines.join("");
+
+  const pointRows = (title, current, found, entries, labels) => {
+    const body = [];
+    for (const entry of entries) {
+      const key = typeof entry === "string" ? entry : entry.key;
+      const depth = typeof entry === "string" ? 0 : Number(entry.depth) || 0;
+      const before = Math.max(0, Math.floor(Number(current?.[key]) || 0));
+      const after = Math.max(0, Math.floor(Number(found?.[key]) || 0));
+      if (before === 0 && after === 0) continue;
+      const cls = after > before ? "is-up" : after < before ? "is-down" : "";
+      const pad = depth ? ` style="padding-left:${depth * 0.65}rem"` : "";
+      body.push(
+        `<tr><th${pad}>${escapeReportText(labels[key] || key)}</th><td>${before}</td><td class="${cls}">${after}</td></tr>`,
+      );
+    }
+    if (!body.length) return;
+    section(title);
+    rows.push(body.join(""));
+  };
+
+  const costs = hunter().costs || {};
+  const talentOrder = costs.TALENT_ORDER || Object.keys(costs.TALENT_LABELS || {});
+  pointRows("Talents", state.build?.talents, result.talents, talentOrder, costs.TALENT_LABELS || {});
+  const attrKeys = costs.ATTR_ORDER || Object.keys(costs.ATTRIBUTE_LABELS || {});
+  const attrEntries = hunter().attrs?.attributeTreeEntries ? hunter().attrs.attributeTreeEntries(attrKeys) : attrKeys;
+  pointRows("Attributes", state.build?.attributes, result.attributes, attrEntries, costs.ATTRIBUTE_LABELS || {});
+
+  const foundHead = result.found ? `Lvl ${result.level}` : "Last";
+  return `<table class="boss-find-table"><thead><tr><th></th><th>Now</th><th>${escapeReportText(foundHead)}</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
 }
 
 /** Close-only report. Does not apply a build. */
@@ -1380,6 +1390,7 @@ function showInfoReport({ title, bodyHtml }) {
   const btnDiscard = $("#btnOptDiscard");
   const btnApply = $("#btnOptApply");
   $("#optConfirmTitle").textContent = title;
+  body.classList.add("is-boss-find");
   body.innerHTML = bodyHtml;
   btnClose.hidden = false;
   btnDiscard.hidden = true;
@@ -1462,29 +1473,21 @@ async function runFirstBossFinder() {
     const rate = Number(result.bossesPerDay) || 0;
     const peakLevel = Number(result.peakLevel ?? result.level);
     const peakRate = Number(result.peakBossesPerDay ?? rate) || 0;
-    const peakStage = Number(result.peakAvgStage ?? result.avgStage) || 0;
-    const peakRuns = Number(result.peakRunsPerDay ?? result.runsPerDay) || 0;
     const walkedDown = !!(result.found && peakLevel > result.level);
-    const statRows = formatScaledStatLines(result.statsBefore, result.statsAfter);
-    const matLabels = (hunter().lootMats || []).map((m) => m.label).filter(Boolean);
-    const scaleNote = `Each level adds 3 stat points into one random class (${matLabels.join(", ")}), split at random across that class. Highest Stage Reached stays.`;
-    const cliffNote = `Bosses/day stays 0.00 until runs finish past stage ${bossStage}. Once they do, bosses/day becomes about the number of runs per day (${peakRuns.toFixed(1)} runs/day, average stage ${peakStage.toFixed(1)}). Each of those runs clears the boss about once.`;
 
     let summary;
     let status;
-    let levelHeader = `At level ${result.level}`;
     if (!result.found) {
-      summary = `No bosses/day of at least 0.20 by level ${result.level} (stage ${bossStage}). Last result ${rate.toFixed(2)} bosses/day.`;
+      summary = `No clear by level ${result.level}. Last ${rate.toFixed(2)} bosses/day.`;
       status = `First Bosskill Finder · no kill by level ${result.level} · ${rate.toFixed(2)} bosses/d`;
-    } else if (result.levelsNeeded <= 0 && !walkedDown) {
-      summary = `A tested build at level ${result.baseLevel} already reaches ${rate.toFixed(2)} bosses/day on stage ${bossStage}.`;
-      status = `First Bosskill Finder · build at level ${result.baseLevel} reaches ${rate.toFixed(2)} bosses/d`;
     } else if (walkedDown) {
-      summary = `The +4 scan first reached 0.20 bosses/day at level ${peakLevel} (${peakRate.toFixed(2)}). Stepping down by 2, then up by 1 after a step fell under 0.20, the earliest level still at or above 0.20 is ${result.level} (+${result.levelsNeeded} from ${result.baseLevel}): ${rate.toFixed(2)} bosses/day. ${cliffNote}`;
+      summary = `Level ${result.level} · ${rate.toFixed(2)} bosses/day. First +4 hit was level ${peakLevel} (${peakRate.toFixed(2)}).`;
       status = `First Bosskill Finder · earliest clear is level ${result.level} · ${rate.toFixed(2)} bosses/d`;
-      levelHeader = `Earliest clear at ${result.level}`;
+    } else if (result.levelsNeeded <= 0) {
+      summary = `Level ${result.baseLevel} already reaches ${rate.toFixed(2)} bosses/day.`;
+      status = `First Bosskill Finder · build at level ${result.baseLevel} reaches ${rate.toFixed(2)} bosses/d`;
     } else {
-      summary = `Earliest checked level at or above 0.20 bosses/day on stage ${bossStage} is ${result.level} (+${result.levelsNeeded} from ${result.baseLevel}): ${rate.toFixed(2)} bosses/day. ${cliffNote}`;
+      summary = `Level ${result.level} · ${rate.toFixed(2)} bosses/day.`;
       status = `First Bosskill Finder · level ${result.level} · ${rate.toFixed(2)} bosses/d`;
     }
 
@@ -1494,24 +1497,9 @@ async function runFirstBossFinder() {
     await showInfoReport({
       title: "First Bosskill Finder",
       bodyHtml: `
-        <p class="opt-report-summary"><strong>${summary}</strong></p>
-        <div class="opt-report-grid">
-          <span class="h">Metric</span><span class="h">Now</span><span class="h">${levelHeader}</span>
-          <span class="k">Hunter level</span>${optReportCell(String(result.baseLevel))}${optReportCell(
-            result.levelsNeeded > 0 ? `${result.level} (+${result.levelsNeeded})` : String(result.level),
-          )}
-          <span class="k">Bosses/day</span>${optReportCell((Number(result.currentBossesPerDay) || 0).toFixed(2))}${optReportCell(
-            rate.toFixed(2),
-            rate > (Number(result.currentBossesPerDay) || 0) ? "is-up" : "",
-          )}
-          <span class="k">Ø Stage</span>${optReportCell("—")}${optReportCell((Number(result.avgStage) || 0).toFixed(1))}
-          ${statRows}
-          ${result.found ? formatBossFinderBuildRows(result.talents, result.attributes) : ""}
-        </div>
-        <p class="opt-report-meta">
-          Boss target: ${bossStage} (lowest checked). The scan steps up by 4 levels until bosses/day is at least 0.20, then down by 2. The first step under 0.20 is followed by steps of +1 until the rate is back at or above 0.20. Each checked level uses that level's stat points and searches talents and attributes again. Timeless Mastery is not locked. ${scaleNote}
-          The searched build is not written onto your current hunter.
-        </p>
+        <p class="boss-find-lead">${summary}</p>
+        ${bossFindTable(result, bossStage)}
+        <p class="boss-find-note">Floor 0.20 bosses/day. Not written onto your hunter.</p>
       `,
     });
   } catch (err) {

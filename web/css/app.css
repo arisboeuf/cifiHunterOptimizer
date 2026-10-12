@@ -970,8 +970,86 @@ body[data-module="mechs"] .app-header p {
   max-height: none;
 }
 
-.opt-report-modal {
-  width: min(640px, 100%);
+.confirm-modal.opt-report-modal {
+  width: min(460px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.confirm-modal.opt-report-modal .opt-report-body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.confirm-modal.opt-report-modal .modal-actions {
+  flex: none;
+}
+
+.boss-find-lead {
+  margin: 0 0 0.45rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.boss-find-note {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.boss-find-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.boss-find-table th,
+.boss-find-table td {
+  padding: 0.08rem 0.35rem;
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.boss-find-table thead th {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.boss-find-table td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.boss-find-table tbody th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.boss-find-table tr.sec th {
+  padding-top: 0.35rem;
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.boss-find-table td.is-up {
+  color: #86efac;
+}
+
+.boss-find-table td.is-down {
+  color: #fca5a5;
 }
 
 .opt-confirm-body {

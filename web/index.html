@@ -59,7 +59,7 @@
           <div class="tabs" role="tablist" aria-label="Build sections">
             <button class="tab" role="tab" data-tab="stats" aria-selected="true">Stats</button>
             <button class="tab" role="tab" data-tab="insc" aria-selected="false">Inscryptions</button>
-            <button class="tab" role="tab" data-tab="misc" aria-selected="false">Relics / Gems</button>
+            <button class="tab" role="tab" data-tab="misc" aria-selected="false">Relics / Gems / Cards</button>
           </div>
           <label class="hide-maxed-row">
             <input type="checkbox" id="hideMaxed" checked />
@@ -90,19 +90,16 @@
             </div>
             <div class="tab-panel" data-panel="misc" hidden>
               <div class="section-title-row">
-                <h3 class="section-title">Relics / Gems / Mods</h3>
+                <h3 class="section-title">Relics / Gems / Cards</h3>
                 <button type="button" class="btn btn-primary btn-sm" id="btnNextBestMisc" title="Sim current build, then each relic/gem +1">
                   Next-Best-Opti
                 </button>
               </div>
+              <div id="diamondCardSlot" hidden></div>
               <div id="miscList" class="spin-list"></div>
               <label class="check-row" id="trampleRow">
                 <input id="trample" type="checkbox" />
                 <span>Trample mod</span>
-              </label>
-              <label class="check-row" id="diamondCardRow" hidden>
-                <input id="diamondCard" type="checkbox" />
-                <span id="diamondCardLabel">Diamond card</span>
               </label>
             </div>
           </div>

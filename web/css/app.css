@@ -672,6 +672,30 @@ body[data-module="mechs"] .app-header p {
   margin-top: 0.35rem;
 }
 
+#diamondCardSlot {
+  margin-bottom: 0.35rem;
+}
+
+#diamondCardSlot .check-row {
+  margin-top: 0;
+  gap: 0.4rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 8px;
+  line-height: 1.15;
+}
+
+.diamond-card-name {
+  color: #e7c56a;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+#diamondCardSlot .hint {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+}
+
 .run-bar {
   display: flex;
   flex-wrap: wrap;

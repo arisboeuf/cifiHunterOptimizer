@@ -463,12 +463,21 @@ function buildLeftLists() {
   if (trampleRow) trampleRow.hidden = !h.showTrample;
   $("#trample").checked = !!state.build.mods?.trample;
   const card = h.diamondCard;
-  const cardRow = $("#diamondCardRow");
-  if (cardRow) cardRow.hidden = !card;
-  const cardLabel = $("#diamondCardLabel");
-  if (card && cardLabel) cardLabel.textContent = `${card.label} · Max HP, ATK, HP Regen, loot`;
-  const cardInput = $("#diamondCard");
-  if (cardInput) cardInput.checked = !!(card && state.build.mods?.[card.mod]);
+  const cardSlot = $("#diamondCardSlot");
+  if (cardSlot) {
+    cardSlot.hidden = !card;
+    cardSlot.innerHTML = "";
+    if (card) {
+      const raw = state.build.mods?.[card.mod];
+      const on = raw === true || Number(raw) > 0;
+      const row = document.createElement("label");
+      row.className = "check-row diamond-card-row";
+      const hint = card.bonuses ? `<span class="hint"> · ${card.bonuses}</span>` : "";
+      row.innerHTML = `<input id="diamondCard" type="checkbox"${on ? " checked" : ""} /><span><span class="diamond-card-name">${card.label}</span>${hint}</span>`;
+      row.querySelector("input").addEventListener("change", onBuildChanged);
+      cardSlot.appendChild(row);
+    }
+  }
   $("#buildName").value = state.build.build_name || "";
   $("#level").value = String(state.build.meta?.level ?? 0);
   applyHideMaxed();
@@ -516,7 +525,9 @@ function syncMetaFromInputs() {
   state.build.meta.hunter = h.name;
   state.build.meta.level = Math.max(0, Number($("#level").value) || 0);
   const mods = { trample: h.showTrample ? $("#trample").checked : false };
-  if (h.diamondCard) mods[h.diamondCard.mod] = !!$("#diamondCard")?.checked;
+  if (h.diamondCard) {
+    mods[h.diamondCard.mod] = $("#diamondCard")?.checked ? 1 : 0;
+  }
   state.build.mods = mods;
 }
 
@@ -956,7 +967,6 @@ async function init() {
   $("#optForceTimeless").addEventListener("change", saveState);
   $("#optLoops").addEventListener("change", saveState);
   $("#trample").addEventListener("change", onBuildChanged);
-  $("#diamondCard").addEventListener("change", onBuildChanged);
   $("#btnRun").addEventListener("click", runSim);
   $("#btnExport").addEventListener("click", exportBuild);
   $("#btnImport").addEventListener("click", () => $("#fileImport").click());

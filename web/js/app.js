@@ -1450,7 +1450,7 @@ async function runFirstBossFinder() {
   $("#optProgressBar").style.width = "0%";
   const startLevel = Math.max(0, Math.floor(Number(state.build.meta?.level) || 0));
   $("#optStatus").textContent =
-    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · deep search at ${startLevel + 2}, then ${startLevel + 1}, then ${startLevel}`;
+    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · 2 iterations at ${startLevel + 2}, then ${startLevel + 1}, then ${startLevel}`;
 
   const bossStage = bossStages[0];
 

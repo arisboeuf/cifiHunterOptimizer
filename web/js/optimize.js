@@ -393,12 +393,16 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   const talCap = caps.talents;
   const attrCap = caps.attributes;
 
-  const talentKeys = Object.keys(base.talents || {}).length
+  const lockTalentZero = new Set(Array.isArray(opt.lockZeroTalents) ? opt.lockZeroTalents : []);
+  const lockAttrZero = new Set(Array.isArray(opt.lockZeroAttributes) ? opt.lockZeroAttributes : []);
+  const talentKeys = (Object.keys(base.talents || {}).length
     ? Object.keys(base.talents)
-    : [...costs.TALENT_ORDER];
-  const attrKeys = Object.keys(base.attributes || {}).length
+    : [...costs.TALENT_ORDER]
+  ).filter((k) => !lockTalentZero.has(k));
+  const attrKeys = (Object.keys(base.attributes || {}).length
     ? Object.keys(base.attributes)
-    : [...costs.ATTR_ORDER];
+    : [...costs.ATTR_ORDER]
+  ).filter((k) => !lockAttrZero.has(k));
 
   const tmMax = Number(costs.ATTRIBUTE_COSTS[TIMELESS_KEY]?.max ?? 5);
   const affordableTm = maxAffordableTimeless(attrCap);
@@ -411,7 +415,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       );
     }
     tmTarget = tmMax;
-  } else if (prioritizeTm) {
+  } else if (prioritizeTm && !lockAttrZero.has(TIMELESS_KEY)) {
     tmTarget = affordableTm;
   }
   const useTm = tmTarget >= 1;
@@ -842,8 +846,9 @@ const FIRST_BOSS_MISS = {
  * Deep boss search at level n+2, then n+1, then n.
  * Each pass uses that level's talent/attribute budget and, above the current
  * level, +3 combat stat points per level inside one random material class.
- * Heavier and more varied than one Push Average Stage pass. Timeless Mastery
- * is not locked. 0.2 bosses/day counts as a clear. Stops at the first miss.
+ * Heavier and more varied than one Push Average Stage pass. Two iterations per level.
+ * Timeless Mastery and Call Me Lucky Loot stay at 0. 0.2 bosses/day counts as a clear.
+ * Stops at the first miss.
  * Does not write the caller's config.
  */
 export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
@@ -860,7 +865,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   const baseLevel = Math.max(0, Math.min(maxLevel, Math.floor(Number(base.meta?.level) || 0)));
   base.meta = { ...(base.meta || {}), level: baseLevel };
   const stages = [bossStage];
-  const loops = 1;
+  const loops = 2;
   const finderSearch = {
     loops,
     nSearch: 200,
@@ -871,6 +876,8 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     objective: "bosses",
     bossStages: stages,
     prioritizeTimelessMastery: false,
+    lockZeroTalents: ["call_me_lucky_loot"],
+    lockZeroAttributes: [hunter.costs?.TIMELESS_KEY || "timeless_mastery"],
     coldStart: true,
     biasBlend: 0,
     restarts: 36,

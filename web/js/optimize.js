@@ -24,11 +24,6 @@ export const DEFAULT_OPTIMIZE = {
    * (Legacy alias: forceTimelessMastery5.)
    */
   prioritizeTimelessMastery: true,
-  /**
-   * Two-sided α for Welch/z equality on the primary metric
-   * (stage mean, loot/min, or bosses/day — see scoreGt).
-   */
-  stageTieAlpha: 0.05,
   /** How strongly elite screen builds bias later random/neighbor moves (0–1). */
   biasBlend: 0.55,
   /**
@@ -45,23 +40,19 @@ function stageStatsFromCounts(res) {
   const counts = res?.stageCounts || {};
   let n = 0;
   let sum = 0;
-  let sumSq = 0;
   for (const [stageRaw, countRaw] of Object.entries(counts)) {
     const stage = Number(stageRaw);
     const c = Number(countRaw);
     if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
     n += c;
     sum += stage * c;
-    sumSq += stage * stage * c;
   }
   if (n <= 0) {
     const avg = Number(res?.avgStage) || 0;
     const fallbackN = Math.max(1, Number(res?.n) || 1);
-    return { n: fallbackN, mean: avg, variance: 0 };
+    return { n: fallbackN, mean: avg };
   }
-  const mean = sum / n;
-  const variance = n > 1 ? Math.max(0, (sumSq - (sum * sum) / n) / (n - 1)) : 0;
-  return { n, mean, variance };
+  return { n, mean: sum / n };
 }
 
 /** Boss stages the Boss Maximizer can target (every 100). */
@@ -87,7 +78,6 @@ function bossClearStatsFromCounts(res, bossStages) {
   const counts = res?.stageCounts || {};
   let n = 0;
   let sum = 0;
-  let sumSq = 0;
   for (const [stageRaw, countRaw] of Object.entries(counts)) {
     const stage = Number(stageRaw);
     const c = Number(countRaw);
@@ -98,14 +88,11 @@ function bossClearStatsFromCounts(res, bossStages) {
     }
     n += c;
     sum += kills * c;
-    sumSq += kills * kills * c;
   }
   if (n <= 0) {
-    return { n: Math.max(1, Number(res?.n) || 1), mean: 0, variance: 0 };
+    return { n: Math.max(1, Number(res?.n) || 1), mean: 0 };
   }
-  const mean = sum / n;
-  const variance = n > 1 ? Math.max(0, (sumSq - (sum * sum) / n) / (n - 1)) : 0;
-  return { n, mean, variance };
+  return { n, mean: sum / n };
 }
 
 function normalizeObjective(raw) {
@@ -120,92 +107,37 @@ function scoreOf(res, objective = "stage", bossStages = []) {
   const bossesPerDay = bossStats.mean * runsPerDay;
   const avgStage = Number(res.avgStage) || st.mean;
   const lootScore = Number(res.lootScore) || 0;
-  // WASM exposes mean loot/min only (no per-run loot). Approximate loot variance via
-  // delta method under loot ∝ stage: Var(L) ≈ (L/S)² Var(S).
-  const lootVariance =
-    avgStage > 1e-9 ? st.variance * (lootScore / avgStage) * (lootScore / avgStage) : 0;
   return {
     avgStage,
     lootScore,
-    lootVariance,
     n: st.n,
-    variance: st.variance,
     bossesPerDay,
-    bossesVariance: bossStats.variance * runsPerDay * runsPerDay,
-    bossesN: bossStats.n,
     objective: normalizeObjective(objective),
     bossStages: normalizeBossStages(bossStages),
   };
 }
 
-function zCritForAlpha(alpha = 0.05) {
-  return alpha <= 0.01 ? 2.57582930355 : alpha <= 0.05 ? 1.95996398454 : 1.64485362695;
-}
-
-function stagesSignificantlyDifferent(a, b, alpha = 0.05) {
-  const n1 = Number(a.n) || 0;
-  const n2 = Number(b.n) || 0;
-  const diff = Number(a.avgStage) - Number(b.avgStage);
-  if (n1 < 2 || n2 < 2) return Math.abs(diff) > 1e-9;
-
-  const se2 = a.variance / n1 + b.variance / n2;
-  if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
-
-  const z = Math.abs(diff) / Math.sqrt(se2);
-  return z > zCritForAlpha(alpha);
-}
-
-function bossesSignificantlyDifferent(a, b, alpha = 0.05) {
-  const n1 = Number(a.bossesN ?? a.n) || 0;
-  const n2 = Number(b.bossesN ?? b.n) || 0;
-  const diff = Number(a.bossesPerDay) - Number(b.bossesPerDay);
-  if (n1 < 2 || n2 < 2) return Math.abs(diff) > 1e-9;
-
-  const se2 = (Number(a.bossesVariance) || 0) / n1 + (Number(b.bossesVariance) || 0) / n2;
-  if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
-
-  const z = Math.abs(diff) / Math.sqrt(se2);
-  return z > zCritForAlpha(alpha);
-}
-
-function lootsSignificantlyDifferent(a, b, alpha = 0.05) {
-  const n1 = Number(a.n) || 0;
-  const n2 = Number(b.n) || 0;
-  const diff = Number(a.lootScore) - Number(b.lootScore);
-  if (n1 < 2 || n2 < 2) return Math.abs(diff) > 1e-9;
-
-  const se2 = (Number(a.lootVariance) || 0) / n1 + (Number(b.lootVariance) || 0) / n2;
-  if (!(se2 > 0)) return Math.abs(diff) > 1e-9;
-
-  const z = Math.abs(diff) / Math.sqrt(se2);
-  return z > zCritForAlpha(alpha);
-}
-
-function scoreGt(a, b, alpha = 0.05) {
+/**
+ * Raw numeric compare. No significance test while combat is WASM.
+ * See docs/wasm-combat.md.
+ * Stage: higher Ø stage, then loot. Loot: higher loot/min, then Ø stage.
+ * Bosses: higher bosses/day, then loot, then Ø stage.
+ */
+function scoreGt(a, b) {
   if (!a) return false;
   if (!b) return true;
   const objective = normalizeObjective(a.objective ?? b.objective);
   if (objective === "bosses") {
-    if (bossesSignificantlyDifferent(a, b, alpha)) {
-      return a.bossesPerDay > b.bossesPerDay;
-    }
-    if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
     if (a.bossesPerDay !== b.bossesPerDay) return a.bossesPerDay > b.bossesPerDay;
+    if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
     return a.avgStage > b.avgStage;
   }
   if (objective === "loot") {
-    // Mirror of stage push: primary = loot/min (Welch/z), secondary = Ø stage.
-    if (lootsSignificantlyDifferent(a, b, alpha)) {
-      return a.lootScore > b.lootScore;
-    }
-    if (a.avgStage !== b.avgStage) return a.avgStage > b.avgStage;
-    return a.lootScore > b.lootScore;
-  }
-  if (stagesSignificantlyDifferent(a, b, alpha)) {
+    if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
     return a.avgStage > b.avgStage;
   }
-  if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
-  return a.avgStage > b.avgStage;
+  if (a.avgStage !== b.avgStage) return a.avgStage > b.avgStage;
+  return a.lootScore > b.lootScore;
 }
 
 function mulberry32(seed) {
@@ -253,9 +185,9 @@ function configKey(cfg) {
   return JSON.stringify({ t: cfg.talents, a: cfg.attributes });
 }
 
-function sortByScoreDesc(rows, alpha) {
+function sortByScoreDesc(rows) {
   return rows.slice().sort((a, b) =>
-    scoreGt(a.sc, b.sc, alpha) ? -1 : scoreGt(b.sc, a.sc, alpha) ? 1 : 0,
+    scoreGt(a.sc, b.sc) ? -1 : scoreGt(b.sc, a.sc) ? 1 : 0,
   );
 }
 
@@ -524,7 +456,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
   const learnFromScreened = (screened) => {
     if (screened.length < 3) return;
-    const ranked = sortByScoreDesc(screened, opt.stageTieAlpha);
+    const ranked = sortByScoreDesc(screened);
     const eliteN = Math.max(1, Math.ceil(ranked.length * Math.min(0.25, opt.refineTopFraction * 2)));
     const elite = ranked.slice(0, eliteN);
     talW = blendLevelWeights(
@@ -603,10 +535,10 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       history.push(sc);
       const key = configKey(cfg);
       const prev = screenedByKey.get(key);
-      if (!prev || scoreGt(sc, prev.sc, opt.stageTieAlpha)) {
+      if (!prev || scoreGt(sc, prev.sc)) {
         screenedByKey.set(key, { sc, cfg: structuredClone(cfg), res });
       }
-      if (scoreGt(sc, screenBestScore, opt.stageTieAlpha)) {
+      if (scoreGt(sc, screenBestScore)) {
         screenBestScore = sc;
         screenBestCfg = structuredClone(cfg);
       }
@@ -674,7 +606,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
         loopEvals += 1;
         const candScore = mkScore(candRes);
         considerScreen(cand, candRes);
-        const betterLocal = scoreGt(candScore, localScore, opt.stageTieAlpha);
+        const betterLocal = scoreGt(candScore, localScore);
         const softOk =
           objective === "bosses"
             ? candScore.bossesPerDay >= localScore.bossesPerDay - 0.5
@@ -704,7 +636,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       learnFromScreened([...screenedByKey.values()]);
     }
 
-    const screened = sortByScoreDesc([...screenedByKey.values()], opt.stageTieAlpha);
+    const screened = sortByScoreDesc([...screenedByKey.values()]);
     learnFromScreened(screened);
 
     const nRefineHere = Math.min(refineCap, refineCountFor(screened.length, opt));
@@ -729,7 +661,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
       loopEvals += 1;
       const rSc = mkScore(r);
       history.push(rSc);
-      if (scoreGt(rSc, refineBestScore, opt.stageTieAlpha)) {
+      if (scoreGt(rSc, refineBestScore)) {
         refineBestScore = rSc;
         refineBestCfg = structuredClone(cfg);
         refineBestEval = r;
@@ -796,7 +728,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     evals += 1;
     const sc = mkScore(r);
     history.push(sc);
-    if (scoreGt(sc, searchBestScore, opt.stageTieAlpha)) {
+    if (scoreGt(sc, searchBestScore)) {
       searchBestScore = sc;
       searchBestCfg = structuredClone(ch.cfg);
       searchBestEval = r;
@@ -816,7 +748,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
   if (!searchBestCfg && loopChampions.length) {
     const ch = loopChampions.reduce((best, cur) =>
-      scoreGt(cur.sc, best.sc, opt.stageTieAlpha) ? cur : best,
+      scoreGt(cur.sc, best.sc) ? cur : best,
     );
     searchBestCfg = ch.cfg;
     searchBestScore = ch.sc;
@@ -824,7 +756,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   }
 
   const improved =
-    searchBestCfg != null && scoreGt(searchBestScore, baselineScore, opt.stageTieAlpha);
+    searchBestCfg != null && scoreGt(searchBestScore, baselineScore);
   const bestCfg = improved ? searchBestCfg : structuredClone(baselineCfg);
   const bestScore = improved ? searchBestScore : baselineScore;
   const bestEval = improved ? searchBestEval : baselineEval;
@@ -1071,7 +1003,6 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
   const results = [];
   let bestKey = null;
   let bestScore = null;
-  const alpha = DEFAULT_OPTIMIZE.stageTieAlpha;
 
   for (const key of keys) {
     if (isCancelled()) return { cancelled: true, baselineScore, results };
@@ -1088,8 +1019,7 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
         lootScore: baselineScore.lootScore,
         dStage: 0,
         dLoot: 0,
-        significant: false,
-        significantBenefit: false,
+        better: false,
       });
       done += 1;
       notify(`${label} (max)`, baselineScore.avgStage, baselineScore.lootScore);
@@ -1104,8 +1034,7 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
     const wasmRes = engine.evaluate(cfg, n);
     const res = wasmToSimResult(wasmRes, n);
     const sc = scoreOf(res);
-    const significant = stagesSignificantlyDifferent(sc, baselineScore, alpha);
-    const significantBenefit = significant && sc.avgStage > baselineScore.avgStage;
+    const better = sc.avgStage > baselineScore.avgStage;
     const entry = {
       key,
       skipped: null,
@@ -1114,11 +1043,10 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
       dStage: sc.avgStage - baselineScore.avgStage,
       dLoot: sc.lootScore - baselineScore.lootScore,
       score: sc,
-      significant,
-      significantBenefit,
+      better,
     };
     results.push(entry);
-    if (significantBenefit && (!bestScore || scoreGt(sc, bestScore, alpha))) {
+    if (better && (!bestScore || scoreGt(sc, bestScore))) {
       bestScore = sc;
       bestKey = key;
     }
@@ -1133,7 +1061,6 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
     baselineEval,
     results,
     bestKey,
-    stageTieAlpha: alpha,
   };
 }
 

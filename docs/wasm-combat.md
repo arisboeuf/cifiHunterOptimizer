@@ -38,3 +38,16 @@ Example (Ozzy): UI “Multistrike Chance / Power” → eval keys `multichance` 
 Prefer: documented tips + external wiki/community, then confirm with WASM runs when the answer matters for balance or the optimizer.
 
 **Player mechanics (Crit / Multistrike / Charge):** see [docs/mechanics.md](mechanics.md).
+
+## Optimizer compares are raw numbers
+
+While combat runs through `release.wasm`, the optimizer and Next-Best-Opti rank builds by the raw objective. There is no significance test.
+
+- **Push Average Stage:** higher average stage wins. Loot breaks an exact tie.
+- **Push Material/XP:** higher loot/min wins. Average stage breaks an exact tie.
+- **Maximize Boss/day:** higher bosses/day wins, then loot, then average stage.
+- **Next-Best-Opti:** a +1 counts when its average stage is higher than the baseline. The label shows that raw delta.
+
+WASM returns a stage histogram and means for a batch of runs, not a sample this tool treats as a formal test. A z-test on that histogram used to hide small gaps (for example 100.01 vs 100.00) as noise. That test is removed on purpose for as long as this WASM engine is the combat backend.
+
+Put a statistical compare back only if a future engine exposes per-run outcomes and we decide a noise filter is worth using again.

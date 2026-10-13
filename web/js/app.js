@@ -300,19 +300,18 @@ function renderMarginalDeltas(listSel, keyPrefix, data) {
       span.classList.add("is-skip");
       span.textContent = "max";
       span.title = "Already at cap";
-    } else if (entry.significantBenefit) {
+    } else if (entry.better) {
       span.textContent = `${fmtDelta(entry.dStage)} Ø`;
       span.title =
-        `Significantly better (α=${data.stageTieAlpha ?? 0.05})` +
+        `Higher average stage` +
         ` · Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}`;
       if (entry.key === data.bestKey) span.classList.add("is-best");
     } else {
       span.classList.add("is-skip");
-      span.textContent = "(n.s.)";
+      span.textContent = `${fmtDelta(entry.dStage)} Ø`;
       span.title =
-        `Not significant vs baseline (α=${data.stageTieAlpha ?? 0.05})` +
-        ` · Raw Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}` +
-        ` — often just sim noise`;
+        `Not above baseline` +
+        ` · Δ Stage ${fmtDelta(entry.dStage)} · Δ Loot ${fmtDelta(entry.dLoot, 1)}`;
     }
     label.appendChild(span);
   }
@@ -1104,7 +1103,7 @@ async function showOptReport({ mode, modeLabel, result, bossStages }) {
   body.classList.remove("is-boss-find");
   body.innerHTML = `
     <p class="opt-report-summary">
-      <strong>${improved ? "Improved vs baseline" : "No significant improvement"}</strong><br />
+      <strong>${improved ? "Improved vs baseline" : "No improvement"}</strong><br />
       ${primaryLine}
     </p>
     <div class="opt-report-grid">
@@ -1246,11 +1245,11 @@ async function runMarginalNextBest({ kind, clearDeltas, runSweep, applyResult, b
     const best = result.results.find((r) => r.key === result.bestKey);
     const label = best ? bestLabelOf(best.key) : null;
     const d = best ? fmtDelta(best.dStage) : null;
-    const sigN = result.results.filter((r) => r.significantBenefit).length;
+    const betterN = result.results.filter((r) => r.better).length;
     const doneMsg = best
-      ? `${title} done · ${n} sims/${unitLabel} · ${sigN} significant · best +1: ${label} (${d} Ø)` +
+      ? `${title} done · ${n} sims/${unitLabel} · ${betterN} above baseline · best +1: ${label} (${d} Ø)` +
         ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`
-      : `${title} done · ${n} sims/${unitLabel} · no significant +1` +
+      : `${title} done · ${n} sims/${unitLabel} · no +1 above baseline` +
         ` · Baseline Ø ${result.baselineScore.avgStage.toFixed(1)}`;
     $("#status").textContent = doneMsg;
     const optEl = $("#optStatus");

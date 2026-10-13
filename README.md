@@ -24,7 +24,7 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
 
-See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, and **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance and bridge limits.
+See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, and **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use.
 
 ### Built in this project
 

@@ -1451,7 +1451,7 @@ async function runFirstBossFinder() {
   $("#optProgressBar").style.width = "0%";
   const startLevel = Math.max(0, Math.floor(Number(state.build.meta?.level) || 0));
   $("#optStatus").textContent =
-    `First Bosskill Finder · ${hunter().name} · starting at level ${startLevel} · steps +4, then −2, then +1`;
+    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · deep search at ${startLevel + 2}, then ${startLevel + 1}, then ${startLevel}`;
 
   const bossStage = bossStages[0];
 
@@ -1481,35 +1481,27 @@ async function runFirstBossFinder() {
     $("#optProgressBar").style.width = "100%";
     $("#btnOptCancel").hidden = true;
     const rate = Number(result.bossesPerDay) || 0;
-    const peakLevel = Number(result.peakLevel ?? result.level);
-    const peakRate = Number(result.peakBossesPerDay ?? rate) || 0;
-    const walkedDown = !!(result.found && peakLevel > result.level);
-
-    let summary;
-    let status;
-    if (!result.found) {
-      summary = `No clear by level ${result.level}. Last ${rate.toFixed(2)} bosses/day.`;
-      status = `First Bosskill Finder · no kill by level ${result.level} · ${rate.toFixed(2)} bosses/d`;
-    } else if (walkedDown) {
-      summary = `Level ${result.level} · ${rate.toFixed(2)} bosses/day. First +4 hit was level ${peakLevel} (${peakRate.toFixed(2)}).`;
-      status = `First Bosskill Finder · earliest clear is level ${result.level} · ${rate.toFixed(2)} bosses/d`;
-    } else if (result.levelsNeeded <= 0) {
-      summary = `Level ${result.baseLevel} already reaches ${rate.toFixed(2)} bosses/day.`;
-      status = `First Bosskill Finder · build at level ${result.baseLevel} reaches ${rate.toFixed(2)} bosses/d`;
-    } else {
-      summary = `Level ${result.level} · ${rate.toFixed(2)} bosses/day.`;
-      status = `First Bosskill Finder · level ${result.level} · ${rate.toFixed(2)} bosses/d`;
-    }
+    const summary = result.found
+      ? `Boss clear at level ${result.level} · ${rate.toFixed(2)} bosses/day.`
+      : result.message;
+    const status = result.found
+      ? `First Bosskill Finder · boss clear at level ${result.level} · ${rate.toFixed(2)} bosses/d`
+      : `First Bosskill Finder · ${result.message}`;
 
     $("#optStatus").textContent = `${status} · build unchanged`;
     $("#status").textContent = status;
 
     await showInfoReport({
       title: "First Bosskill Finder",
-      bodyHtml: `
+      bodyHtml: result.found
+        ? `
         <p class="boss-find-lead">${summary}</p>
         ${bossFindTable(result, bossStage)}
         <p class="boss-find-note">Floor 0.20 bosses/day. Not written onto your hunter.</p>
+      `
+        : `
+        <p class="boss-find-lead">${escapeReportText(summary)}</p>
+        <p class="boss-find-note">Level ${result.level} · ${rate.toFixed(2)} bosses/day. Not written onto your hunter.</p>
       `,
     });
   } catch (err) {

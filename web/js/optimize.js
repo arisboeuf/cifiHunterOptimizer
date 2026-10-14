@@ -1199,10 +1199,10 @@ function mergePairs(first, second) {
     .filter(Boolean);
 }
 
-function screenFactorLifts(samples) {
+function screenFactorLifts(samples, factorList = BORGE_FACTORS) {
   const factors = [];
   const fixed = [];
-  for (const spec of BORGE_FACTORS) {
+  for (const spec of factorList) {
     const groups = new Map();
     for (const sample of samples) {
       const level = Number(sample.points[spec.key]) || 0;
@@ -1548,11 +1548,588 @@ function packScreen(title, kind, run, ranked, extra = {}) {
   };
 }
 
+let bossP = null;
+
+function ozzyBossProfile() {
+  const talentToggles = [
+    ["death_is_my_companion", [0, 2]],
+    ["tricksters_boon", [0, 1]],
+    ["unfair_advantage", [0, 5]],
+    ["thousand_needles", [0, 10]],
+    ["omen_of_decay", [0, 10]],
+    ["crippling_shots", [0, 15]],
+  ];
+  const attrToggles = [
+    ["exo_piercers", [0, 5]],
+    ["wings_of_ibu", [0, 5]],
+    ["shimmering_scorpions", [0, 5]],
+    ["extermination_protocol", [0, 5]],
+    ["soul_of_snek", [0, 5]],
+    ["vectid_elixir", [0, 10]],
+    ["gift_of_medusa", [0, 5]],
+    ["cycle_of_death", [0, 5]],
+    ["deal_with_death", [0, 3]],
+    ["dance_of_dashes", [0, 4]],
+    ["blessing_of_the_sisters", [0, 1]],
+    ["blessing_of_the_scarab", [0, 5]],
+    ["blessing_of_the_cat", [0, 5]],
+  ];
+  return {
+    talentToggles,
+    attrToggles,
+    talentKeys: talentToggles.map(([key]) => key),
+    attrKeys: attrToggles.map(([key]) => key),
+    factors: [
+      ...talentToggles.map(([key]) => ({ key, kind: "talent" })),
+      ...attrToggles.map(([key]) => ({ key, kind: "attribute" })),
+    ],
+    fineLevels: {
+      death_is_my_companion: [0, 2],
+      tricksters_boon: [0, 1],
+      unfair_advantage: [0, 2, 5],
+      thousand_needles: [0, 5, 10],
+      omen_of_decay: [0, 5, 10],
+      crippling_shots: [0, 5, 10, 15],
+      exo_piercers: [0, 2, 5],
+      wings_of_ibu: [0, 2, 5],
+      shimmering_scorpions: [0, 2, 5],
+      extermination_protocol: [0, 2, 5],
+      soul_of_snek: [0, 2, 5],
+      vectid_elixir: [0, 5, 10],
+      gift_of_medusa: [0, 2, 5],
+      cycle_of_death: [0, 2, 5],
+      deal_with_death: [0, 1, 3],
+      dance_of_dashes: [0, 2, 4],
+      blessing_of_the_sisters: [0, 1],
+      blessing_of_the_scarab: [0, 2, 5],
+      blessing_of_the_cat: [0, 2, 5],
+    },
+    attrParent: {
+      shimmering_scorpions: "exo_piercers",
+      extermination_protocol: "wings_of_ibu",
+      soul_of_snek: "extermination_protocol",
+      vectid_elixir: "extermination_protocol",
+      gift_of_medusa: "extermination_protocol",
+      cycle_of_death: "soul_of_snek",
+      deal_with_death: "cycle_of_death",
+      dance_of_dashes: "shimmering_scorpions",
+      blessing_of_the_sisters: "deal_with_death",
+      blessing_of_the_scarab: "gift_of_medusa",
+      blessing_of_the_cat: "dance_of_dashes",
+    },
+    attrCost: {
+      living_off_the_land: 1, exo_piercers: 1, shimmering_scorpions: 3, timeless_mastery: 3,
+      wings_of_ibu: 2, extermination_protocol: 2, soul_of_snek: 3, vectid_elixir: 2,
+      cycle_of_death: 3, deal_with_death: 5, gift_of_medusa: 3, dance_of_dashes: 3,
+      blessing_of_the_sisters: 15, blessing_of_the_scarab: 2, blessing_of_the_cat: 2,
+    },
+    talentFiller: "echo_bullets",
+    talentFillerMax: 20,
+    attrFiller: "living_off_the_land",
+    luckyKey: "call_me_lucky_loot",
+    refineChain: ["wings_of_ibu", "extermination_protocol", "soul_of_snek"],
+    pairs: [
+      ["exo_piercers", "shimmering_scorpions"],
+      ["wings_of_ibu", "extermination_protocol"],
+      ["extermination_protocol", "soul_of_snek"],
+    ],
+  };
+}
+
+function knoxBossProfile() {
+  const talentToggles = [
+    ["death_is_my_companion", [0, 2]],
+    ["calypsos_advantage", [0, 5]],
+    ["unfair_advantage", [0, 5]],
+    ["ghost_bullets", [0, 15]],
+    ["omen_of_defeat", [0, 10]],
+    ["presence_of_god", [0, 10]],
+  ];
+  const attrToggles = [
+    ["soul_amplification", [0, 10]],
+    ["dead_men_tell_no_tales", [0, 10]],
+    ["space_pirate_armory", [0, 10]],
+    ["pirates_life_for_knox", [0, 5]],
+    ["searious_efficiency", [0, 5]],
+    ["passive_charge_tank", [0, 5]],
+    ["king_of_torpedos", [0, 5]],
+    ["fortification_elixir", [0, 10]],
+    ["shield_of_poseidon", [0, 5]],
+  ];
+  return {
+    talentToggles,
+    attrToggles,
+    talentKeys: talentToggles.map(([key]) => key),
+    attrKeys: attrToggles.map(([key]) => key),
+    factors: [
+      ...talentToggles.map(([key]) => ({ key, kind: "talent" })),
+      ...attrToggles.map(([key]) => ({ key, kind: "attribute" })),
+    ],
+    fineLevels: {
+      death_is_my_companion: [0, 2],
+      calypsos_advantage: [0, 2, 5],
+      unfair_advantage: [0, 2, 5],
+      ghost_bullets: [0, 5, 10, 15],
+      omen_of_defeat: [0, 5, 10],
+      presence_of_god: [0, 5, 10],
+      soul_amplification: [0, 5, 10],
+      dead_men_tell_no_tales: [0, 5, 10],
+      space_pirate_armory: [0, 5, 10],
+      pirates_life_for_knox: [0, 2, 5],
+      searious_efficiency: [0, 2, 5],
+      passive_charge_tank: [0, 2, 5],
+      king_of_torpedos: [0, 2, 5],
+      fortification_elixir: [0, 5, 10],
+      shield_of_poseidon: [0, 2, 5],
+    },
+    attrParent: {
+      dead_men_tell_no_tales: "soul_amplification",
+      pirates_life_for_knox: "space_pirate_armory",
+      passive_charge_tank: "searious_efficiency",
+      king_of_torpedos: "passive_charge_tank",
+      shield_of_poseidon: "fortification_elixir",
+    },
+    attrCost: {
+      release_the_kraken: 1, soul_amplification: 1, dead_men_tell_no_tales: 2, space_pirate_armory: 2,
+      pirates_life_for_knox: 3, timeless_mastery: 3, searious_efficiency: 2, passive_charge_tank: 4,
+      king_of_torpedos: 5, fortification_elixir: 2, shield_of_poseidon: 3,
+    },
+    talentFiller: "finishing_move",
+    talentFillerMax: 15,
+    attrFiller: "release_the_kraken",
+    luckyKey: "call_me_lucky_loot",
+    refineChain: ["searious_efficiency", "passive_charge_tank", "king_of_torpedos"],
+    pairs: [
+      ["soul_amplification", "dead_men_tell_no_tales"],
+      ["space_pirate_armory", "pirates_life_for_knox"],
+      ["searious_efficiency", "passive_charge_tank"],
+    ],
+  };
+}
+
+function bossProfileFor(hunterId) {
+  if (hunterId === "ozzy") return ozzyBossProfile();
+  if (hunterId === "knox") return knoxBossProfile();
+  return null;
+}
+
+function profileBossTalentRows(budget, choiceOf) {
+  const rows = [];
+  const picked = {};
+  const walk = (index, spent) => {
+    if (index === bossP.talentKeys.length) {
+      const filler = budget - spent;
+      if (filler < 0 || filler > bossP.talentFillerMax) return;
+      rows.push({ ...picked, [bossP.luckyKey]: 0, [bossP.talentFiller]: filler });
+      return;
+    }
+    const key = bossP.talentKeys[index];
+    for (const level of choiceOf(key)) {
+      if (spent + level > budget) continue;
+      picked[key] = level;
+      walk(index + 1, spent + level);
+    }
+  };
+  walk(0, 0);
+  return rows;
+}
+
+function profileBossAttrRows(budget, choiceOf) {
+  const rows = [];
+  const picked = {};
+  const walk = (index) => {
+    if (index === bossP.attrKeys.length) {
+      let spent = 0;
+      for (const key of bossP.attrKeys) spent += (Number(picked[key]) || 0) * (bossP.attrCost[key] || 1);
+      const filler = budget - spent;
+      const anyOn = bossP.attrKeys.some((key) => Number(picked[key]) > 0);
+      if (filler < (anyOn ? 1 : 0)) return;
+      const row = { [bossP.attrFiller]: filler, timeless_mastery: 0 };
+      for (const key of bossP.attrKeys) row[key] = Number(picked[key]) || 0;
+      if (bossP.isLegal && !bossP.isLegal(row)) return;
+      rows.push(row);
+      return;
+    }
+    const key = bossP.attrKeys[index];
+    const parent = bossP.attrParent[key];
+    const choices = parent && parent !== bossP.attrFiller && !(Number(picked[parent]) > 0)
+      ? [0]
+      : choiceOf(key);
+    for (const level of choices) {
+      picked[key] = level;
+      walk(index + 1);
+    }
+  };
+  walk(0);
+  return rows;
+}
+
+function profileScreen1Choice() {
+  const talents = new Map(bossP.talentToggles);
+  const attrs = new Map(bossP.attrToggles);
+  return {
+    talent: (key) => talents.get(key) || [0],
+    attr: (key) => attrs.get(key) || [0],
+  };
+}
+
+function profilePlanChoice(plan) {
+  return (key) => (plan.open.has(key) ? plan.open.get(key) : [plan.locks.get(key) || 0]);
+}
+
+function profileRepairParents(isOn, lockAt, open, locks) {
+  for (const [child, parent] of Object.entries(bossP.attrParent)) {
+    if (!bossP.attrKeys.includes(parent) || !isOn(child)) continue;
+    const childOpen = open.has(child) ? open.get(child) : null;
+    if (childOpen && childOpen.includes(0)) continue;
+    if (!isOn(parent)) lockAt(parent, 1, "parent");
+  }
+  for (const [child, parent] of Object.entries(bossP.attrParent)) {
+    if (!bossP.attrKeys.includes(parent)) continue;
+    if ((locks.get(parent) || 0) <= 0 && !open.has(parent) && isOn(child)) lockAt(child, 0, "off");
+  }
+}
+
+function profileScreen2Plan(ranked) {
+  const locks = new Map();
+  const reasons = new Map();
+  const open = new Map();
+  const positive = ranked.factors.filter((factor) => factor.level > 0 && factor.lift > 0);
+  const top = positive[0] || null;
+  const lockAt = (key, level, reason) => {
+    open.delete(key);
+    locks.set(key, level);
+    reasons.set(key, reason);
+  };
+  for (const factor of ranked.fixed) lockAt(factor.key, Number(factor.level) || 0, "fixed");
+  for (const factor of ranked.factors) {
+    const level = Number(factor.level) || 0;
+    const lift = Number(factor.lift) || 0;
+    if (!(level > 0) || !(lift > 0)) {
+      lockAt(factor.key, 0, "off");
+      continue;
+    }
+    if (top && factor.key === top.key) {
+      lockAt(factor.key, level, "top");
+      continue;
+    }
+    const fine = bossP.fineLevels[factor.key];
+    if (fine) open.set(factor.key, fine.slice());
+    else lockAt(factor.key, level, "top");
+  }
+  const isOn = (key) => open.has(key) || (locks.get(key) || 0) > 0;
+  profileRepairParents(isOn, lockAt, open, locks);
+  return {
+    locks,
+    open,
+    topKey: top ? top.key : null,
+    lockList: [...locks.entries()].map(([key, level]) => ({
+      key,
+      level,
+      reason: reasons.get(key) || "fixed",
+    })),
+  };
+}
+
+function profileFitScreen2(plan, ranked, talentBudget, attrBudget) {
+  const bestLevel = new Map(ranked.factors.map((factor) => [factor.key, Number(factor.level) || 0]));
+  const lift = new Map(ranked.factors.map((factor) => [factor.key, Number(factor.lift) || 0]));
+  const choice = profilePlanChoice(plan);
+  let talentRows = profileBossTalentRows(talentBudget, choice);
+  let attrRows = profileBossAttrRows(attrBudget, choice);
+  const candidates = () => [...plan.open.keys()]
+    .filter((key) => (plan.open.get(key) || []).length > 2)
+    .sort((a, b) => (lift.get(a) || 0) - (lift.get(b) || 0) || a.localeCompare(b));
+  while (talentRows.length * attrRows.length > SCREEN2_ROW_CAP) {
+    const key = candidates()[0];
+    if (!key) break;
+    const next = dropOneFineLevel(plan.open.get(key), bestLevel.get(key) || 0);
+    if (next.length === plan.open.get(key).length) break;
+    plan.open.set(key, next);
+    const fitted = profilePlanChoice(plan);
+    talentRows = profileBossTalentRows(talentBudget, fitted);
+    attrRows = profileBossAttrRows(attrBudget, fitted);
+  }
+  return { talentRows, attrRows };
+}
+
+function profileRefinePlan(screen1, screen2, champion) {
+  const locks = new Map();
+  const reasons = new Map();
+  const open = new Map();
+  const chain = new Set(bossP.refineChain);
+  const lockAt = (key, level, reason) => {
+    open.delete(key);
+    locks.set(key, level);
+    reasons.set(key, reason);
+  };
+  for (const lock of screen2.locks || []) {
+    if (!chain.has(lock.key)) lockAt(lock.key, Number(lock.level) || 0, lock.reason || "fixed");
+  }
+  for (const factor of screen2.factors || []) {
+    if (chain.has(factor.key)) continue;
+    const level = Number(factor.level) || 0;
+    lockAt(factor.key, level, level > 0 && factor.lift > 0 ? "held" : "off");
+  }
+  for (const factor of screen2.fixed || []) {
+    if (chain.has(factor.key) || locks.has(factor.key)) continue;
+    lockAt(factor.key, Number(factor.level) || 0, "fixed");
+  }
+  const recorded = bossP.refineChain.map((key) => recordedLevel(screen1, key) || recordedLevel(screen2, key));
+  const pays = recorded.map((row) => !!(
+    row && Number(row.level) > 0 && (Number(row.lift) > 0 || row.reason === "top" || row.reason === "held")
+  ));
+  let openParent = false;
+  for (let i = bossP.refineChain.length - 1; i >= 0; i--) {
+    const key = bossP.refineChain[i];
+    if (pays[i] || openParent) {
+      openParent = true;
+      open.set(key, uniqLevels([1, 2, recorded[i]?.level]));
+    } else {
+      lockAt(key, 0, "off");
+    }
+  }
+  if (champion) {
+    for (const key of [...bossP.talentKeys, ...bossP.attrKeys]) {
+      if (chain.has(key)) continue;
+      lockAt(key, championLevel(champion, key), "incumbent");
+    }
+    for (const key of bossP.refineChain) {
+      const level = championLevel(champion, key);
+      if (open.has(key)) open.set(key, uniqLevelsKeepZero([...open.get(key), level]));
+    }
+  }
+  return {
+    locks,
+    open,
+    openList: [...open.entries()].map(([key, levels]) => ({ key, levels })),
+    lockList: [...locks.entries()].map(([key, level]) => ({
+      key,
+      level,
+      reason: reasons.get(key) || "held",
+    })),
+  };
+}
+
+function profileCollectPairs(samples, screenTitle) {
+  const pairs = [];
+  for (const [keyA, keyB] of bossP.pairs) {
+    const grid = pairGrid(samples, keyA, keyB);
+    if (grid) pairs.push({ ...grid, screen: screenTitle });
+  }
+  return pairs;
+}
+
+function profileMergePairs(first, second) {
+  const byKey = new Map();
+  for (const pair of first) byKey.set(`${pair.keyA}|${pair.keyB}`, pair);
+  for (const pair of second) {
+    const id = `${pair.keyA}|${pair.keyB}`;
+    const prev = byKey.get(id);
+    const cells = pair.aLevels.length * pair.bLevels.length;
+    const prevCells = prev ? prev.aLevels.length * prev.bLevels.length : -1;
+    if (!prev || cells >= prevCells) byKey.set(id, pair);
+  }
+  return bossP.pairs
+    .map(([keyA, keyB]) => byKey.get(`${keyA}|${keyB}`))
+    .filter(Boolean);
+}
+
+function profileChainSteps(samples) {
+  return bossP.refineChain.map((key) => {
+    const groups = new Map();
+    for (const sample of samples) {
+      const level = Number(sample.points[key]) || 0;
+      let group = groups.get(level);
+      if (!group) {
+        group = { sum: 0, n: 0 };
+        groups.set(level, group);
+      }
+      group.sum += sample.bossHp;
+      group.n += 1;
+    }
+    const levels = [...groups.keys()].sort((a, b) => a - b);
+    if (levels.length < 2) return null;
+    const cost = bossP.attrCost[key] || 1;
+    const means = levels.map((level) => ({
+      level,
+      mean: groups.get(level).sum / groups.get(level).n,
+      points: level * cost,
+    }));
+    const steps = [];
+    for (let i = 1; i < means.length; i++) {
+      const dPts = means[i].points - means[i - 1].points;
+      const dHp = means[i - 1].mean - means[i].mean;
+      steps.push({
+        from: means[i - 1].level,
+        to: means[i].level,
+        dHp,
+        dPts,
+        perPoint: dPts ? dHp / dPts : 0,
+      });
+    }
+    return { key, means, steps };
+  }).filter(Boolean);
+}
+
+async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, ready) {
+  bossP = bossProfileFor(hunter.id);
+  if (!bossP) throw new Error("This boss screen is not set up for this hunter.");
+  const { onProgress, isCancelled, bossStages } = ready;
+  const base = structuredClone(baseConfig);
+  const maxLevel = Math.max(0, Math.min(999, Math.floor(Number(optIn.maxLevel ?? 999))));
+  const level = Math.max(0, Math.min(maxLevel, Math.floor(Number(base.meta?.level) || 0)));
+  base.meta = { ...(base.meta || {}), level };
+  const caps = pointBudgets(level);
+  bossP.isLegal = (row) => hunter.attrs.attributesTreeValid(row, caps.attributes).ok;
+  const choice = profileScreen1Choice();
+  const talentRows = profileBossTalentRows(caps.talents, choice.talent);
+  const attrRows = profileBossAttrRows(caps.attributes, choice.attr);
+  if (!talentRows.length || !attrRows.length) {
+    throw new Error(
+      `No screening rows fit level ${level} (${caps.talents} talent points, ${caps.attributes} attribute points).`,
+    );
+  }
+
+  const bossStage = bossStages[0];
+  const screens = 3;
+  const shared = { base, engine, hunter, bossStage, level, screens, onProgress, isCancelled };
+  const firstRun = await simulateBossScreen({
+    ...shared,
+    rows: crossBudgetRows(talentRows, attrRows),
+    screen: 1,
+    phase: "screen 1/3",
+  });
+  if (firstRun.cancelled) return { cancelled: true };
+  if (!firstRun.samples.length) {
+    throw new Error(`No valid screening rows at level ${level}.`);
+  }
+  const ranked1 = screenFactorLifts(firstRun.samples, bossP.factors);
+  const screen1 = packScreen("Screen 1", "screen1", firstRun, ranked1, {
+    ownBossHp: firstRun.best?.bossHp ?? null,
+    kept: false,
+  });
+  let champion = asChampion(firstRun.best);
+  const plan = profileScreen2Plan(ranked1);
+  const fitted = profileFitScreen2(plan, ranked1, caps.talents, caps.attributes);
+  const secondRows = includeChampion(crossBudgetRows(fitted.talentRows, fitted.attrRows), champion);
+  let screen2;
+  let secondSamples = [];
+  if (!secondRows.length) {
+    screen2 = {
+      title: "Screen 2",
+      kind: "screen2",
+      rows: 0,
+      bossHp: null,
+      avgStage: null,
+      talents: null,
+      attributes: null,
+      factors: [],
+      fixed: [],
+      locks: plan.lockList,
+      topKey: plan.topKey,
+    };
+  } else {
+    const secondRun = await simulateBossScreen({
+      ...shared,
+      rows: secondRows,
+      screen: 2,
+      phase: "screen 2/3",
+      floor: champion,
+    });
+    if (secondRun.cancelled) return { cancelled: true };
+    secondSamples = secondRun.samples;
+    const ranked2 = screenFactorLifts(secondRun.samples, bossP.factors);
+    screen2 = publishFunnel(packScreen("Screen 2", "screen2", secondRun, ranked2, {
+      locks: plan.lockList,
+      topKey: plan.topKey,
+    }), champion);
+  }
+  if (champion && !Number.isFinite(screen2.bossHp)) screen2 = publishFunnel(screen2, champion);
+  champion = asChampion(screen2) || champion;
+
+  let refine = {
+    title: "Refinement",
+    kind: "refine",
+    rows: 0,
+    bossHp: null,
+    avgStage: null,
+    talents: null,
+    attributes: null,
+    factors: [],
+    fixed: [],
+    locks: [],
+    steps: [],
+    pairs: [],
+    openList: [],
+  };
+  if (screen2.rows > 0) {
+    const refinePlan = profileRefinePlan(screen1, screen2, champion);
+    const refineChoice = profilePlanChoice(refinePlan);
+    const refineTalents = profileBossTalentRows(caps.talents, refineChoice);
+    const refineAttrs = profileBossAttrRows(caps.attributes, refineChoice);
+    const refineRows = includeChampion(crossBudgetRows(refineTalents, refineAttrs), champion);
+    refine = {
+      ...refine,
+      locks: refinePlan.lockList,
+      openList: refinePlan.openList,
+    };
+    if (refineRows.length) {
+      const refineRun = await simulateBossScreen({
+        ...shared,
+        rows: refineRows,
+        screen: 3,
+        phase: "refinement",
+        floor: champion,
+      });
+      if (refineRun.cancelled) return { cancelled: true };
+      const rankedRefine = screenFactorLifts(refineRun.samples, bossP.factors);
+      const refinePairs = [];
+      const chain = bossP.refineChain;
+      for (let i = 0; i < chain.length; i++) {
+        for (let j = i + 1; j < chain.length; j++) {
+          const grid = pairGrid(refineRun.samples, chain[i], chain[j]);
+          if (grid) refinePairs.push({ ...grid, screen: "Refinement" });
+        }
+      }
+      refine = publishFunnel(packScreen("Refinement", "refine", refineRun, rankedRefine, {
+        locks: refinePlan.lockList,
+        openList: refinePlan.openList,
+        steps: profileChainSteps(refineRun.samples),
+        pairs: refinePairs,
+      }), champion);
+    }
+  }
+  if (champion && !Number.isFinite(refine.bossHp)) refine = publishFunnel(refine, champion);
+
+  const finished = [screen1, screen2, refine].filter((screen) => Number.isFinite(screen.bossHp));
+  finished.sort((a, b) => a.bossHp - b.bossHp || (b.avgStage || 0) - (a.avgStage || 0));
+  const winner = finished[0] || screen1;
+  return {
+    cancelled: false,
+    level,
+    sims: FIRST_BOSS_SCREEN_SIMS,
+    rows: screen1.rows + screen2.rows + refine.rows,
+    talentPoints: caps.talents,
+    attributePoints: caps.attributes,
+    bossStage,
+    bossHp: winner.bossHp,
+    avgStage: winner.avgStage,
+    talents: winner.talents,
+    attributes: winner.attributes,
+    factors: screen1.factors,
+    fixed: screen1.fixed,
+    screens: [screen1, screen2, refine],
+    pairs: profileMergePairs(profileCollectPairs(firstRun.samples, "Screen 1"), profileCollectPairs(secondSamples, "Screen 2")),
+  };
+}
+
 /**
- * Borge boss screen at the hunter's current level.
+ * Boss screen at the hunter's current level.
  * Screen 1 toggles each skill. Screen 2 locks the largest drop and steps the rest.
- * Refinement holds those winners and steps the cheap Atlas-chain levels the grids skipped.
- * 50 sims per build. Ranked by remaining boss HP. Does not write the caller's config.
+ * Refinement holds those winners and steps the cheap levels of that hunter's chain.
+ * 50 sims per build. Ranked by remaining boss HP. Call Me Lucky Loot and Timeless Mastery stay at 0.
+ * Does not write the caller's config.
  */
 export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
@@ -1562,7 +2139,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     throw new Error("Select at least one boss (100 / 200 / 300).");
   }
   if (hunter.id !== "borge") {
-    throw new Error("This boss screen is set up for Borge.");
+    return findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, { onProgress, isCancelled, bossStages });
   }
 
   const base = structuredClone(baseConfig);

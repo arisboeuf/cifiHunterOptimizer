@@ -39,7 +39,7 @@ Prefer: documented tips + external wiki/community, then confirm with WASM runs w
 
 **Player mechanics (Crit / Multistrike / Charge):** see [docs/mechanics.md](mechanics.md).
 
-**Boss Kill % vs Boss HP %**, why the First Bosskill Finder is a budgeted screen rather than a Resolution V factorial, and why that funnel is not yet the stage or loot search: see [docs/boss-screen.md](boss-screen.md).
+**Boss Kill % vs Boss HP %**, why the First Bosskill Finder is a budgeted screen rather than a Resolution V factorial, and how the stage, loot, and bosses/day buttons use that funnel: see [docs/boss-screen.md](boss-screen.md).
 
 ## Optimizer compares are raw numbers
 

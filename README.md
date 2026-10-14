@@ -24,13 +24,13 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
 
-See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use, and **[docs/boss-screen.md](docs/boss-screen.md)** for the First Bosskill Finder's screens and for why that funnel is not yet the stage or loot search.
+See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use, and **[docs/boss-screen.md](docs/boss-screen.md)** for the First Bosskill Finder and for the stage, loot, and bosses/day funnel.
 
 ### Built in this project
 
 | Item | What it does |
 | --- | --- |
-| **Talent / attribute optimizer** | Monte-Carlo search: **Push Average Stage**, **Push Material/XP** (loot/min; Timeless Mastery 5 required), or **Maximize Boss/day** (100/200/300); mutual exclusion while any runs; refine pass, multi-loop champions, objective-specific compare, optional Prioritize Timeless Mastery (stage/boss), apply/discard UI |
+| **Talent / attribute optimizer** | Screen funnel for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss among 100/200/300). Call Me Lucky Loot and Timeless Mastery are free factors. A better 4,000-sim confirm asks to apply. **First Bosskill Finder** ranks remaining boss HP and does not change the build. Prioritize Timeless Mastery and Iterations are not used |
 | **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |
@@ -47,7 +47,7 @@ The optimizer is the main added value beyond “run the same sim once”: it sea
 - Simulate Borge, Ozzy, Knox with the cifi-tools WASM combat engine
 - Edit stats, inscryptions, relics/gems, talents, and attributes (tree rules enforced)
 - Run N Monte-Carlo sims; see loot score, stage range, time, boss kill %, charts
-- Optimize talent/attribute spend: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (bosses 100/200/300; only one optimize at a time)
+- Optimize talent/attribute spend for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss; only one optimize at a time). **First Bosskill Finder** ranks remaining boss HP and leaves the build unchanged
 - **Next-Best-Opti**: for the current build, show Δ Ø-stage of investing +1 in each combat stat (also runs after applying a talent/attribute optimize). Separate on-demand buttons on Inscryptions and Relics/Gems tabs (never auto-chained).
 - Builds saved per hunter in the browser
 

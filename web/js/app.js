@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=pushall";
+import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bossall";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";

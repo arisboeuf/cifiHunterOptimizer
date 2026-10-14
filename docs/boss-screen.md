@@ -1,10 +1,10 @@
 # Boss screen: what we tried and what the finder does
 
-Notes from the October 2026 design discussion. The First Bosskill Finder runs the two screens described under [Current screen](#current-screen) and [Second screen](#second-screen), then the short pass under [Refinement](#refinement). [Stage, loot, and bosses/day](#stage-loot-and-bossesday) is the same funnel shape with a different score. Borge, Ozzy, and Knox all use it. The boss finder itself is unchanged.
+Notes from the October 2026 design discussion, updated for the shipped search. The First Bosskill Finder runs the two screens described under [Current screen](#current-screen) and [Second screen](#second-screen), then the short pass under [Refinement](#refinement). [Stage, loot, and bosses/day](#stage-loot-and-bossesday) uses the same funnel shape with a different score. Borge, Ozzy, and Knox all use both.
 
 ## Current screen
 
-Borge only, at the **current hunter level**. Talent points equal that level. Attribute points equal `level × 3`. Level 27 in the examples below was one illustration, not a fixed target. A hunter at level 26 is screened with 26 talent points and 78 attribute points.
+The table is Borge's grid, at the **current hunter level**. Ozzy and Knox use the same shape on their own trees: Call Me Lucky Loot and Timeless Mastery stay at 0, leftover points go to that hunter's fillers, and refinement steps that hunter's chain (Ozzy: Wings, Extermination, Soul of Snek; Knox: Searious Efficiency, Passive Charge Tank, King of Torpedos). Talent points equal the level. Attribute points equal `level × 3`. Level 27 in the examples below was one illustration, not a fixed target. A hunter at level 26 is screened with 26 talent points and 78 attribute points.
 
 Each row spends the whole budget. There is no pass that tries 1 point, then 2, then 3.
 
@@ -118,7 +118,7 @@ Before this screen, First Bosskill Finder did not use a designed experiment. Per
 
 That search can produce a build shaped like the level-27 example. It will not reliably hit one exact point split.
 
-Push Average Stage, Push Material/XP, and Maximize Boss/day still use that style of search (`web/js/optimize.js`). Only the First Bosskill Finder was switched.
+Push Average Stage, Push Material/XP, and Maximize Boss/day used to use that style of search. They now use the funnel under [Stage, loot, and bosses/day](#stage-loot-and-bossesday). `optimizeBuild` is still in `web/js/optimize.js` and is not called from the UI.
 
 ## Resolution V does not fit this budget
 
@@ -155,11 +155,11 @@ The diamond card is one purchase (5000 diamonds), not a stack of ranks. Owned, i
 
 ## Stage, loot, and bosses/day
 
-Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge, Ozzy, and Knox run the same three-phase funnel as the boss finder, with a different score and a different factor list. The boss finder itself is unchanged.
+Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge, Ozzy, and Knox run the same three-phase funnel as the boss finder, with a different score and a different factor list. The boss finder also runs for all three hunters. Borge's boss grid is the one in [Current screen](#current-screen). Ozzy and Knox keep Lucky Loot and Timeless Mastery at 0 and step their own trees. The finder scores the first checked boss only (100, 200, or 300) and does not write the build.
 
 Call Me Lucky Loot and Timeless Mastery are free factors on all three push screens. Off is a legal row. Neither skill is forced on. Each hunter parks leftover talent points on one filler (Borge: Presence Of A God, Ozzy: Echo Bullets, Knox: Finishing Move) and leftover attribute points on another (Borge: Soul Of Ares, Ozzy: Living Off The Land, Knox: Release The Kraken). Those fillers are ranked on the chart. Screen 1 also steps Borge's Ylith at 1 and 5 when that still fits the row cap; otherwise refinement moves 5 points between the attribute filler and its shift partner (Ylith, Exo Piercers, or Soul Amplification). The refinement corner follows the skills the chart ranked, and it always tries that filler split. A skill is locked on only when its gain is clear next to the spread of the builds at those levels. Grids up to about 2,500 builds use 100 sims. Larger grids use 80, then 50.
 
-The apply decision resimulates the current hunter and the funnel winner at 4,000 sims. The charts use the screening sims. A row is written onto the hunter only when that confirm is better and Apply is accepted. Show finder report hides the charts when it is off. A better confirm still opens the apply question.
+The apply decision resimulates the current hunter and the funnel winner at 4,000 sims. The charts use the screening sims. A row is written onto the hunter only when that confirm is better and Apply is accepted. Show finder report hides the charts when it is off. A better confirm still opens the apply question. The same toggle hides the boss-finder charts. Prioritize Timeless Mastery and Iterations are still on the form and are saved, and no button reads them. Timeless Mastery is a free factor on the three push screens and stays at 0 in the boss finder.
 
 ### The funnel, apart from boss HP
 
@@ -180,9 +180,9 @@ What is worth keeping:
 - One level, both budgets spent, parent gates enforced, Presence and Ares as the dumps only after the toggles are chosen.
 - Coarse, then finer, then a small corner, with the incumbent kept. Fifty-sim noise is why the keep rule exists, and average stage is noisier than a 5-point boss-HP step.
 
-What has to change before this is a stage search:
+What changed from the boss matrix:
 
-- Call Me Lucky Loot and Timeless Mastery are factors on this screen, the same as on Material/XP and Bosses/day. The boss finder pins both at 0. The stage button does the opposite for Timeless while "Prioritize Timeless Mastery" is on: it buys the parents (Ares 1, Ylith 1, Spartan 1) and up to Timeless 5, which is 19 attribute points, before the walk starts. A stage screen puts Lucky Loot and Timeless in the chart (off and the high level, plus a middle level for Timeless) and lets the score decide. It does not inherit the checkbox, and it does not force either skill on.
+- Call Me Lucky Loot and Timeless Mastery are factors on this screen, the same as on Material/XP and Bosses/day. The boss finder pins both at 0. The old stage walk did the opposite for Timeless while "Prioritize Timeless Mastery" was on: it bought the parents (Ares 1, Ylith 1, Spartan 1) and up to Timeless 5, which is 19 attribute points, before the walk started. The shipped screen puts Lucky Loot and Timeless in the chart (off and the high level, plus a middle level for Timeless) and lets the score decide. It does not read the checkbox, and it does not force either skill on.
 - Presence and Ares are not bars. The chart then locks whichever toggled skill moved the mean, even when the real change was the filler that skill freed or consumed. That confound already showed up on boss HP, where Impeccable 5 was only legal next to Life of the Hunt 5. On stage it matters more, because Presence (−4% enemy HP per level) and Ares (+1% Max HP and +0.2% ATK per level) are often the spend. A stage screen has to rank them, not only park leftovers on them.
 - Ylith is pinned at 1 whenever Spartan is on. Extra Ylith is regen and HP, which stage can want.
 - Soul of Athena, Soul of the Minotaur, and Soul of Hermes stay at 0. Athena's heavy attack is a stage candidate this matrix never turns on.
@@ -197,14 +197,14 @@ Loot per minute is loot per drop times how fast things die. Combat skills stay i
 
 The boss matrix forces the two loot skills to 0. Stage, Material/XP, and Bosses/day all put them back in as free factors. Off is a legal row. Neither skill is required:
 
-- Timeless Mastery, +14% loot per level, cost 3, max 5. With the parents above, level 5 is 19 attribute points. Spartan does not have to be 6. The current button will not start unless level 5 fits, and then every row has it. The screen should include off and 5, and a middle level, so the chart can say whether +70% loot beats spending those points on clear speed.
+- Timeless Mastery, +14% loot per level, cost 3, max 5. With the parents above, level 5 is 19 attribute points. Spartan does not have to be 6. The old Material/XP button would not start unless level 5 fit, and then every row had it. The shipped screen includes off and 5, and a middle level, so the chart can say whether +70% loot beats spending those points on clear speed.
 - Call Me Lucky Loot, +20% loot per level on kill, cost 1, max 10. It competes with Death, Presence, and Fires. It is a toggle. Presence still takes the talent points that remain.
 
 The Gaiden card stays the saved checkbox (+5% loot). Loot inscryptions stay out of this matrix, as they do today.
 
 The Atlas corner is the wrong refinement when Timeless or Lucky Loot is the skill the chart ranked. The corner follows that winner: Timeless level and the Spartan point that unlocks it, or Lucky Loot's intermediate levels.
 
-The funnel is the right shape for loot, and it can beat the current walk, because that walk locks Timeless at 5 before it looks. The boss grid with both loot skills pinned at 0 would not.
+The funnel is the right shape for loot, and it replaced the walk that locked Timeless at 5 before it looked. The boss grid with both loot skills pinned at 0 would not.
 
 ### Maximize Boss/day
 
@@ -212,8 +212,8 @@ Bosses/day is clears times runs per day. It is closer to this finder than averag
 
 ### Wired
 
-Borge, Ozzy, and Knox call `findPushBuild` from the three push buttons. The First Bosskill Finder still calls `findFirstBossKill`.
+Borge, Ozzy, and Knox call `findPushBuild` from the three push buttons. The First Bosskill Finder still calls `findFirstBossKill` for Borge, Ozzy, and Knox. Lucky Loot and Timeless Mastery stay at 0. Ozzy and Knox use the same three screens, with that hunter's skill tree.
 
 ## Not done yet
 
-The boss finder's refinement only steps the cheap Atlas-chain levels. It does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked.
+Borge's refinement only steps the cheap Atlas-chain levels. Ozzy steps Wings, Extermination, and Soul of Snek. Knox steps Searious Efficiency, Passive Charge Tank, and King of Torpedos. The finder does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked.

@@ -786,184 +786,930 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
   };
 }
 
-/** Lowest bosses/day that still counts as a clear. */
-const FIRST_BOSS_RATE_MIN = 0.2;
+/** Sims per screened build. Screening only; no refine pass. */
+const FIRST_BOSS_SCREEN_SIMS = 50;
 
-const STAT_POINTS_PER_LEVEL = 3;
+/** Talent points left after the toggles go here so the level budget is spent. */
+const BORGE_TALENT_FILLER = "presence_of_god";
+const BORGE_TALENT_FILLER_MAX = 15;
 
-function materialStatClasses(hunter) {
-  const slots = hunter.statResource || {};
-  const grouped = { mat1: [], mat2: [], mat3: [] };
-  for (const [stat, slot] of Object.entries(slots)) {
-    if (grouped[slot]) grouped[slot].push(stat);
-  }
-  return ["mat1", "mat2", "mat3"].map((slot) => grouped[slot]).filter((keys) => keys.length);
-}
+/** 0 or the tested level. Presence Of A God is not a toggle; it takes the remainder. */
+const BORGE_TALENT_TOGGLES = [
+  ["death_is_my_companion", [0, 2]],
+  ["life_of_the_hunt", [0, 5]],
+  ["unfair_advantage", [0, 5]],
+  ["impeccable_impacts", [0, 10]],
+  ["omen_of_defeat", [0, 10]],
+  ["fires_of_war", [0, 15]],
+];
 
-/** Add `points` levels, each on a random stat in `classKeys` that is still under its cap. */
-function grantClassPoints(stats, classKeys, statMax, random, points) {
-  const next = { ...stats };
-  for (let i = 0; i < points; i++) {
-    const open = classKeys.filter((key) => {
-      const mxRaw = Number(statMax?.[key]);
-      const cap = Number.isFinite(mxRaw) ? mxRaw : 9999;
-      return (Number(next[key]) || 0) < cap;
-    });
-    if (!open.length) break;
-    const key = open[Math.floor(random() * open.length)];
-    next[key] = (Number(next[key]) || 0) + 1;
-  }
-  return next;
-}
+const BORGE_FACTORS = [
+  ...BORGE_TALENT_TOGGLES.map(([key]) => ({ key, kind: "talent" })),
+  { key: "spartan_lineage", kind: "attribute" },
+  { key: "helltouch_barrier", kind: "attribute" },
+  { key: "lifedrain_inhalers", kind: "attribute" },
+  { key: "explosive_punches", kind: "attribute" },
+  { key: "book_of_baal", kind: "attribute" },
+  { key: "superior_sensors", kind: "attribute" },
+  { key: "atlas_protocol", kind: "attribute" },
+  { key: "weakspot_analysis", kind: "attribute" },
+  { key: "born_for_battle", kind: "attribute" },
+];
 
 /**
- * From `fromLevel` upward, each level puts STAT_POINTS_PER_LEVEL into one
- * material class chosen at random, then splits those points across that class.
+ * Levels for a skill that beat off in screen 1 but was not the largest drop.
+ * The largest drop is locked. A skill that did not beat off is locked at 0.
+ * Nothing here is pinned to one named skill.
  */
-function statsAlongLevels(baseStats, fromLevel, toLevel, hunter, random) {
-  const classes = materialStatClasses(hunter);
-  const statMax = hunter.costs?.STAT_MAX || {};
-  const byLevel = new Map();
-  let stats = { ...(baseStats || {}) };
-  byLevel.set(fromLevel, stats);
-  for (let level = fromLevel + 1; level <= toLevel; level++) {
-    if (classes.length) {
-      const classKeys = classes[Math.floor(random() * classes.length)];
-      stats = grantClassPoints(stats, classKeys, statMax, random, STAT_POINTS_PER_LEVEL);
-    }
-    byLevel.set(level, stats);
-  }
-  return byLevel;
-}
-
-const FIRST_BOSS_MISS = {
-  "n+2": "Not ready yet for boss.",
-  "n+1": "Not ready yet for boss. (n+1)",
-  n: "One more level to go for boss kill!",
+const SCREEN2_FINE_LEVELS = {
+  death_is_my_companion: [0, 2],
+  life_of_the_hunt: [0, 2, 5],
+  unfair_advantage: [0, 2, 5],
+  impeccable_impacts: [0, 5, 10],
+  omen_of_defeat: [0, 5, 10],
+  fires_of_war: [0, 5, 10, 15],
+  helltouch_barrier: [0, 1],
+  lifedrain_inhalers: [0, 4, 7, 10],
+  explosive_punches: [0, 3, 6],
+  book_of_baal: [0, 2, 4, 6],
+  spartan_lineage: [0, 3, 6],
+  superior_sensors: [0, 3, 6],
 };
 
+const SCREEN2_TALENT_KEYS = [
+  "death_is_my_companion",
+  "life_of_the_hunt",
+  "unfair_advantage",
+  "impeccable_impacts",
+  "omen_of_defeat",
+  "fires_of_war",
+];
+
+const SCREEN2_ATTR_KEYS = [
+  "spartan_lineage",
+  "lifedrain_inhalers",
+  "explosive_punches",
+  "book_of_baal",
+  "superior_sensors",
+  "atlas_protocol",
+  "weakspot_analysis",
+  "born_for_battle",
+];
+
+const SCREEN2_ATTR_PARENT = {
+  lifedrain_inhalers: "helltouch_barrier",
+  explosive_punches: "helltouch_barrier",
+  superior_sensors: "book_of_baal",
+  atlas_protocol: "superior_sensors",
+  weakspot_analysis: "explosive_punches",
+  born_for_battle: "spartan_lineage",
+};
+
+const SCREEN2_ATTR_COST = {
+  spartan_lineage: 2,
+  helltouch_barrier: 2,
+  lifedrain_inhalers: 2,
+  explosive_punches: 3,
+  book_of_baal: 3,
+  superior_sensors: 2,
+  atlas_protocol: 3,
+  weakspot_analysis: 2,
+  born_for_battle: 5,
+};
+
+/** Shown when both sides take more than one level. Screen 2 wins if it is finer. */
+const BOSS_SCREEN_PAIRS = [
+  ["death_is_my_companion", "lifedrain_inhalers"],
+  ["lifedrain_inhalers", "explosive_punches"],
+  ["lifedrain_inhalers", "book_of_baal"],
+];
+
+/** Screen 2 stays near screen 1's build count. Extra steps on the smallest lifts go first. */
+const SCREEN2_ROW_CAP = 1500;
+
+function borgeTalentRows(budget) {
+  const rows = [];
+  const picked = [];
+  const walk = (index, spent) => {
+    if (index === BORGE_TALENT_TOGGLES.length) {
+      const remainder = budget - spent;
+      if (remainder < 0 || remainder > BORGE_TALENT_FILLER_MAX) return;
+      const row = { call_me_lucky_loot: 0, [BORGE_TALENT_FILLER]: remainder };
+      for (let i = 0; i < BORGE_TALENT_TOGGLES.length; i++) row[BORGE_TALENT_TOGGLES[i][0]] = picked[i];
+      rows.push(row);
+      return;
+    }
+    for (const level of BORGE_TALENT_TOGGLES[index][1]) {
+      if (spent + level > budget) continue;
+      picked[index] = level;
+      walk(index + 1, spent + level);
+    }
+  };
+  walk(0, 0);
+  return rows;
+}
+
+/** Discrete attribute rows for `budget` points. Soul Of Ares takes the remainder. */
+function borgeAttributeRows(budget) {
+  const rows = [];
+  for (const spartan of [0, 6]) {
+    for (const hell of [0, 1]) {
+      for (const life of hell ? [0, 10] : [0]) {
+        for (const exp of hell ? [0, 6] : [0]) {
+          for (const baal of [0, 3, 6]) {
+            for (const sensors of baal ? [0, 6] : [0]) {
+              for (const atlas of sensors ? [0, 2, 6] : [0]) {
+                for (const weak of exp ? [0, 6] : [0]) {
+                  for (const born of spartan ? [0, 3] : [0]) {
+                    const high = 3 * atlas + 2 * weak + 5 * born;
+                    if (high > budget) continue;
+                    if ((atlas || weak || born) && budget - high < 75) continue;
+                    const ylith = spartan ? 1 : 0;
+                    const mid = spartan * 2 + hell * 2 + life * 2 + exp * 3 + baal * 3 + sensors * 2;
+                    const ares = budget - high - mid - ylith;
+                    const aresMin = ylith || hell || baal ? 1 : 0;
+                    if (ares < aresMin) continue;
+                    rows.push({
+                      soul_of_ares: ares,
+                      essence_of_ylith: ylith,
+                      spartan_lineage: spartan,
+                      timeless_mastery: 0,
+                      book_of_baal: baal,
+                      superior_sensors: sensors,
+                      helltouch_barrier: hell,
+                      lifedrain_inhalers: life,
+                      explosive_punches: exp,
+                      atlas_protocol: atlas,
+                      weakspot_analysis: weak,
+                      born_for_battle: born,
+                      soul_of_the_minotaur: 0,
+                      soul_of_hermes: 0,
+                      soul_of_athena: 0,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return rows;
+}
+
 /**
- * Deep boss search at level n+2, then n+1, then n.
- * Each pass uses that level's talent/attribute budget and, above the current
- * level, +3 combat stat points per level inside one random material class.
- * Heavier and more varied than one Push Average Stage pass. Two iterations per level.
- * Timeless Mastery and Call Me Lucky Loot stay at 0. 0.2 bosses/day counts as a clear.
- * Stops at the first miss.
- * Does not write the caller's config.
+ * Remaining boss HP in percent. Lower is closer to a kill.
+ * The WASM getter is 0 both when the hunter never reaches the boss and when the
+ * boss is already dead, so those two cases are split on the stage.
+ */
+function bossHpRemaining(sim, bossStage) {
+  const hp = Number(sim.bossHpPercent);
+  const avg = Number(sim.avgStage) || 0;
+  const max = Number(sim.maxStage) || avg;
+  if (max > bossStage + 0.05) return 0;
+  if (max < bossStage - 0.05) return 100;
+  if (!Number.isFinite(hp) || hp <= 0) return avg >= bossStage - 0.05 ? 0 : 100;
+  return hp;
+}
+
+function screen2Plan(ranked) {
+  const locks = new Map();
+  const reasons = new Map();
+  const open = new Map();
+  const positive = ranked.factors.filter((factor) => factor.level > 0 && factor.lift > 0);
+  const top = positive[0] || null;
+
+  const lockAt = (key, level, reason) => {
+    open.delete(key);
+    locks.set(key, level);
+    reasons.set(key, reason);
+  };
+
+  for (const factor of ranked.fixed) lockAt(factor.key, Number(factor.level) || 0, "fixed");
+  for (const factor of ranked.factors) {
+    const level = Number(factor.level) || 0;
+    const lift = Number(factor.lift) || 0;
+    if (!(level > 0) || !(lift > 0)) {
+      lockAt(factor.key, 0, "off");
+      continue;
+    }
+    if (top && factor.key === top.key) {
+      lockAt(factor.key, level, "top");
+      continue;
+    }
+    const fine = SCREEN2_FINE_LEVELS[factor.key];
+    if (fine) open.set(factor.key, fine.slice());
+    else lockAt(factor.key, level, "top");
+  }
+
+  const isOn = (key) => open.has(key) || (locks.get(key) || 0) > 0;
+  if ((isOn("lifedrain_inhalers") || isOn("explosive_punches")) && reasons.get("helltouch_barrier") !== "top") {
+    lockAt("helltouch_barrier", 1, "parent");
+  }
+  if ((locks.get("helltouch_barrier") || 0) <= 0 && !open.has("helltouch_barrier")) {
+    if (isOn("lifedrain_inhalers")) lockAt("lifedrain_inhalers", 0, "off");
+    if (isOn("explosive_punches")) lockAt("explosive_punches", 0, "off");
+  }
+  if (!isOn("book_of_baal") && isOn("superior_sensors")) lockAt("superior_sensors", 0, "off");
+  if (!isOn("superior_sensors") && isOn("atlas_protocol")) lockAt("atlas_protocol", 0, "off");
+  if (!isOn("explosive_punches") && isOn("weakspot_analysis")) lockAt("weakspot_analysis", 0, "off");
+  if (!isOn("spartan_lineage") && isOn("born_for_battle")) lockAt("born_for_battle", 0, "off");
+
+  return {
+    locks,
+    open,
+    topKey: top ? top.key : null,
+    lockList: [...locks.entries()].map(([key, level]) => ({
+      key,
+      level,
+      reason: reasons.get(key) || "fixed",
+    })),
+  };
+}
+
+function borgeScreen2TalentRows(budget, plan) {
+  const rows = [];
+  const picked = {};
+  const walk = (index, spent) => {
+    if (index === SCREEN2_TALENT_KEYS.length) {
+      const presence = budget - spent;
+      if (presence < 0 || presence > BORGE_TALENT_FILLER_MAX) return;
+      rows.push({
+        ...picked,
+        call_me_lucky_loot: 0,
+        [BORGE_TALENT_FILLER]: presence,
+      });
+      return;
+    }
+    const key = SCREEN2_TALENT_KEYS[index];
+    const choices = plan.open.has(key) ? plan.open.get(key) : [plan.locks.get(key) || 0];
+    for (const level of choices) {
+      if (spent + level > budget) continue;
+      picked[key] = level;
+      walk(index + 1, spent + level);
+    }
+  };
+  walk(0, 0);
+  return rows;
+}
+
+function borgeScreen2AttributeRows(budget, plan) {
+  const rows = [];
+  const picked = { helltouch_barrier: plan.locks.get("helltouch_barrier") || 0 };
+  const walk = (index) => {
+    if (index === SCREEN2_ATTR_KEYS.length) {
+      const spartan = picked.spartan_lineage || 0;
+      const ylith = spartan > 0 ? 1 : 0;
+      const atlas = picked.atlas_protocol || 0;
+      const weak = picked.weakspot_analysis || 0;
+      const born = picked.born_for_battle || 0;
+      const high = 3 * atlas + 2 * weak + 5 * born;
+      if ((atlas || weak || born) && budget - high < 75) return;
+      let spent = ylith;
+      for (const [key, cost] of Object.entries(SCREEN2_ATTR_COST)) {
+        spent += (picked[key] || 0) * cost;
+      }
+      const baal = picked.book_of_baal || 0;
+      const hell = picked.helltouch_barrier || 0;
+      const ares = budget - spent;
+      const aresMin = ylith || hell || baal ? 1 : 0;
+      if (ares < aresMin) return;
+      rows.push({
+        soul_of_ares: ares,
+        essence_of_ylith: ylith,
+        spartan_lineage: spartan,
+        timeless_mastery: 0,
+        book_of_baal: baal,
+        superior_sensors: picked.superior_sensors || 0,
+        helltouch_barrier: hell,
+        lifedrain_inhalers: picked.lifedrain_inhalers || 0,
+        explosive_punches: picked.explosive_punches || 0,
+        atlas_protocol: atlas,
+        weakspot_analysis: weak,
+        born_for_battle: born,
+        soul_of_the_minotaur: 0,
+        soul_of_hermes: 0,
+        soul_of_athena: 0,
+      });
+      return;
+    }
+    const key = SCREEN2_ATTR_KEYS[index];
+    const choices = plan.open.has(key) ? plan.open.get(key) : [plan.locks.get(key) || 0];
+    const parent = SCREEN2_ATTR_PARENT[key];
+    for (const level of choices) {
+      if (level > 0 && parent && !(picked[parent] > 0)) continue;
+      picked[key] = level;
+      walk(index + 1);
+    }
+  };
+  walk(0);
+  return rows;
+}
+
+function dropOneFineLevel(levels, bestLevel) {
+  const extras = levels.filter((level) => level !== 0 && level !== bestLevel);
+  if (!extras.length) return levels;
+  const drop = extras[Math.floor(extras.length / 2)];
+  return levels.filter((level) => level !== drop);
+}
+
+/** Shrink the finer grids, smallest screen-1 lift first, until the build count fits. */
+function fitScreen2Rows(plan, ranked, talentBudget, attrBudget) {
+  const bestLevel = new Map(ranked.factors.map((factor) => [factor.key, Number(factor.level) || 0]));
+  const lift = new Map(ranked.factors.map((factor) => [factor.key, Number(factor.lift) || 0]));
+  let talentRows = borgeScreen2TalentRows(talentBudget, plan);
+  let attrRows = borgeScreen2AttributeRows(attrBudget, plan);
+  const candidates = () => [...plan.open.keys()]
+    .filter((key) => (plan.open.get(key) || []).length > 2)
+    .sort((a, b) => (lift.get(a) || 0) - (lift.get(b) || 0) || a.localeCompare(b));
+  while (talentRows.length * attrRows.length > SCREEN2_ROW_CAP) {
+    const key = candidates()[0];
+    if (!key) break;
+    const next = dropOneFineLevel(plan.open.get(key), bestLevel.get(key) || 0);
+    if (next.length === plan.open.get(key).length) break;
+    plan.open.set(key, next);
+    talentRows = borgeScreen2TalentRows(talentBudget, plan);
+    attrRows = borgeScreen2AttributeRows(attrBudget, plan);
+  }
+  return { talentRows, attrRows };
+}
+
+function crossBudgetRows(talentRows, attrRows) {
+  const rows = [];
+  for (const talents of talentRows) {
+    for (const attributes of attrRows) rows.push({ talents, attributes });
+  }
+  return rows;
+}
+
+function pairGrid(samples, keyA, keyB) {
+  const cells = new Map();
+  const levelsA = new Set();
+  const levelsB = new Set();
+  for (const sample of samples) {
+    const a = Number(sample.points[keyA]) || 0;
+    const b = Number(sample.points[keyB]) || 0;
+    levelsA.add(a);
+    levelsB.add(b);
+    const id = `${a}|${b}`;
+    let group = cells.get(id);
+    if (!group) {
+      group = { sum: 0, n: 0 };
+      cells.set(id, group);
+    }
+    group.sum += sample.bossHp;
+    group.n += 1;
+  }
+  if (levelsA.size < 2 || levelsB.size < 2) return null;
+  const aLevels = [...levelsA].sort((a, b) => a - b);
+  const bLevels = [...levelsB].sort((a, b) => a - b);
+  let best = Infinity;
+  const means = aLevels.map((a) => bLevels.map((b) => {
+    const group = cells.get(`${a}|${b}`);
+    if (!group?.n) return null;
+    const mean = group.sum / group.n;
+    if (mean < best) best = mean;
+    return mean;
+  }));
+  return { keyA, keyB, aLevels, bLevels, means, best: Number.isFinite(best) ? best : null };
+}
+
+function collectPairs(samples, screenTitle) {
+  const pairs = [];
+  for (const [keyA, keyB] of BOSS_SCREEN_PAIRS) {
+    const grid = pairGrid(samples, keyA, keyB);
+    if (grid) pairs.push({ ...grid, screen: screenTitle });
+  }
+  return pairs;
+}
+
+function mergePairs(first, second) {
+  const byKey = new Map();
+  for (const pair of first) byKey.set(`${pair.keyA}|${pair.keyB}`, pair);
+  for (const pair of second) {
+    const id = `${pair.keyA}|${pair.keyB}`;
+    const prev = byKey.get(id);
+    const cells = pair.aLevels.length * pair.bLevels.length;
+    const prevCells = prev ? prev.aLevels.length * prev.bLevels.length : -1;
+    if (!prev || cells >= prevCells) byKey.set(id, pair);
+  }
+  return BOSS_SCREEN_PAIRS
+    .map(([keyA, keyB]) => byKey.get(`${keyA}|${keyB}`))
+    .filter(Boolean);
+}
+
+function screenFactorLifts(samples) {
+  const factors = [];
+  const fixed = [];
+  for (const spec of BORGE_FACTORS) {
+    const groups = new Map();
+    for (const sample of samples) {
+      const level = Number(sample.points[spec.key]) || 0;
+      let group = groups.get(level);
+      if (!group) {
+        group = { sum: 0, n: 0 };
+        groups.set(level, group);
+      }
+      group.sum += sample.bossHp;
+      group.n += 1;
+    }
+    if (groups.size < 2) {
+      fixed.push({ key: spec.key, kind: spec.kind, level: [...groups.keys()][0] || 0 });
+      continue;
+    }
+    const off = groups.get(0);
+    let baseLevel = 0;
+    let baseMean;
+    if (off) {
+      baseMean = off.sum / off.n;
+    } else {
+      baseMean = -Infinity;
+      for (const [level, group] of groups) {
+        const mean = group.sum / group.n;
+        if (mean > baseMean) {
+          baseMean = mean;
+          baseLevel = level;
+        }
+      }
+    }
+    let bestLevel = baseLevel;
+    let bestMean = baseMean;
+    for (const [level, group] of groups) {
+      const mean = group.sum / group.n;
+      if (mean < bestMean) {
+        bestMean = mean;
+        bestLevel = level;
+      }
+    }
+    factors.push({
+      key: spec.key,
+      kind: spec.kind,
+      level: bestLevel,
+      mean: bestMean,
+      baseMean,
+      baseLevel,
+      lift: baseMean - bestMean,
+    });
+  }
+  factors.sort((a, b) => b.lift - a.lift || a.mean - b.mean || a.key.localeCompare(b.key));
+  return { factors, fixed };
+}
+
+/** Cheap unlock steps screen 2 never tried. Atlas needs Sensors, Sensors need Baal. */
+const REFINE_CHAIN = ["book_of_baal", "superior_sensors", "atlas_protocol"];
+
+function recordedLevel(screen, key) {
+  const factor = (screen?.factors || []).find((row) => row.key === key);
+  if (factor) return factor;
+  const lock = (screen?.locks || []).find((row) => row.key === key);
+  if (lock) return lock;
+  return (screen?.fixed || []).find((row) => row.key === key) || null;
+}
+
+function uniqLevels(levels) {
+  return [...new Set(levels.map((level) => Number(level) || 0).filter((level) => level > 0))].sort((a, b) => a - b);
+}
+
+function uniqLevelsKeepZero(levels) {
+  return [...new Set(levels.map((level) => Number(level) || 0))].sort((a, b) => a - b);
+}
+
+function championLevel(champion, key) {
+  if (!champion) return 0;
+  if (champion.talents && key in champion.talents) return Number(champion.talents[key]) || 0;
+  if (champion.attributes && key in champion.attributes) return Number(champion.attributes[key]) || 0;
+  return Number(champion.points?.[key]) || 0;
+}
+
+/** Put the current best build's levels back into the next grid so that row can still appear. */
+function admitChampion(plan, champion) {
+  if (!champion) return plan;
+  const keys = [...SCREEN2_TALENT_KEYS, ...SCREEN2_ATTR_KEYS];
+  for (const key of keys) {
+    const level = championLevel(champion, key);
+    if (plan.open.has(key)) {
+      plan.open.set(key, uniqLevelsKeepZero([...plan.open.get(key), level]));
+      continue;
+    }
+    const locked = Number(plan.locks.get(key)) || 0;
+    if (locked === level) continue;
+    plan.locks.delete(key);
+    plan.open.set(key, uniqLevelsKeepZero([locked, level]));
+  }
+  if (Array.isArray(plan.lockList)) {
+    plan.lockList = plan.lockList.filter((lock) => plan.locks.has(lock.key));
+  }
+  return plan;
+}
+
+function buildKey(row) {
+  return JSON.stringify({ t: row.talents || {}, a: row.attributes || {} });
+}
+
+function includeChampion(rows, champion) {
+  if (!champion?.talents || !champion?.attributes) return rows;
+  const row = { talents: { ...champion.talents }, attributes: { ...champion.attributes } };
+  const id = buildKey(row);
+  if (rows.some((item) => buildKey(item) === id)) return rows;
+  return [...rows, row];
+}
+
+function betterSample(current, next) {
+  if (!current) return next || null;
+  if (!next) return current;
+  if (next.bossHp < current.bossHp) return next;
+  if (next.bossHp === current.bossHp && (next.avgStage || 0) > (current.avgStage || 0)) return next;
+  return current;
+}
+
+function asChampion(sample) {
+  if (!sample?.talents || !sample?.attributes) return null;
+  return {
+    bossHp: sample.bossHp,
+    avgStage: sample.avgStage || 0,
+    talents: { ...sample.talents },
+    attributes: { ...sample.attributes },
+    points: { ...(sample.points || {}), ...sample.talents, ...sample.attributes },
+  };
+}
+
+/** Later phase keeps the incumbent unless a new row leaves less boss HP. */
+function publishFunnel(screen, incumbent) {
+  const own = Number.isFinite(screen?.bossHp) ? {
+    bossHp: screen.bossHp,
+    avgStage: screen.avgStage,
+    talents: screen.talents,
+    attributes: screen.attributes,
+  } : null;
+  const chosen = betterSample(incumbent, own);
+  return {
+    ...screen,
+    bossHp: chosen ? chosen.bossHp : null,
+    avgStage: chosen ? chosen.avgStage : null,
+    talents: chosen ? chosen.talents : null,
+    attributes: chosen ? chosen.attributes : null,
+    ownBossHp: screen?.bossHp ?? null,
+    kept: !!(incumbent && chosen === incumbent),
+  };
+}
+
+/**
+ * Hold the best build so far. Step Baal, Sensors, and Atlas at the cheap levels
+ * the earlier grids skipped, and keep that build's own level in the list.
+ */
+function refine1Plan(screen1, screen2, champion) {
+  const locks = new Map();
+  const reasons = new Map();
+  const open = new Map();
+  const chain = new Set(REFINE_CHAIN);
+  const lockAt = (key, level, reason) => {
+    open.delete(key);
+    locks.set(key, level);
+    reasons.set(key, reason);
+  };
+
+  for (const lock of screen2.locks || []) {
+    if (!chain.has(lock.key)) lockAt(lock.key, Number(lock.level) || 0, lock.reason || "fixed");
+  }
+  for (const factor of screen2.factors || []) {
+    if (chain.has(factor.key)) continue;
+    const level = Number(factor.level) || 0;
+    lockAt(factor.key, level, level > 0 && factor.lift > 0 ? "held" : "off");
+  }
+  for (const factor of screen2.fixed || []) {
+    if (chain.has(factor.key) || locks.has(factor.key)) continue;
+    lockAt(factor.key, Number(factor.level) || 0, "fixed");
+  }
+
+  const atlas = recordedLevel(screen1, "atlas_protocol") || recordedLevel(screen2, "atlas_protocol");
+  const sensors = recordedLevel(screen2, "superior_sensors") || recordedLevel(screen1, "superior_sensors");
+  const baal = recordedLevel(screen2, "book_of_baal") || recordedLevel(screen1, "book_of_baal");
+  const atlasOn = !!(atlas && Number(atlas.level) > 0 && (Number(atlas.lift) > 0 || atlas.reason === "top" || atlas.reason === "held"));
+
+  if (atlasOn) open.set("atlas_protocol", uniqLevels([1, 2, atlas.level]));
+  else lockAt("atlas_protocol", 0, "off");
+
+  const sensorsPay = sensors && Number(sensors.level) > 0 && (Number(sensors.lift) > 0 || sensors.reason === "top" || sensors.reason === "held");
+  if (atlasOn || sensorsPay) open.set("superior_sensors", uniqLevels([1, 2, sensors?.level]));
+  else lockAt("superior_sensors", 0, "off");
+
+  const baalPay = baal && Number(baal.level) > 0 && (Number(baal.lift) > 0 || baal.reason === "top" || baal.reason === "held");
+  if (atlasOn || baalPay) open.set("book_of_baal", uniqLevels([1, 2, baal?.level]));
+  else lockAt("book_of_baal", 0, "off");
+
+  if (champion) {
+    for (const key of [...SCREEN2_TALENT_KEYS, ...SCREEN2_ATTR_KEYS, "helltouch_barrier"]) {
+      if (REFINE_CHAIN.includes(key)) continue;
+      lockAt(key, championLevel(champion, key), "incumbent");
+    }
+    for (const key of REFINE_CHAIN) {
+      const level = championLevel(champion, key);
+      if (open.has(key)) open.set(key, uniqLevelsKeepZero([...open.get(key), level]));
+    }
+  }
+
+  return {
+    locks,
+    open,
+    openList: [...open.entries()].map(([key, levels]) => ({ key, levels })),
+    lockList: [...locks.entries()].map(([key, level]) => ({
+      key,
+      level,
+      reason: reasons.get(key) || "held",
+    })),
+  };
+}
+
+function refine1TalentRows(budget, plan, screen2) {
+  const rows = borgeScreen2TalentRows(budget, plan);
+  if (rows.length) return rows;
+  const relaxed = { locks: new Map(plan.locks), open: new Map(plan.open) };
+  for (const factor of screen2.factors || []) {
+    if (!SCREEN2_TALENT_KEYS.includes(factor.key)) continue;
+    const fine = SCREEN2_FINE_LEVELS[factor.key];
+    if (!fine) continue;
+    relaxed.locks.delete(factor.key);
+    relaxed.open.set(factor.key, fine.slice());
+  }
+  return borgeScreen2TalentRows(budget, relaxed);
+}
+
+function chainSteps(samples) {
+  return REFINE_CHAIN.map((key) => {
+    const groups = new Map();
+    for (const sample of samples) {
+      const level = Number(sample.points[key]) || 0;
+      let group = groups.get(level);
+      if (!group) {
+        group = { sum: 0, n: 0 };
+        groups.set(level, group);
+      }
+      group.sum += sample.bossHp;
+      group.n += 1;
+    }
+    const levels = [...groups.keys()].sort((a, b) => a - b);
+    if (levels.length < 2) return null;
+    const cost = SCREEN2_ATTR_COST[key] || 1;
+    const means = levels.map((level) => ({
+      level,
+      mean: groups.get(level).sum / groups.get(level).n,
+      points: level * cost,
+    }));
+    const steps = [];
+    for (let i = 1; i < means.length; i++) {
+      const dPts = means[i].points - means[i - 1].points;
+      const dHp = means[i - 1].mean - means[i].mean;
+      steps.push({
+        from: means[i - 1].level,
+        to: means[i].level,
+        dHp,
+        dPts,
+        perPoint: dPts ? dHp / dPts : 0,
+      });
+    }
+    return { key, means, steps };
+  }).filter(Boolean);
+}
+
+async function simulateBossScreen({
+  rows, base, engine, hunter, bossStage, level, screen, screens, phase, floor, onProgress, isCancelled,
+}) {
+  const { wasmToSimResult } = hunter;
+  const samples = [];
+  let best = null;
+  const total = rows.length;
+  let done = 0;
+  for (const row of rows) {
+    if (isCancelled()) return { cancelled: true };
+    const cfg = structuredClone(base);
+    cfg.talents = { ...row.talents };
+    cfg.attributes = { ...row.attributes };
+    const validated = validateBudgets(cfg, hunter);
+    done += 1;
+    const phaseText = phase || `screen ${screen}/${screens}`;
+    let shown = betterSample(floor, best);
+    const bestText = shown ? ` · best ${shown.bossHp.toFixed(1)}% boss HP` : "";
+    if (!validated.ok) {
+      onProgress({
+        msg: `level ${level} · boss ${bossStage} · ${phaseText} · ${done}/${total}${bestText}`,
+        done,
+        total,
+        screen,
+        screens,
+        bossHp: shown?.bossHp ?? null,
+      });
+      continue;
+    }
+    await yieldToUi();
+    if (isCancelled()) return { cancelled: true };
+    const sim = wasmToSimResult(engine.evaluate(validated.config, FIRST_BOSS_SCREEN_SIMS), FIRST_BOSS_SCREEN_SIMS);
+    const bossHp = bossHpRemaining(sim, bossStage);
+    const sample = {
+      bossHp,
+      avgStage: Number(sim.avgStage) || 0,
+      talents: { ...row.talents },
+      attributes: { ...row.attributes },
+      points: { ...row.talents, ...row.attributes },
+    };
+    samples.push(sample);
+    if (
+      !best ||
+      sample.bossHp < best.bossHp ||
+      (sample.bossHp === best.bossHp && sample.avgStage > best.avgStage)
+    ) {
+      best = sample;
+    }
+    shown = betterSample(floor, best);
+    onProgress({
+      msg: `level ${level} · boss ${bossStage} · ${phaseText} · ${done}/${total} · best ${shown.bossHp.toFixed(1)}% boss HP`,
+      done,
+      total,
+      screen,
+      screens,
+      bossHp: shown.bossHp,
+    });
+  }
+  return { cancelled: false, samples, best };
+}
+
+function packScreen(title, kind, run, ranked, extra = {}) {
+  return {
+    title,
+    kind,
+    rows: run.samples.length,
+    bossHp: run.best ? run.best.bossHp : null,
+    avgStage: run.best ? run.best.avgStage : null,
+    talents: run.best ? run.best.talents : null,
+    attributes: run.best ? run.best.attributes : null,
+    factors: ranked.factors,
+    fixed: ranked.fixed,
+    ...extra,
+  };
+}
+
+/**
+ * Borge boss screen at the hunter's current level.
+ * Screen 1 toggles each skill. Screen 2 locks the largest drop and steps the rest.
+ * Refinement holds those winners and steps the cheap Atlas-chain levels the grids skipped.
+ * 50 sims per build. Ranked by remaining boss HP. Does not write the caller's config.
  */
 export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
   const isCancelled = hooks.isCancelled || (() => false);
-  const maxLevel = Math.max(0, Math.min(999, Math.floor(Number(optIn.maxLevel ?? 999))));
   const bossStages = normalizeBossStages(optIn.bossStages);
-  const bossStage = bossStages[0];
-  if (!bossStage) {
+  if (!bossStages.length) {
     throw new Error("Select at least one boss (100 / 200 / 300).");
+  }
+  if (hunter.id !== "borge") {
+    throw new Error("This boss screen is set up for Borge.");
   }
 
   const base = structuredClone(baseConfig);
-  const baseLevel = Math.max(0, Math.min(maxLevel, Math.floor(Number(base.meta?.level) || 0)));
-  base.meta = { ...(base.meta || {}), level: baseLevel };
-  const stages = [bossStage];
-  const loops = 2;
-  const finderSearch = {
-    loops,
-    nSearch: 200,
-    nRefine: 6000,
-    nBaseline: 6000,
-    refineMin: 4,
-    refineMax: 8,
-    objective: "bosses",
-    bossStages: stages,
-    prioritizeTimelessMastery: false,
-    lockZeroTalents: ["call_me_lucky_loot"],
-    lockZeroAttributes: [hunter.costs?.TIMELESS_KEY || "timeless_mastery"],
-    coldStart: true,
-    biasBlend: 0,
-    restarts: 36,
-    stagnationLimit: 12,
-    maxEvals: 420,
-    jumpChance: 0.55,
-  };
-  const rng = makeRng(optIn.seed == null ? Math.floor(Math.random() * 0x7fffffff) + 1 : optIn.seed);
-  const topLevel = Math.min(maxLevel, baseLevel + 2);
-  const statsByLevel = statsAlongLevels(base.stats, baseLevel, topLevel, hunter, rng.random);
-  let currentBossesPerDay = 0;
+  const maxLevel = Math.max(0, Math.min(999, Math.floor(Number(optIn.maxLevel ?? 999))));
+  const level = Math.max(0, Math.min(maxLevel, Math.floor(Number(base.meta?.level) || 0)));
+  base.meta = { ...(base.meta || {}), level };
+  const caps = pointBudgets(level);
+  const talentRows = borgeTalentRows(caps.talents);
+  const attrRows = borgeAttributeRows(caps.attributes);
+  if (!talentRows.length || !attrRows.length) {
+    throw new Error(
+      `No screening rows fit level ${level} (${caps.talents} talent points, ${caps.attributes} attribute points).`,
+    );
+  }
 
-  const plan = [];
-  if (baseLevel + 2 <= maxLevel) plan.push({ step: "n+2", level: baseLevel + 2 });
-  if (baseLevel + 1 <= maxLevel) plan.push({ step: "n+1", level: baseLevel + 1 });
-  plan.push({ step: "n", level: baseLevel });
-
-  const finish = (row, found, step) => ({
-    cancelled: false,
-    found,
-    step,
-    message: found ? "" : FIRST_BOSS_MISS[step] || FIRST_BOSS_MISS["n+2"],
-    baseLevel,
-    level: row.level,
-    levelsNeeded: Math.max(0, row.level - baseLevel),
-    bossesPerDay: row.bossesPerDay,
-    currentBossesPerDay,
-    avgStage: row.avgStage,
-    bossStage,
-    runsPerDay: Number(row.runsPerDay) || 0,
-    statsBefore: base.stats || {},
-    statsAfter: row.cfg?.stats || {},
-    talents: { ...(row.cfg?.talents || {}) },
-    attributes: { ...(row.cfg?.attributes || {}) },
-    loops,
+  const bossStage = bossStages[0];
+  const screens = 3;
+  const shared = { base, engine, hunter, bossStage, level, screens, onProgress, isCancelled };
+  const firstRun = await simulateBossScreen({
+    ...shared,
+    rows: crossBudgetRows(talentRows, attrRows),
+    screen: 1,
+    phase: "screen 1/3",
   });
-
-  async function searchLevel(level, step) {
-    if (isCancelled()) return { cancelled: true };
-    const grown = statsByLevel.get(level) || base.stats;
-    const caps = pointBudgets(level);
-    const cfg = structuredClone(base);
-    cfg.meta = { ...(cfg.meta || {}), level };
-    cfg.stats = { ...grown };
-    let optimized;
-    try {
-      optimized = await optimizeBuild(cfg, engine, hunter, finderSearch, {
-        isCancelled,
-        onProgress: (p) => {
-          onProgress({
-            ...p,
-            msg: `${step} · level ${level} · talents ${caps.talents} · attributes ${caps.attributes} · ${p.msg}`,
-          });
-        },
-      });
-    } catch (err) {
-      if (isCancelled()) return { cancelled: true };
-      throw err;
-    }
-    if (isCancelled()) return { cancelled: true };
-    if (level === baseLevel) {
-      currentBossesPerDay = Number(optimized.baselineScore?.bossesPerDay) || 0;
-    }
-    const best = optimized.bestScore || optimized.baselineScore;
-    const bestEval = optimized.bestEval || optimized.baselineEval;
-    return {
-      level,
-      bossesPerDay: Number(best?.bossesPerDay) || 0,
-      avgStage: Number(best?.avgStage) || 0,
-      runsPerDay: Number(bestEval?.runsPerDay) || 0,
-      cfg: optimized.bestConfig || cfg,
+  if (firstRun.cancelled) return { cancelled: true };
+  if (!firstRun.samples.length) {
+    throw new Error(`No valid screening rows at level ${level}.`);
+  }
+  const ranked1 = screenFactorLifts(firstRun.samples);
+  const screen1 = packScreen("Screen 1", "screen1", firstRun, ranked1, {
+    ownBossHp: firstRun.best?.bossHp ?? null,
+    kept: false,
+  });
+  let champion = asChampion(firstRun.best);
+  const plan = screen2Plan(ranked1);
+  admitChampion(plan, champion);
+  const fitted = fitScreen2Rows(plan, ranked1, caps.talents, caps.attributes);
+  const secondRows = includeChampion(crossBudgetRows(fitted.talentRows, fitted.attrRows), champion);
+  let screen2;
+  let secondSamples = [];
+  if (!secondRows.length) {
+    screen2 = {
+      title: "Screen 2",
+      kind: "screen2",
+      rows: 0,
+      bossHp: null,
+      avgStage: null,
+      talents: null,
+      attributes: null,
+      factors: [],
+      fixed: [],
+      locks: plan.lockList,
+      topKey: plan.topKey,
     };
+  } else {
+    const secondRun = await simulateBossScreen({
+      ...shared,
+      rows: secondRows,
+      screen: 2,
+      phase: "screen 2/3",
+      floor: champion,
+    });
+    if (secondRun.cancelled) return { cancelled: true };
+    secondSamples = secondRun.samples;
+    const ranked2 = screenFactorLifts(secondRun.samples);
+    screen2 = publishFunnel(packScreen("Screen 2", "screen2", secondRun, ranked2, {
+      locks: plan.lockList,
+      topKey: plan.topKey,
+    }), champion);
   }
+  if (champion && !Number.isFinite(screen2.bossHp)) screen2 = publishFunnel(screen2, champion);
+  champion = asChampion(screen2) || champion;
 
-  let last = null;
-  for (const target of plan) {
-    const row = await searchLevel(target.level, target.step);
-    if (row?.cancelled) return { cancelled: true };
-    last = row;
-    if (row.bossesPerDay < FIRST_BOSS_RATE_MIN) {
-      return finish(row, false, target.step);
+  let refine = {
+    title: "Refinement",
+    kind: "refine",
+    rows: 0,
+    bossHp: null,
+    avgStage: null,
+    talents: null,
+    attributes: null,
+    factors: [],
+    fixed: [],
+    locks: [],
+    steps: [],
+    pairs: [],
+    openList: [],
+  };
+  if (screen2.rows > 0) {
+    const refinePlan = refine1Plan(screen1, screen2, champion);
+    const refineTalents = refine1TalentRows(caps.talents, refinePlan, screen2);
+    const refineAttrs = borgeScreen2AttributeRows(caps.attributes, refinePlan);
+    const refineRows = includeChampion(crossBudgetRows(refineTalents, refineAttrs), champion);
+    refine = {
+      ...refine,
+      locks: refinePlan.lockList,
+      openList: refinePlan.openList,
+    };
+    if (refineRows.length) {
+      const refineRun = await simulateBossScreen({
+        ...shared,
+        rows: refineRows,
+        screen: 3,
+        phase: "refinement",
+        floor: champion,
+      });
+      if (refineRun.cancelled) return { cancelled: true };
+      const rankedRefine = screenFactorLifts(refineRun.samples);
+      const refinePairs = [];
+      for (const [keyA, keyB] of [
+        ["atlas_protocol", "superior_sensors"],
+        ["book_of_baal", "superior_sensors"],
+        ["atlas_protocol", "book_of_baal"],
+      ]) {
+        const grid = pairGrid(refineRun.samples, keyA, keyB);
+        if (grid) refinePairs.push({ ...grid, screen: "Refinement" });
+      }
+      refine = publishFunnel(packScreen("Refinement", "refine", refineRun, rankedRefine, {
+        locks: refinePlan.lockList,
+        openList: refinePlan.openList,
+        steps: chainSteps(refineRun.samples),
+        pairs: refinePairs,
+      }), champion);
     }
-    if (target.step === "n") return finish(row, true, "n");
   }
+  if (champion && !Number.isFinite(refine.bossHp)) refine = publishFunnel(refine, champion);
 
-  return finish(last || { level: baseLevel, bossesPerDay: 0, avgStage: 0, cfg: base }, false, "n+2");
+  const finished = [screen1, screen2, refine].filter((screen) => Number.isFinite(screen.bossHp));
+  finished.sort((a, b) => a.bossHp - b.bossHp || (b.avgStage || 0) - (a.avgStage || 0));
+  const winner = finished[0] || screen1;
+  return {
+    cancelled: false,
+    level,
+    sims: FIRST_BOSS_SCREEN_SIMS,
+    rows: screen1.rows + screen2.rows + refine.rows,
+    talentPoints: caps.talents,
+    attributePoints: caps.attributes,
+    bossStage,
+    bossHp: winner.bossHp,
+    avgStage: winner.avgStage,
+    talents: winner.talents,
+    attributes: winner.attributes,
+    factors: screen1.factors,
+    fixed: screen1.fixed,
+    screens: [screen1, screen2, refine],
+    pairs: mergePairs(collectPairs(firstRun.samples, "Screen 1"), collectPairs(secondSamples, "Screen 2")),
+  };
 }
 
 /** Stats that are combat spendables for +1 marginal analysis (not progress metadata). */

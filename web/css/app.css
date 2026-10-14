@@ -1076,6 +1076,89 @@ body[data-module="mechs"] .app-header p {
   color: #fca5a5;
 }
 
+.confirm-modal.opt-report-modal:has(.factor-plot) {
+  width: min(640px, 100%);
+}
+
+.factor-screen-title {
+  margin: 0.9rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.factor-screen-title:first-of-type {
+  margin-top: 0.15rem;
+}
+
+.factor-pair {
+  margin: 0.45rem 0 0;
+}
+
+.boss-find-table td.is-best {
+  color: #86efac;
+  font-weight: 600;
+}
+
+.factor-plot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin: 0.35rem 0 0.15rem;
+}
+
+.factor-plot-row {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 1.15fr) 2.2rem minmax(4rem, 1fr) 3.1rem;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.factor-plot-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-plot-lvl {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.factor-plot-track {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+}
+
+.factor-plot-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #e7c56a;
+}
+
+.factor-plot-lift {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.factor-plot-lift.is-up {
+  color: #86efac;
+}
+
+.factor-plot-lift.is-down {
+  color: #fca5a5;
+}
+
 .opt-confirm-body {
   margin: 0 0 0.25rem;
   color: var(--text);

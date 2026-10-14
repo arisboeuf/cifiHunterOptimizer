@@ -24,7 +24,7 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
 
-See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, and **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use.
+See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use, and **[docs/boss-screen.md](docs/boss-screen.md)** for the First Bosskill Finder's screens and for why that funnel is not yet the stage or loot search.
 
 ### Built in this project
 
@@ -95,6 +95,7 @@ HTTP required — ES modules + WASM do not work via `file://`.
 | `.github/workflows/` | Pages deploy |
 | `docs/mechanics.md` | Crit / Multistrike / Charge (per hunter) |
 | `docs/wasm-combat.md` | WASM provenance, bridge vs engine, mechanics Q&A limits |
+| `docs/boss-screen.md` | First Bosskill Finder screens, factorial limits, Boss HP %, stage/loot funnel notes |
 | `docs/monster_stats/` | Enemy / boss CSV documentation |
 | `scripts/export_monster_stats.py` | Regenerate those CSVs |
 | `TODO.md` | Open work / ideas |

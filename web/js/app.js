@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js";
+import { findFirstBossKill, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js?v=funnel";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -576,6 +576,7 @@ function saveState() {
         config: state.build,
         reps: Number($("#reps").value) || 6000,
         optForceTimeless: $("#optForceTimeless")?.checked !== false,
+        optShowBossReport: $("#optShowBossReport")?.checked !== false,
         optLoops: Math.max(1, Number($("#optLoops")?.value) || 3),
       }),
     );
@@ -603,6 +604,8 @@ function loadHunterState(hunterId) {
       // Prioritize Timeless defaults ON; only stay off if user previously unchecked it.
       const tmEl = $("#optForceTimeless");
       if (tmEl) tmEl.checked = data.optForceTimeless !== false;
+      const reportEl = $("#optShowBossReport");
+      if (reportEl) reportEl.checked = data.optShowBossReport !== false;
       if (data.optLoops != null && $("#optLoops")) {
         $("#optLoops").value = String(Math.max(1, Math.min(20, Number(data.optLoops) || 3)));
       }
@@ -965,6 +968,7 @@ async function init() {
   $("#level").addEventListener("change", onLevelChanged);
   $("#reps").addEventListener("change", saveState);
   $("#optForceTimeless").addEventListener("change", saveState);
+  $("#optShowBossReport").addEventListener("change", saveState);
   $("#optLoops").addEventListener("change", saveState);
   $("#trample").addEventListener("change", onBuildChanged);
   $("#btnRun").addEventListener("click", runSim);
@@ -1337,68 +1341,243 @@ function escapeReportText(value) {
   }[ch]));
 }
 
-function bossFindTable(result, bossStage) {
-  const rate = Number(result.bossesPerDay) || 0;
-  const nowRate = Number(result.currentBossesPerDay) || 0;
-  const rows = [];
-  const pair = (label, before, after, { numeric = false } = {}) => {
-    const bNum = Number(before);
-    const aNum = Number(after);
-    const cls = numeric && aNum > bNum ? "is-up" : numeric && aNum < bNum ? "is-down" : "";
-    rows.push(
-      `<tr><th>${escapeReportText(label)}</th><td>${escapeReportText(before)}</td><td class="${cls}">${escapeReportText(after)}</td></tr>`,
-    );
-  };
-  const section = (label) => {
-    rows.push(`<tr class="sec"><th colspan="3">${escapeReportText(label)}</th></tr>`);
-  };
-  pair("Level", String(result.baseLevel), result.levelsNeeded > 0 ? `${result.level} (+${result.levelsNeeded})` : String(result.level));
-  pair("Bosses/day", nowRate.toFixed(2), rate.toFixed(2), { numeric: true });
-  pair("Ø Stage", "—", (Number(result.avgStage) || 0).toFixed(1));
-  pair("Boss", String(bossStage), String(bossStage));
+function factorName(labels, key) {
+  return escapeReportText(labels[key] || key);
+}
 
-  const statLabels = hunter().costs.STAT_LABELS || {};
-  let statOpen = false;
-  for (const key of Object.keys(statLabels)) {
-    if (key === "highest_stage_reached") continue;
-    const before = Number(result.statsBefore?.[key]) || 0;
-    const after = Number(result.statsAfter?.[key]) || 0;
-    if (before === after) continue;
-    if (!statOpen) {
-      section("Stats");
-      statOpen = true;
+function factorPlotMarkup(factors, labels) {
+  const maxLift = factors.reduce((mx, factor) => Math.max(mx, Number(factor.lift) || 0), 0);
+  return factors.map((factor) => {
+    const lift = Number(factor.lift) || 0;
+    const pct = maxLift > 0 ? Math.max(0, lift) / maxLift * 100 : 0;
+    const level = factor.level > 0 ? String(factor.level) : "off";
+    const liftText = lift > 0 ? `−${lift.toFixed(1)}%` : "0";
+    return `<div class="factor-plot-row">
+      <span class="factor-plot-name">${factorName(labels, factor.key)}</span>
+      <span class="factor-plot-lvl">${escapeReportText(level)}</span>
+      <span class="factor-plot-track" aria-hidden="true"><span class="factor-plot-bar" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="factor-plot-lift${lift > 0 ? " is-up" : ""}">${liftText}</span>
+    </div>`;
+  }).join("");
+}
+
+function factorBestLine(factors, kind, title, labels) {
+  const rows = factors.filter((row) => row.kind === kind);
+  if (!rows.length) return "";
+  const factor = rows.find((row) => row.level > 0 && row.lift > 0);
+  if (!factor) return `<p class="boss-find-lead">${title}: none beat the baseline.</p>`;
+  const base = Number(factor.baseLevel) || 0;
+  const vs = base > 0 ? `level ${base}` : "off";
+  return `<p class="boss-find-lead">${title}: ${factorName(labels, factor.key)} at ${factor.level} · −${factor.lift.toFixed(1)}% boss HP vs ${vs}</p>`;
+}
+
+function screen2LockNote(screen, labels) {
+  const locks = Array.isArray(screen.locks) ? screen.locks : [];
+  const tops = locks.filter((lock) => lock.reason === "top" && lock.level > 0);
+  const parents = locks.filter((lock) => lock.reason === "parent");
+  const off = locks.filter((lock) => lock.reason === "off");
+  const fixed = locks.filter((lock) => lock.reason === "fixed" && Number(lock.level) === 0);
+  const parts = [];
+  if (tops.length) {
+    const [first, ...rest] = tops;
+    parts.push(`${labels[first.key] || first.key} stays at ${first.level} because it was the largest drop in screen 1.`);
+    if (rest.length) {
+      parts.push(`Held at the screen-1 level: ${rest.map((lock) => `${labels[lock.key] || lock.key} at ${lock.level}`).join(", ")}.`);
     }
-    pair(statLabels[key], String(before), String(after), { numeric: true });
+  } else {
+    parts.push("Screen 1 had no skill that beat off, so nothing was locked on.");
   }
+  if (parents.length) {
+    parts.push(`${parents.map((lock) => `${labels[lock.key] || lock.key} stays at ${lock.level}`).join(", ")} so a skill that needs it can be screened.`);
+  }
+  if (off.length) {
+    parts.push(`Left off after screen 1: ${off.map((lock) => labels[lock.key] || lock.key).join(", ")}.`);
+  }
+  if (fixed.length) {
+    parts.push(`Stays at 0 at this budget: ${fixed.map((lock) => labels[lock.key] || lock.key).join(", ")}.`);
+  }
+  return parts.join(" ");
+}
 
-  const pointRows = (title, current, found, entries, labels) => {
-    const body = [];
-    for (const entry of entries) {
-      const key = typeof entry === "string" ? entry : entry.key;
-      const depth = typeof entry === "string" ? 0 : Number(entry.depth) || 0;
-      const before = Math.max(0, Math.floor(Number(current?.[key]) || 0));
-      const after = Math.max(0, Math.floor(Number(found?.[key]) || 0));
-      if (before === 0 && after === 0) continue;
-      const cls = after > before ? "is-up" : after < before ? "is-down" : "";
-      const pad = depth ? ` style="padding-left:${depth * 0.65}rem"` : "";
-      body.push(
-        `<tr><th${pad}>${escapeReportText(labels[key] || key)}</th><td>${before}</td><td class="${cls}">${after}</td></tr>`,
-      );
-    }
-    if (!body.length) return;
-    section(title);
-    rows.push(body.join(""));
-  };
+function pairLevelLabel(level) {
+  return level > 0 ? String(level) : "off";
+}
 
+function pairSection(pairs, labels, title = "Pairs") {
+  if (!pairs.length) return "";
+  const tables = pairs.map((pair) => {
+    const head = pair.bLevels.map((level) => `<th>${escapeReportText(pairLevelLabel(level))}</th>`).join("");
+    const body = pair.aLevels.map((level, row) => {
+      const cells = pair.bLevels.map((unused, col) => {
+        const mean = pair.means[row][col];
+        if (!Number.isFinite(mean)) return "<td>—</td>";
+        const best = Number.isFinite(pair.best) && Math.abs(mean - pair.best) < 0.05;
+        return `<td class="${best ? "is-best" : ""}">${mean.toFixed(1)}%</td>`;
+      }).join("");
+      return `<tr><th>${escapeReportText(pairLevelLabel(level))}</th>${cells}</tr>`;
+    }).join("");
+    return `<div class="factor-pair">
+      <p class="boss-find-lead">${factorName(labels, pair.keyA)} × ${factorName(labels, pair.keyB)} · ${escapeReportText(pair.screen)}</p>
+      <table class="boss-find-table">
+        <thead><tr><th></th>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+  }).join("");
+  return `<h3 class="factor-screen-title">${escapeReportText(title)}</h3>
+    <p class="boss-find-note">Mean boss HP still left. The lowest cell is closest to the kill. A pair is shown from the screen where both skills actually vary.</p>
+    ${tables}`;
+}
+
+function signedHp(delta) {
+  const abs = Math.abs(delta).toFixed(1);
+  if (delta > 0.05) return { text: `−${abs}%`, cls: "is-up" };
+  if (delta < -0.05) return { text: `+${abs}%`, cls: "is-down" };
+  return { text: "0", cls: "" };
+}
+
+function refineStepBlock(screen, labels) {
+  const steps = Array.isArray(screen.steps) ? screen.steps : [];
+  if (!steps.length) return "";
+  const flat = steps.flatMap((row) => row.steps.map((step) => ({ ...step, key: row.key })));
+  const maxPer = flat.reduce((mx, step) => Math.max(mx, step.perPoint), 0);
+  const rows = flat.map((step) => {
+    const hp = signedHp(step.dHp);
+    const per = signedHp(step.perPoint);
+    const width = maxPer > 0 ? Math.max(0, step.perPoint) / maxPer * 100 : 0;
+    return `<div class="factor-plot-row">
+      <span class="factor-plot-name">${factorName(labels, step.key)} ${step.from} → ${step.to}</span>
+      <span class="factor-plot-lvl">${step.dPts}</span>
+      <span class="factor-plot-track" aria-hidden="true"><span class="factor-plot-bar" style="width:${width.toFixed(1)}%"></span></span>
+      <span class="factor-plot-lift ${per.cls}">${per.text}/pt</span>
+    </div>
+    <p class="boss-find-note">${hp.text} boss HP for ${step.dPts} points.</p>`;
+  }).join("");
+  return `<h3 class="factor-screen-title">Steps</h3>
+    <p class="boss-find-note">Boss HP removed per attribute point on each step up. A longer bar is a better purchase. A red figure means that step left more boss HP.</p>
+    <div class="factor-plot" role="img" aria-label="Boss HP removed per point on each refinement step">${rows}</div>`;
+}
+
+function bossHpCompare(screens) {
+  const rows = (screens || []).filter((screen) => Number.isFinite(Number(screen.bossHp)) && screen.rows);
+  if (rows.length < 2) return "";
+  const first = Number(rows[0].bossHp);
+  const worst = Math.max(...rows.map((screen) => Number(screen.bossHp)));
+  const body = rows.map((screen) => {
+    const hp = Number(screen.bossHp);
+    const own = Number.isFinite(Number(screen.ownBossHp)) ? Number(screen.ownBossHp) : hp;
+    const delta = hp - first;
+    const shown = signedHp(-delta);
+    const width = worst > 0 ? hp / worst * 100 : 0;
+    const deltaCell = screen === rows[0] ? "<td>—</td>" : `<td class="${shown.cls}">${shown.text}</td>`;
+    const ownText = `${own.toFixed(1)}%`;
+    return `<tr>
+      <th>${escapeReportText(screen.title || "Screen")}</th>
+      <td>${hp.toFixed(1)}%</td>
+      <td>${ownText}</td>
+      ${deltaCell}
+      <td><span class="factor-plot-track"><span class="factor-plot-bar" style="width:${width.toFixed(1)}%"></span></span></td>
+    </tr>`;
+  }).join("");
+  return `<h3 class="factor-screen-title">Boss HP</h3>
+    <table class="boss-find-table">
+      <thead><tr><th></th><th>Best</th><th>This phase</th><th>vs first</th><th></th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <p class="boss-find-note">Best is the running champion. It stays or goes down. This phase is what that grid found on its own. Lower boss HP is closer to the kill.</p>`;
+}
+
+function winningBuildBlock(screen, labels, costs) {
+  if (!screen?.talents || !screen?.attributes) return "";
+  const talentCost = costs.TALENT_COSTS || {};
+  const attrCost = costs.ATTRIBUTE_COSTS || {};
+  const talentOrder = costs.TALENT_ORDER || Object.keys(screen.talents);
+  const attrOrder = costs.ATTR_ORDER || Object.keys(screen.attributes);
+  const lines = [];
+  let talentPts = 0;
+  let attrPts = 0;
+  for (const key of talentOrder) {
+    const level = Number(screen.talents[key]) || 0;
+    if (!level) continue;
+    const pts = level * Number(talentCost[key]?.cost || 1);
+    talentPts += pts;
+    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
+  }
+  for (const key of attrOrder) {
+    const level = Number(screen.attributes[key]) || 0;
+    if (!level) continue;
+    const pts = level * Number(attrCost[key]?.cost || 1);
+    attrPts += pts;
+    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
+  }
+  const hp = Number(screen.bossHp);
+  const hpText = Number.isFinite(hp) ? `${hp.toFixed(1)}% boss HP` : "the refinement winner";
+  return `<h3 class="factor-screen-title">Best build</h3>
+    <p class="boss-find-lead">${hpText} · ${talentPts} talent points · ${attrPts} attribute points</p>
+    <table class="boss-find-table">
+      <thead><tr><th>Skill</th><th>Level</th><th>Points</th></tr></thead>
+      <tbody>${lines.join("")}</tbody>
+    </table>
+    <p class="boss-find-note">${screen.kept ? "This is the running champion carried into this phase. This phase did not beat it." : "This is the single best refinement row, not the average of the bars."} Not written onto your hunter.</p>`;
+}
+
+function factorScreenBlock(screen, labels, result) {
+  const bossHp = Number(screen.bossHp);
+  const bossHpText = Number.isFinite(bossHp) ? `${bossHp.toFixed(1)}%` : "—";
+  const factors = Array.isArray(screen.factors) ? screen.factors : [];
+  if (!screen.rows) {
+    const emptyNote = screen.kind === "refine"
+      ? "No legal builds for the cheap Atlas-chain steps at this budget."
+      : screen2LockNote(screen, labels);
+    return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
+      <p class="boss-find-lead">No legal builds at this budget.</p>
+      <p class="boss-find-note">${escapeReportText(emptyNote)}</p>`;
+  }
   const costs = hunter().costs || {};
-  const talentOrder = costs.TALENT_ORDER || Object.keys(costs.TALENT_LABELS || {});
-  pointRows("Talents", state.build?.talents, result.talents, talentOrder, costs.TALENT_LABELS || {});
-  const attrKeys = costs.ATTR_ORDER || Object.keys(costs.ATTRIBUTE_LABELS || {});
-  const attrEntries = hunter().attrs?.attributeTreeEntries ? hunter().attrs.attributeTreeEntries(attrKeys) : attrKeys;
-  pointRows("Attributes", state.build?.attributes, result.attributes, attrEntries, costs.ATTRIBUTE_LABELS || {});
+  const note = screen.kind === "screen2"
+    ? `${screen2LockNote(screen, labels)} Other skills that beat off are stepped. Same score, ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Not written onto your hunter.`
+    : screen.kind === "refine"
+      ? `Holds each screen-2 winner and steps the cheap Atlas-chain levels those grids skipped. ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Not written onto your hunter.`
+      : `Bars are boss HP removed versus off, largest drop first. Lower boss HP is closer to the kill. Never reaching boss ${result.bossStage} counts as 100%. Getting past it counts as 0%. ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Not written onto your hunter.`;
+  const fixed = screen.kind === "screen1"
+    ? (screen.fixed || []).filter((factor) => Number(factor.level) === 0)
+    : [];
+  const fixedText = fixed.length
+    ? ` Stays at 0 here: ${fixed.map((factor) => labels[factor.key] || factor.key).join(", ")}.`
+    : "";
+  const summary = factors.length
+    ? `${factorBestLine(factors, "talent", "Talent", labels)}
+    ${factorBestLine(factors, "attribute", "Attribute", labels)}`
+    : `<p class="boss-find-lead">No skill still moves in this screen.</p>`;
+  const ownHp = Number(screen.ownBossHp);
+  const keptLine = screen.kept && Number.isFinite(ownHp) && ownHp > Number(screen.bossHp) + 0.05
+    ? `<p class="boss-find-note">Kept the previous best at ${Number(screen.bossHp).toFixed(1)}% boss HP. This phase's own best was ${ownHp.toFixed(1)}%.</p>`
+    : "";
+  return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
+    <p class="boss-find-lead">${screen.rows} builds · best ${bossHpText} boss HP</p>
+    ${keptLine}
+    ${summary}
+    <div class="factor-plot" role="img" aria-label="${escapeReportText(screen.title || "Screen")} skills ranked by boss HP removed versus off">${factorPlotMarkup(factors, labels)}</div>
+    <p class="boss-find-note">${escapeReportText(note)}${fixedText ? ` ${escapeReportText(fixedText.trim())}` : ""}</p>
+    ${screen.kind === "refine" ? `${refineStepBlock(screen, labels)}${bossHpCompare(result.screens)}${winningBuildBlock(screen, labels, costs)}${pairSection(screen.pairs || [], labels, "Refinement pairs")}` : ""}`;
+}
 
-  const foundHead = result.found ? `Lvl ${result.level}` : "Last";
-  return `<table class="boss-find-table"><thead><tr><th></th><th>Now</th><th>${escapeReportText(foundHead)}</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+function factorScreenReport(result) {
+  const costs = hunter().costs || {};
+  const labels = { ...(costs.TALENT_LABELS || {}), ...(costs.ATTRIBUTE_LABELS || {}) };
+  const screens = Array.isArray(result.screens) && result.screens.length
+    ? result.screens
+    : [{ ...result, title: "Screen 1", kind: "screen1" }];
+  const main = screens.filter((screen) => screen.kind !== "refine");
+  const refine = screens.filter((screen) => screen.kind === "refine");
+  const blocks = main.map((screen) => factorScreenBlock(screen, labels, result)).join("");
+  const refineBlocks = refine.map((screen) => factorScreenBlock(screen, labels, result)).join("");
+  return `
+    <p class="boss-find-lead">Level ${result.level} · boss ${result.bossStage} · ${result.talentPoints} talent points · ${result.attributePoints} attribute points</p>
+    ${blocks}
+    ${pairSection(Array.isArray(result.pairs) ? result.pairs : [], labels)}
+    ${refineBlocks}
+  `;
 }
 
 /** Close-only report. Does not apply a build. */
@@ -1460,9 +1639,7 @@ async function runFirstBossFinder() {
   $("#optProgressBar").style.width = "0%";
   const startLevel = Math.max(0, Math.floor(Number(state.build.meta?.level) || 0));
   $("#optStatus").textContent =
-    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · 2 iterations at ${startLevel + 2}, then ${startLevel + 1}, then ${startLevel}`;
-
-  const bossStage = bossStages[0];
+    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · screen 1 of 3`;
 
   try {
     const result = await findFirstBossKill(
@@ -1475,7 +1652,10 @@ async function runFirstBossFinder() {
       {
         isCancelled: () => state.optCancel,
         onProgress: (p) => {
-          const pct = Math.min(95, Math.round((p.done / Math.max(1, p.total)) * 100));
+          const screens = Math.max(1, Number(p.screens) || 1);
+          const screen = Math.max(1, Number(p.screen) || 1);
+          const frac = ((screen - 1) + (p.done / Math.max(1, p.total))) / screens;
+          const pct = Math.min(95, Math.round(frac * 100));
           $("#optProgressBar").style.width = `${pct}%`;
           $("#optStatus").textContent = `First Bosskill Finder · ${p.msg}`;
         },
@@ -1489,30 +1669,22 @@ async function runFirstBossFinder() {
 
     $("#optProgressBar").style.width = "100%";
     $("#btnOptCancel").hidden = true;
-    const rate = Number(result.bossesPerDay) || 0;
-    const summary = result.found
-      ? `Boss clear at level ${result.level} · ${rate.toFixed(2)} bosses/day.`
-      : result.message;
-    const status = result.found
-      ? `First Bosskill Finder · boss clear at level ${result.level} · ${rate.toFixed(2)} bosses/d`
-      : `First Bosskill Finder · ${result.message}`;
+    const screens = Array.isArray(result.screens) ? result.screens : [];
+    const hpText = (screen) => {
+      const hp = Number(screen?.bossHp);
+      return Number.isFinite(hp) ? `${hp.toFixed(1)}%` : "—";
+    };
+    const status = `First Bosskill Finder · level ${result.level} · boss ${result.bossStage} · screen 1 ${hpText(screens[0])} · screen 2 ${hpText(screens[1])} · refinement ${hpText(screens[2])} boss HP · ${result.rows} builds`;
 
     $("#optStatus").textContent = `${status} · build unchanged`;
     $("#status").textContent = status;
 
-    await showInfoReport({
-      title: "First Bosskill Finder",
-      bodyHtml: result.found
-        ? `
-        <p class="boss-find-lead">${summary}</p>
-        ${bossFindTable(result, bossStage)}
-        <p class="boss-find-note">Floor 0.20 bosses/day. Not written onto your hunter.</p>
-      `
-        : `
-        <p class="boss-find-lead">${escapeReportText(summary)}</p>
-        <p class="boss-find-note">Level ${result.level} · ${rate.toFixed(2)} bosses/day. Not written onto your hunter.</p>
-      `,
-    });
+    if ($("#optShowBossReport")?.checked !== false) {
+      await showInfoReport({
+        title: "First Bosskill Finder",
+        bodyHtml: factorScreenReport(result),
+      });
+    }
   } catch (err) {
     console.error(err);
     $("#optStatus").textContent = `First Bosskill Finder error: ${err.message || err}`;

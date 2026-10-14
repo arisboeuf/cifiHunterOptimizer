@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CIFI Tools</title>
+    <title>CIFI Farm</title>
     <meta name="description" content="CIFI hunter simulator & Ouroboros gem progression — WASM combat, stage distribution, live GU costs." />
-    <link rel="stylesheet" href="./css/app.css" />
+    <link rel="stylesheet" href="./css/app.css?v=refine1" />
   </head>
   <body data-hunter="borge" data-module="hunters">
     <header class="app-header">
@@ -181,7 +181,7 @@
               type="button"
               class="btn btn-primary"
               id="btnFirstBoss"
-              title="Deep boss search at level +2, then +1, then the current level. Two iterations per level. Timeless Mastery and Call Me Lucky Loot stay at 0. 0.2 bosses/day counts as a clear. Does not change the build."
+              title="Two screens plus a short Atlas-chain refinement. Each phase keeps the best build so far, so remaining boss HP stays or goes down. Does not change the build."
             >
               First Bosskill Finder
             </button>
@@ -193,6 +193,10 @@
             <label class="opt-check">
               <input type="checkbox" id="optForceTimeless" checked />
               <span>Prioritize Timeless Mastery</span>
+            </label>
+            <label class="opt-check" title="Open the screen charts when the finder finishes. Uncheck to keep only the status line.">
+              <input type="checkbox" id="optShowBossReport" checked />
+              <span>Show finder report</span>
             </label>
           </div>
           <div class="opt-row opt-boss-row" id="optBossRow">
@@ -212,7 +216,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Push Average Stage → Ø stage. Push Material/XP → loot score (mats/XP per minute; Timeless Mastery 5 is required). Maximize Boss/day → checked bosses (clears × runs/day). First Bosskill Finder → deep search at level +2, then +1, then the current level (more varied than Push Average Stage, two iterations per level). Each level above the current one adds 3 stat points in one random material class. Timeless Mastery and Call Me Lucky Loot stay at 0. 0.2 bosses/day counts as a clear. Does not change the build. The Iterations field applies to the other three buttons. Only one optimize at a time. Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). The Sims field applies only to manual runs / Next-Best.
+            Push Average Stage → Ø stage. Push Material/XP → loot score (mats/XP per minute; Timeless Mastery 5 is required). Maximize Boss/day → checked bosses (clears × runs/day). First Bosskill Finder → two screens at the current level (50 sims per build), ranked by remaining boss HP (lower is closer to the kill). Screen 1 charts every tested skill. Screen 2 locks the largest drop from that chart, turns off skills that did not beat off, and charts the rest at finer levels. A refinement then holds the best build so far and steps the cheap Atlas-chain levels the grids skipped, then charts the step size and the best build. Each later phase keeps that build in the grid. The headline boss HP stays or goes down. The "this phase" column is what that grid found on its own. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Timeless Mastery and Call Me Lucky Loot stay at 0. Does not change the build. The Iterations field applies to the other three buttons. Only one optimize at a time. Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -241,6 +245,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js"></script>
+    <script type="module" src="./js/app.js?v=report"></script>
   </body>
 </html>

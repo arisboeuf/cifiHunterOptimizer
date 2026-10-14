@@ -300,6 +300,7 @@ export function wasmToSimResult(wasmRes, repetitions) {
     firstRevive: wasmRes.firstRevive,
     secondRevive: wasmRes.secondRevive,
     bossKillRate: wasmRes.bossKillRate,
+    bossHpPercent: wasmRes.bossHpPercent,
     buildStats: wasmRes.buildStats,
     mats: { mat1: wasmRes.mat1, mat2: wasmRes.mat2, mat3: wasmRes.mat3 },
     xp: wasmRes.xp,

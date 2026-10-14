@@ -1323,6 +1323,55 @@ function betterSample(current, next) {
   return current;
 }
 
+/** Highest bosses/day among tested rows. A tie keeps the lower boss HP. Not used to lock skills. */
+function betterFarm(current, next) {
+  if (!next) return current || null;
+  if (!current) return next;
+  const dayA = Number(current.bossesPerDay) || 0;
+  const dayB = Number(next.bossesPerDay) || 0;
+  if (dayB !== dayA) return dayB > dayA ? next : current;
+  if ((next.bossHp ?? 100) !== (current.bossHp ?? 100)) return next.bossHp < current.bossHp ? next : current;
+  return (next.avgStage || 0) > (current.avgStage || 0) ? next : current;
+}
+
+function bossesPerDayOf(sim, bossStage) {
+  return scoreOf(sim, "bosses", [bossStage]).bossesPerDay;
+}
+
+async function currentBossesPerDay(base, engine, hunter, bossStage) {
+  const validated = validateBudgets(base, hunter);
+  const cfg = validated.ok ? validated.config : base;
+  await yieldToUi();
+  const sim = hunter.wasmToSimResult(engine.evaluate(cfg, FIRST_BOSS_SCREEN_SIMS), FIRST_BOSS_SCREEN_SIMS);
+  return bossesPerDayOf(sim, bossStage);
+}
+
+function farmFromRuns(runs) {
+  let farm = null;
+  for (const run of runs) farm = betterFarm(farm, run?.bestFarm);
+  if (!farm?.talents || !farm?.attributes) return null;
+  return {
+    bossesPerDay: Number(farm.bossesPerDay) || 0,
+    bossHp: farm.bossHp,
+    avgStage: farm.avgStage || 0,
+    talents: { ...farm.talents },
+    attributes: { ...farm.attributes },
+  };
+}
+
+async function attachBossFarm(payload, runs, base, engine, hunter, bossStage, isCancelled) {
+  if (isCancelled()) return { cancelled: true };
+  const farm = farmFromRuns(runs);
+  const baselineBossesPerDay = await currentBossesPerDay(base, engine, hunter, bossStage);
+  if (isCancelled()) return { cancelled: true };
+  return {
+    ...payload,
+    farm,
+    baselineBossesPerDay,
+    farmImproved: !!(farm && farm.bossesPerDay > baselineBossesPerDay),
+  };
+}
+
 function asChampion(sample) {
   if (!sample?.talents || !sample?.attributes) return null;
   return {
@@ -1478,8 +1527,13 @@ async function simulateBossScreen({
   const { wasmToSimResult } = hunter;
   const samples = [];
   let best = null;
+  let bestFarm = null;
   const total = rows.length;
   let done = 0;
+  const farmText = (farm) => {
+    const day = Number(farm?.bossesPerDay);
+    return Number.isFinite(day) ? ` · ${day.toFixed(1)} bosses/d` : "";
+  };
   for (const row of rows) {
     if (isCancelled()) return { cancelled: true };
     const cfg = structuredClone(base);
@@ -1489,7 +1543,7 @@ async function simulateBossScreen({
     done += 1;
     const phaseText = phase || `screen ${screen}/${screens}`;
     let shown = betterSample(floor, best);
-    const bestText = shown ? ` · best ${shown.bossHp.toFixed(1)}% boss HP` : "";
+    const bestText = shown ? ` · best ${shown.bossHp.toFixed(1)}% boss HP${farmText(bestFarm)}` : "";
     if (!validated.ok) {
       onProgress({
         msg: `level ${level} · boss ${bossStage} · ${phaseText} · ${done}/${total}${bestText}`,
@@ -1507,6 +1561,7 @@ async function simulateBossScreen({
     const bossHp = bossHpRemaining(sim, bossStage);
     const sample = {
       bossHp,
+      bossesPerDay: bossesPerDayOf(sim, bossStage),
       avgStage: Number(sim.avgStage) || 0,
       talents: { ...row.talents },
       attributes: { ...row.attributes },
@@ -1520,9 +1575,10 @@ async function simulateBossScreen({
     ) {
       best = sample;
     }
+    bestFarm = betterFarm(bestFarm, sample);
     shown = betterSample(floor, best);
     onProgress({
-      msg: `level ${level} · boss ${bossStage} · ${phaseText} · ${done}/${total} · best ${shown.bossHp.toFixed(1)}% boss HP`,
+      msg: `level ${level} · boss ${bossStage} · ${phaseText} · ${done}/${total} · best ${shown.bossHp.toFixed(1)}% boss HP${farmText(bestFarm)}`,
       done,
       total,
       screen,
@@ -1530,7 +1586,7 @@ async function simulateBossScreen({
       bossHp: shown.bossHp,
     });
   }
-  return { cancelled: false, samples, best };
+  return { cancelled: false, samples, best, bestFarm };
 }
 
 function packScreen(title, kind, run, ranked, extra = {}) {
@@ -1539,6 +1595,7 @@ function packScreen(title, kind, run, ranked, extra = {}) {
     kind,
     rows: run.samples.length,
     bossHp: run.best ? run.best.bossHp : null,
+    bossesPerDay: run.bestFarm ? run.bestFarm.bossesPerDay : null,
     avgStage: run.best ? run.best.avgStage : null,
     talents: run.best ? run.best.talents : null,
     attributes: run.best ? run.best.attributes : null,
@@ -2013,8 +2070,10 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
   const plan = profileScreen2Plan(ranked1);
   const fitted = profileFitScreen2(plan, ranked1, caps.talents, caps.attributes);
   const secondRows = includeChampion(crossBudgetRows(fitted.talentRows, fitted.attrRows), champion);
+  const farmRuns = [firstRun];
   let screen2;
   let secondSamples = [];
+  let secondRun = null;
   if (!secondRows.length) {
     screen2 = {
       title: "Screen 2",
@@ -2030,7 +2089,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
       topKey: plan.topKey,
     };
   } else {
-    const secondRun = await simulateBossScreen({
+    secondRun = await simulateBossScreen({
       ...shared,
       rows: secondRows,
       screen: 2,
@@ -2038,6 +2097,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
       floor: champion,
     });
     if (secondRun.cancelled) return { cancelled: true };
+    farmRuns.push(secondRun);
     secondSamples = secondRun.samples;
     const ranked2 = screenFactorLifts(secondRun.samples, bossP.factors);
     screen2 = publishFunnel(packScreen("Screen 2", "screen2", secondRun, ranked2, {
@@ -2083,6 +2143,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
         floor: champion,
       });
       if (refineRun.cancelled) return { cancelled: true };
+      farmRuns.push(refineRun);
       const rankedRefine = screenFactorLifts(refineRun.samples, bossP.factors);
       const refinePairs = [];
       const chain = bossP.refineChain;
@@ -2105,7 +2166,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
   const finished = [screen1, screen2, refine].filter((screen) => Number.isFinite(screen.bossHp));
   finished.sort((a, b) => a.bossHp - b.bossHp || (b.avgStage || 0) - (a.avgStage || 0));
   const winner = finished[0] || screen1;
-  return {
+  return attachBossFarm({
     cancelled: false,
     level,
     sims: FIRST_BOSS_SCREEN_SIMS,
@@ -2117,19 +2178,22 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
     avgStage: winner.avgStage,
     talents: winner.talents,
     attributes: winner.attributes,
+    talentFiller: bossP.talentFiller,
+    attrFiller: bossP.attrFiller,
+    refineChain: [...bossP.refineChain],
     factors: screen1.factors,
     fixed: screen1.fixed,
     screens: [screen1, screen2, refine],
     pairs: profileMergePairs(profileCollectPairs(firstRun.samples, "Screen 1"), profileCollectPairs(secondSamples, "Screen 2")),
-  };
+  }, farmRuns, base, engine, hunter, bossStage, isCancelled);
 }
 
 /**
  * Boss screen at the hunter's current level.
  * Screen 1 toggles each skill. Screen 2 locks the largest drop and steps the rest.
  * Refinement holds those winners and steps the cheap levels of that hunter's chain.
- * 50 sims per build. Ranked by remaining boss HP. Call Me Lucky Loot and Timeless Mastery stay at 0.
- * Does not write the caller's config.
+ * 50 sims per build. Ranked by remaining boss HP. Bosses/day is recorded and does not lock skills.
+ * Call Me Lucky Loot and Timeless Mastery stay at 0. The caller may apply the highest bosses/day row.
  */
 export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
@@ -2178,6 +2242,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   admitChampion(plan, champion);
   const fitted = fitScreen2Rows(plan, ranked1, caps.talents, caps.attributes);
   const secondRows = includeChampion(crossBudgetRows(fitted.talentRows, fitted.attrRows), champion);
+  const farmRuns = [firstRun];
   let screen2;
   let secondSamples = [];
   if (!secondRows.length) {
@@ -2203,6 +2268,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
       floor: champion,
     });
     if (secondRun.cancelled) return { cancelled: true };
+    farmRuns.push(secondRun);
     secondSamples = secondRun.samples;
     const ranked2 = screenFactorLifts(secondRun.samples);
     screen2 = publishFunnel(packScreen("Screen 2", "screen2", secondRun, ranked2, {
@@ -2247,6 +2313,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
         floor: champion,
       });
       if (refineRun.cancelled) return { cancelled: true };
+      farmRuns.push(refineRun);
       const rankedRefine = screenFactorLifts(refineRun.samples);
       const refinePairs = [];
       for (const [keyA, keyB] of [
@@ -2270,7 +2337,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   const finished = [screen1, screen2, refine].filter((screen) => Number.isFinite(screen.bossHp));
   finished.sort((a, b) => a.bossHp - b.bossHp || (b.avgStage || 0) - (a.avgStage || 0));
   const winner = finished[0] || screen1;
-  return {
+  return attachBossFarm({
     cancelled: false,
     level,
     sims: FIRST_BOSS_SCREEN_SIMS,
@@ -2282,11 +2349,14 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     avgStage: winner.avgStage,
     talents: winner.talents,
     attributes: winner.attributes,
+    talentFiller: "presence_of_god",
+    attrFiller: "soul_of_ares",
+    refineChain: [...REFINE_CHAIN],
     factors: screen1.factors,
     fixed: screen1.fixed,
     screens: [screen1, screen2, refine],
     pairs: mergePairs(collectPairs(firstRun.samples, "Screen 1"), collectPairs(secondSamples, "Screen 2")),
-  };
+  }, farmRuns, base, engine, hunter, bossStage, isCancelled);
 }
 
 /** Sims per build on the stage / loot / bosses-day funnel. Final compare uses nRefine. */

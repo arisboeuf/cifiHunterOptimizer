@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bossall";
+import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bossfarm2";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -1657,7 +1657,7 @@ function bossHpCompare(screens) {
     <p class="boss-find-note">Best is the running champion. It stays or goes down. This phase is what that grid found on its own. Lower boss HP is closer to the kill.</p>`;
 }
 
-function winningBuildBlock(screen, labels, costs) {
+function winningBuildBlock(screen, labels, costs, heading = "Best build", note) {
   if (!screen?.talents || !screen?.attributes) return "";
   const talentCost = costs.TALENT_COSTS || {};
   const attrCost = costs.ATTRIBUTE_COSTS || {};
@@ -1682,33 +1682,52 @@ function winningBuildBlock(screen, labels, costs) {
   }
   const hp = Number(screen.bossHp);
   const hpText = Number.isFinite(hp) ? `${hp.toFixed(1)}% boss HP` : "the refinement winner";
-  return `<h3 class="factor-screen-title">Best build</h3>
+  const noteText = note || `${screen.kept ? "This is the running champion carried into this phase. This phase did not beat it." : "This is the lowest remaining boss HP, not the average of the bars."} Apply, when offered, writes the highest bosses/day build instead.`;
+  return `<h3 class="factor-screen-title">${escapeReportText(heading)}</h3>
     <p class="boss-find-lead">${hpText} · ${talentPts} talent points · ${attrPts} attribute points</p>
     <table class="boss-find-table">
       <thead><tr><th>Skill</th><th>Level</th><th>Points</th></tr></thead>
       <tbody>${lines.join("")}</tbody>
     </table>
-    <p class="boss-find-note">${screen.kept ? "This is the running champion carried into this phase. This phase did not beat it." : "This is the single best refinement row, not the average of the bars."} Not written onto your hunter.</p>`;
+    <p class="boss-find-note">${escapeReportText(noteText)}</p>`;
+}
+
+function bossLeftoverNote(result, labels) {
+  const talentDump = factorName(labels, result.talentFiller || "presence_of_god");
+  const attrDump = factorName(labels, result.attrFiller || "soul_of_ares");
+  return `Leftover talent points go to ${talentDump}. Leftover attribute points go to ${attrDump}.`;
+}
+
+function bossRefineNote(result, labels) {
+  const names = (Array.isArray(result.refineChain) ? result.refineChain : [])
+    .map((key) => factorName(labels, key));
+  const chainText = names.length
+    ? `Holds each screen-2 winner and steps the cheap levels of ${names.join(", ")}.`
+    : "Holds each screen-2 winner and steps the cheap levels those grids skipped.";
+  return `${chainText} ${result.sims} sims per build. ${bossLeftoverNote(result, labels)}`;
 }
 
 function factorScreenBlock(screen, labels, result) {
   const bossHp = Number(screen.bossHp);
   const bossHpText = Number.isFinite(bossHp) ? `${bossHp.toFixed(1)}%` : "—";
+  const day = Number(screen.bossesPerDay);
+  const dayText = Number.isFinite(day) ? ` · ${day.toFixed(1)} bosses/d in this screen` : "";
   const factors = Array.isArray(screen.factors) ? screen.factors : [];
   if (!screen.rows) {
     const emptyNote = screen.kind === "refine"
-      ? "No legal builds for the cheap Atlas-chain steps at this budget."
+      ? "No legal builds for the cheap chain steps at this budget."
       : screen2LockNote(screen, labels);
     return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
       <p class="boss-find-lead">No legal builds at this budget.</p>
       <p class="boss-find-note">${escapeReportText(emptyNote)}</p>`;
   }
   const costs = hunter().costs || {};
+  const leftover = bossLeftoverNote(result, labels);
   const note = screen.kind === "screen2"
-    ? `${screen2LockNote(screen, labels)} Other skills that beat off are stepped. Same score, ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Not written onto your hunter.`
+    ? `${screen2LockNote(screen, labels)} Other skills that beat off are stepped. Same score, ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`
     : screen.kind === "refine"
-      ? `Holds each screen-2 winner and steps the cheap Atlas-chain levels those grids skipped. ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Not written onto your hunter.`
-      : `Bars are boss HP removed versus off, largest drop first. Lower boss HP is closer to the kill. Never reaching boss ${result.bossStage} counts as 100%. Getting past it counts as 0%. ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Not written onto your hunter.`;
+      ? `${bossRefineNote(result, labels)} Bosses/day is recorded and does not change these locks.`
+      : `Bars are boss HP removed versus off, largest drop first. Lower boss HP is closer to the kill. Never reaching boss ${result.bossStage} counts as 100%. Getting past it counts as 0%. ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`;
   const fixed = screen.kind === "screen1"
     ? (screen.fixed || []).filter((factor) => Number(factor.level) === 0)
     : [];
@@ -1724,7 +1743,7 @@ function factorScreenBlock(screen, labels, result) {
     ? `<p class="boss-find-note">Kept the previous best at ${Number(screen.bossHp).toFixed(1)}% boss HP. This phase's own best was ${ownHp.toFixed(1)}%.</p>`
     : "";
   return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
-    <p class="boss-find-lead">${screen.rows} builds · best ${bossHpText} boss HP</p>
+    <p class="boss-find-lead">${screen.rows} builds · best ${bossHpText} boss HP${dayText}</p>
     ${keptLine}
     ${summary}
     <div class="factor-plot" role="img" aria-label="${escapeReportText(screen.title || "Screen")} skills ranked by boss HP removed versus off">${factorPlotMarkup(factors, labels)}</div>
@@ -1742,40 +1761,64 @@ function factorScreenReport(result) {
   const refine = screens.filter((screen) => screen.kind === "refine");
   const blocks = main.map((screen) => factorScreenBlock(screen, labels, result)).join("");
   const refineBlocks = refine.map((screen) => factorScreenBlock(screen, labels, result)).join("");
+  const farmDay = Number(result.farm?.bossesPerDay);
+  const baseDay = Number(result.baselineBossesPerDay);
+  const farmText = Number.isFinite(farmDay) ? farmDay.toFixed(1) : "—";
+  const baseText = Number.isFinite(baseDay) ? baseDay.toFixed(1) : "—";
+  const verdict = result.farmImproved
+    ? "That build can be applied. Skills were still ranked by remaining boss HP."
+    : "It does not beat the current build, so nothing is written. Skills were ranked by remaining boss HP.";
   return `
     <p class="boss-find-lead">Level ${result.level} · boss ${result.bossStage} · ${result.talentPoints} talent points · ${result.attributePoints} attribute points</p>
+    <p class="boss-find-lead">Highest bosses/day among tested builds: ${farmText} (current ${baseText}). ${verdict}</p>
+    ${result.farm ? winningBuildBlock(result.farm, labels, costs, "Highest bosses/day", `${farmText} bosses/day at ${result.sims} sims. This is the build Apply writes when it beats the current hunter.`) : ""}
     ${blocks}
     ${pairSection(Array.isArray(result.pairs) ? result.pairs : [], labels)}
     ${refineBlocks}
   `;
 }
 
-/** Close-only report. Does not apply a build. */
-function showInfoReport({ title, bodyHtml }) {
+/** Boss-finder report. Returns true only when the user applies the highest bosses/day build. */
+async function showBossFinderReport({ result, showPlots, offerApply }) {
   const modal = $("#optConfirmModal");
   const body = $("#optConfirmBody");
   const btnClose = $("#btnOptReportClose");
   const btnDiscard = $("#btnOptDiscard");
   const btnApply = $("#btnOptApply");
-  $("#optConfirmTitle").textContent = title;
-  body.classList.add("is-boss-find");
-  body.innerHTML = bodyHtml;
-  btnClose.hidden = false;
-  btnDiscard.hidden = true;
-  btnApply.hidden = true;
+  const farmDay = Number(result.farm?.bossesPerDay) || 0;
+  const baseDay = Number(result.baselineBossesPerDay) || 0;
+  const ask = offerApply
+    ? `<p class="opt-report-ask">Apply talents &amp; attributes from the highest bosses/day build?</p>`
+    : "";
+  const plots = showPlots ? factorScreenReport(result) : "";
+  const summary = offerApply && !showPlots
+    ? `<p class="opt-report-summary"><strong>Higher bosses/day</strong><br />${farmDay.toFixed(1)} bosses/d (current ${baseDay.toFixed(1)}). Skills were ranked by remaining boss HP.</p>`
+    : "";
+  $("#optConfirmTitle").textContent = offerApply ? "First Bosskill Finder — higher bosses/day" : "First Bosskill Finder";
+  body.classList.toggle("is-boss-find", !!showPlots);
+  body.innerHTML = `${summary}${plots}${ask}`;
+  btnClose.hidden = !!offerApply;
+  btnDiscard.hidden = !offerApply;
+  btnApply.hidden = !offerApply;
   modal.hidden = false;
 
   return new Promise((resolve) => {
-    const finish = () => {
+    const finish = (ok) => {
       modal.hidden = true;
+      btnApply.removeEventListener("click", onApply);
+      btnDiscard.removeEventListener("click", onDiscard);
       btnClose.removeEventListener("click", onClose);
       modal.removeEventListener("click", onBackdrop);
-      resolve();
+      resolve(ok);
     };
-    const onClose = () => finish();
+    const onApply = () => finish(true);
+    const onDiscard = () => finish(false);
+    const onClose = () => finish(false);
     const onBackdrop = (e) => {
-      if (e.target === modal) finish();
+      if (e.target === modal) finish(false);
     };
+    btnApply.addEventListener("click", onApply);
+    btnDiscard.addEventListener("click", onDiscard);
     btnClose.addEventListener("click", onClose);
     modal.addEventListener("click", onBackdrop);
   });
@@ -1845,15 +1888,45 @@ async function runFirstBossFinder() {
       return Number.isFinite(hp) ? `${hp.toFixed(1)}%` : "—";
     };
     const status = `First Bosskill Finder · level ${result.level} · boss ${result.bossStage} · screen 1 ${hpText(screens[0])} · screen 2 ${hpText(screens[1])} · refinement ${hpText(screens[2])} boss HP · ${result.rows} builds`;
+    const farmDay = Number(result.farm?.bossesPerDay);
+    const baseDay = Number(result.baselineBossesPerDay);
+    const dayBit = Number.isFinite(farmDay)
+      ? ` · ${farmDay.toFixed(1)} bosses/d (current ${Number.isFinite(baseDay) ? baseDay.toFixed(1) : "—"})`
+      : "";
+    const showPlots = $("#optShowBossReport")?.checked !== false;
+    const offerApply = !!result.farmImproved;
 
-    $("#optStatus").textContent = `${status} · build unchanged`;
-    $("#status").textContent = status;
+    $("#optStatus").textContent = offerApply
+      ? `${status}${dayBit} — ${showPlots ? "report open" : "apply open"}`
+      : `${status}${dayBit} · build unchanged${showPlots ? " — report open" : ""}`;
+    $("#status").textContent = `${status}${dayBit}`;
 
-    if ($("#optShowBossReport")?.checked !== false) {
-      await showInfoReport({
-        title: "First Bosskill Finder",
-        bodyHtml: factorScreenReport(result),
-      });
+    const apply = offerApply || showPlots
+      ? await showBossFinderReport({ result, showPlots, offerApply })
+      : false;
+
+    if (offerApply && apply && result.farm) {
+      state.build = {
+        ...state.build,
+        talents: { ...result.farm.talents },
+        attributes: { ...result.farm.attributes },
+      };
+      buildLeftLists();
+      onBuildChanged();
+      const h = hunter();
+      const sim = h.wasmToSimResult(state.engine.evaluate(state.build, result.sims), result.sims);
+      showResult(sim);
+      $("#optStatus").textContent =
+        `Applied · ${farmDay.toFixed(1)} bosses/d (was ${baseDay.toFixed(1)}) · boss ${result.bossStage}`;
+      $("#status").textContent =
+        `First Bosskill Finder: applied ${farmDay.toFixed(1)} bosses/d (was ${baseDay.toFixed(1)})`;
+    } else if (offerApply) {
+      $("#optStatus").textContent =
+        `Discarded · suggested ${farmDay.toFixed(1)} bosses/d (current ${baseDay.toFixed(1)})`;
+      $("#status").textContent =
+        `First Bosskill Finder: suggestion discarded (${farmDay.toFixed(1)} bosses/d, current ${baseDay.toFixed(1)})`;
+    } else {
+      $("#optStatus").textContent = `${status}${dayBit} · build unchanged`;
     }
   } catch (err) {
     console.error(err);

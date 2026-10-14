@@ -1712,6 +1712,948 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   };
 }
 
+/** Sims per build on the stage / loot / bosses-day funnel. Final compare uses nRefine. */
+const PUSH_SCREEN_SIMS = 100;
+const PUSH_SCREEN1_CAP = 2200;
+const PUSH_SCREEN2_CAP = 1500;
+const PUSH_REFINE_CAP = 400;
+
+const PUSH_FILLERS = new Set(["presence_of_god", "soul_of_ares"]);
+
+const PUSH_TALENT_KEYS = [
+  "death_is_my_companion",
+  "life_of_the_hunt",
+  "unfair_advantage",
+  "impeccable_impacts",
+  "omen_of_defeat",
+  "fires_of_war",
+  "call_me_lucky_loot",
+];
+
+const PUSH_ATTR_KEYS = [
+  "spartan_lineage",
+  "helltouch_barrier",
+  "lifedrain_inhalers",
+  "explosive_punches",
+  "book_of_baal",
+  "superior_sensors",
+  "atlas_protocol",
+  "weakspot_analysis",
+  "born_for_battle",
+  "timeless_mastery",
+  "essence_of_ylith",
+  "soul_of_the_minotaur",
+  "soul_of_hermes",
+  "soul_of_athena",
+];
+
+const PUSH_ATTR_PARENT = {
+  lifedrain_inhalers: "helltouch_barrier",
+  explosive_punches: "helltouch_barrier",
+  superior_sensors: "book_of_baal",
+  atlas_protocol: "superior_sensors",
+  weakspot_analysis: "explosive_punches",
+  born_for_battle: "spartan_lineage",
+  timeless_mastery: "spartan_lineage",
+  soul_of_athena: "born_for_battle",
+  soul_of_the_minotaur: "atlas_protocol",
+  soul_of_hermes: "weakspot_analysis",
+};
+
+const PUSH_ATTR_COST = {
+  soul_of_ares: 1,
+  essence_of_ylith: 1,
+  spartan_lineage: 2,
+  timeless_mastery: 3,
+  helltouch_barrier: 2,
+  lifedrain_inhalers: 2,
+  explosive_punches: 3,
+  book_of_baal: 3,
+  superior_sensors: 2,
+  atlas_protocol: 3,
+  weakspot_analysis: 2,
+  born_for_battle: 5,
+  soul_of_the_minotaur: 2,
+  soul_of_hermes: 2,
+  soul_of_athena: 15,
+};
+
+const PUSH_ATTR_GATE = {
+  atlas_protocol: 75,
+  weakspot_analysis: 75,
+  born_for_battle: 75,
+  soul_of_the_minotaur: 150,
+  soul_of_hermes: 150,
+  soul_of_athena: 180,
+};
+
+const PUSH_GATED_KEYS = Object.keys(PUSH_ATTR_GATE);
+
+const PUSH_FACTORS = [
+  ...PUSH_TALENT_KEYS.map((key) => ({ key, kind: "talent" })),
+  { key: "presence_of_god", kind: "talent" },
+  ...PUSH_ATTR_KEYS.map((key) => ({ key, kind: "attribute" })),
+  { key: "soul_of_ares", kind: "attribute" },
+];
+
+const PUSH_FINE_LEVELS = {
+  death_is_my_companion: [0, 2],
+  life_of_the_hunt: [0, 2, 5],
+  unfair_advantage: [0, 2, 5],
+  impeccable_impacts: [0, 5, 10],
+  omen_of_defeat: [0, 5, 10],
+  fires_of_war: [0, 5, 10, 15],
+  call_me_lucky_loot: [0, 5, 10],
+  helltouch_barrier: [0, 1],
+  lifedrain_inhalers: [0, 4, 7, 10],
+  explosive_punches: [0, 3, 6],
+  book_of_baal: [0, 2, 4, 6],
+  spartan_lineage: [0, 3, 6],
+  superior_sensors: [0, 3, 6],
+  timeless_mastery: [0, 2, 5],
+  essence_of_ylith: [1, 3, 5],
+  atlas_protocol: [0, 2, 6],
+  weakspot_analysis: [0, 3, 6],
+  born_for_battle: [0, 1, 3],
+  soul_of_athena: [0, 1],
+  soul_of_the_minotaur: [0, 5, 10],
+  soul_of_hermes: [0, 5, 10],
+};
+
+const PUSH_REFINE_STEPS = {
+  call_me_lucky_loot: [1, 2, 5, 7, 10],
+  timeless_mastery: [1, 2, 3, 4, 5],
+  essence_of_ylith: [1, 2, 3, 5],
+  book_of_baal: [1, 2, 4, 6],
+  superior_sensors: [1, 2, 3, 6],
+  atlas_protocol: [1, 2, 4, 6],
+  spartan_lineage: [1, 3, 6],
+  helltouch_barrier: [1],
+  lifedrain_inhalers: [1, 4, 7, 10],
+  explosive_punches: [1, 3, 6],
+  fires_of_war: [5, 10, 15],
+  presence_of_god: [5, 10, 15],
+};
+
+const SCREEN1_ATTR_DROPS = [
+  ["book_of_baal", [0, 6]],
+  ["atlas_protocol", [0, 6]],
+  ["essence_of_ylith", [1]],
+];
+
+const SCREEN1_TALENT_DROPS = [];
+
+function pushScreen1Levels() {
+  return {
+    talents: {
+      death_is_my_companion: [0, 2],
+      life_of_the_hunt: [0, 5],
+      unfair_advantage: [0, 5],
+      impeccable_impacts: [0, 10],
+      omen_of_defeat: [0, 10],
+      fires_of_war: [0, 15],
+      call_me_lucky_loot: [0, 10],
+    },
+    attributes: {
+      spartan_lineage: [0, 6],
+      helltouch_barrier: [0, 1],
+      lifedrain_inhalers: [0, 10],
+      explosive_punches: [0, 6],
+      book_of_baal: [0, 3, 6],
+      superior_sensors: [0, 6],
+      atlas_protocol: [0, 2, 6],
+      weakspot_analysis: [0, 6],
+      born_for_battle: [0, 3],
+      timeless_mastery: [0, 5],
+      essence_of_ylith: [1, 5],
+      soul_of_the_minotaur: [0, 5],
+      soul_of_hermes: [0, 5],
+      soul_of_athena: [0, 1],
+    },
+  };
+}
+
+function gatedAttrCost(picked, key, level) {
+  let high = 0;
+  for (const gated of PUSH_GATED_KEYS) {
+    const lvl = gated === key ? level : Number(picked[gated]) || 0;
+    high += lvl * (PUSH_ATTR_COST[gated] || 1);
+  }
+  return high;
+}
+
+function constrainAttrChoices(key, choices, picked, budget) {
+  const parent = PUSH_ATTR_PARENT[key];
+  if (parent && !(Number(picked[parent]) > 0)) return [0];
+  if (key === "essence_of_ylith") {
+    if (!(Number(picked.spartan_lineage) > 0)) return [0];
+    const positive = choices.filter((level) => level >= 1);
+    return positive.length ? positive : [1];
+  }
+  const gate = PUSH_ATTR_GATE[key] || 0;
+  return choices.filter((level) => {
+    if (level <= 0) return true;
+    if (gate && budget - gatedAttrCost(picked, key, level) < gate) return false;
+    return true;
+  });
+}
+
+function finishAttrRow(budget, picked) {
+  let spent = 0;
+  for (const [key, cost] of Object.entries(PUSH_ATTR_COST)) {
+    if (key === "soul_of_ares") continue;
+    spent += (Number(picked[key]) || 0) * cost;
+  }
+  const ares = budget - spent;
+  const ylith = Number(picked.essence_of_ylith) || 0;
+  const hell = Number(picked.helltouch_barrier) || 0;
+  const baal = Number(picked.book_of_baal) || 0;
+  const timeless = Number(picked.timeless_mastery) || 0;
+  const aresMin = ylith || hell || baal || timeless ? 1 : 0;
+  if (ares < aresMin) return null;
+  return {
+    soul_of_ares: ares,
+    essence_of_ylith: ylith,
+    spartan_lineage: Number(picked.spartan_lineage) || 0,
+    timeless_mastery: timeless,
+    book_of_baal: baal,
+    superior_sensors: Number(picked.superior_sensors) || 0,
+    helltouch_barrier: hell,
+    lifedrain_inhalers: Number(picked.lifedrain_inhalers) || 0,
+    explosive_punches: Number(picked.explosive_punches) || 0,
+    atlas_protocol: Number(picked.atlas_protocol) || 0,
+    weakspot_analysis: Number(picked.weakspot_analysis) || 0,
+    born_for_battle: Number(picked.born_for_battle) || 0,
+    soul_of_the_minotaur: Number(picked.soul_of_the_minotaur) || 0,
+    soul_of_hermes: Number(picked.soul_of_hermes) || 0,
+    soul_of_athena: Number(picked.soul_of_athena) || 0,
+  };
+}
+
+function pushTalentRows(budget, choiceOf) {
+  const rows = [];
+  const picked = {};
+  const walk = (index, spent) => {
+    if (index === PUSH_TALENT_KEYS.length) {
+      const presence = budget - spent;
+      if (presence < 0 || presence > BORGE_TALENT_FILLER_MAX) return;
+      rows.push({ ...picked, presence_of_god: presence });
+      return;
+    }
+    const key = PUSH_TALENT_KEYS[index];
+    for (const level of choiceOf(key)) {
+      if (spent + level > budget) continue;
+      picked[key] = level;
+      walk(index + 1, spent + level);
+    }
+  };
+  walk(0, 0);
+  return rows;
+}
+
+function pushAttributeRows(budget, choiceOf, isLegal) {
+  const rows = [];
+  const picked = {};
+  const walk = (index) => {
+    if (index === PUSH_ATTR_KEYS.length) {
+      const row = finishAttrRow(budget, picked);
+      if (!row) return;
+      if (isLegal && !isLegal(row)) return;
+      rows.push(row);
+      return;
+    }
+    const key = PUSH_ATTR_KEYS[index];
+    const choices = constrainAttrChoices(key, choiceOf(key), picked, budget);
+    for (const level of choices) {
+      picked[key] = level;
+      walk(index + 1);
+    }
+  };
+  walk(0);
+  return rows;
+}
+
+function buildPushScreen1(talentBudget, attrBudget, isLegal) {
+  const levels = pushScreen1Levels();
+  const dropped = [];
+  const talentChoice = (key) => levels.talents[key] || [0];
+  const attrChoice = (key) => levels.attributes[key] || [0];
+  let talents = pushTalentRows(talentBudget, talentChoice);
+  let attributes = pushAttributeRows(attrBudget, attrChoice, isLegal);
+  const shrink = (table, drops, kind) => {
+    for (const [key, next] of drops) {
+      if (talents.length * attributes.length <= PUSH_SCREEN1_CAP) return;
+      const prev = table[key];
+      if (!prev || prev.length <= next.length && prev.every((level, i) => level === next[i])) continue;
+      const saved = prev.slice();
+      table[key] = next.slice();
+      const nextTalents = kind === "talent" ? pushTalentRows(talentBudget, talentChoice) : talents;
+      const nextAttributes = kind === "attribute" ? pushAttributeRows(attrBudget, attrChoice, isLegal) : attributes;
+      if (!nextTalents.length || !nextAttributes.length) {
+        table[key] = saved;
+        continue;
+      }
+      talents = nextTalents;
+      attributes = nextAttributes;
+      dropped.push(key);
+    }
+  };
+  shrink(levels.attributes, SCREEN1_ATTR_DROPS, "attribute");
+  shrink(levels.talents, SCREEN1_TALENT_DROPS, "talent");
+  return { talents, attributes, dropped };
+}
+
+function planChoice(plan) {
+  return (key) => (plan.open.has(key) ? plan.open.get(key) : [plan.locks.get(key) || 0]);
+}
+
+function pushLockList(locks, reasons) {
+  return [...locks.entries()].map(([key, level]) => ({
+    key,
+    level,
+    reason: reasons.get(key) || "fixed",
+  }));
+}
+
+function pushScreen2Plan(ranked) {
+  const locks = new Map();
+  const reasons = new Map();
+  const open = new Map();
+  const controllable = ranked.factors.filter((factor) => !PUSH_FILLERS.has(factor.key));
+  const clear = controllable.filter((factor) => factor.level > 0 && factor.beats && factor.clear);
+  const top = clear[0] || null;
+  const lockAt = (key, level, reason) => {
+    if (PUSH_FILLERS.has(key)) return;
+    open.delete(key);
+    locks.set(key, level);
+    reasons.set(key, reason);
+  };
+
+  for (const factor of ranked.fixed) lockAt(factor.key, Number(factor.level) || 0, "fixed");
+  for (const factor of controllable) {
+    const level = Number(factor.level) || 0;
+    if (!(level > 0) || !factor.beats) {
+      lockAt(factor.key, 0, "off");
+      continue;
+    }
+    if (top && factor.key === top.key) {
+      lockAt(factor.key, level, "top");
+      continue;
+    }
+    const fine = PUSH_FINE_LEVELS[factor.key];
+    if (fine) open.set(factor.key, fine.slice());
+    else lockAt(factor.key, level, "held");
+  }
+
+  const isOn = (key) => open.has(key) || (locks.get(key) || 0) > 0;
+  if ((isOn("lifedrain_inhalers") || isOn("explosive_punches")) && reasons.get("helltouch_barrier") !== "top") {
+    lockAt("helltouch_barrier", 1, "parent");
+  }
+  if ((locks.get("helltouch_barrier") || 0) <= 0 && !open.has("helltouch_barrier")) {
+    if (isOn("lifedrain_inhalers")) lockAt("lifedrain_inhalers", 0, "off");
+    if (isOn("explosive_punches")) lockAt("explosive_punches", 0, "off");
+  }
+  if (!isOn("book_of_baal") && isOn("superior_sensors")) lockAt("superior_sensors", 0, "off");
+  if (!isOn("superior_sensors") && isOn("atlas_protocol")) lockAt("atlas_protocol", 0, "off");
+  if (!isOn("atlas_protocol") && isOn("soul_of_the_minotaur")) lockAt("soul_of_the_minotaur", 0, "off");
+  if (!isOn("explosive_punches") && isOn("weakspot_analysis")) lockAt("weakspot_analysis", 0, "off");
+  if (!isOn("weakspot_analysis") && isOn("soul_of_hermes")) lockAt("soul_of_hermes", 0, "off");
+  if (!isOn("spartan_lineage") && isOn("born_for_battle")) lockAt("born_for_battle", 0, "off");
+  if (!isOn("born_for_battle") && isOn("soul_of_athena")) lockAt("soul_of_athena", 0, "off");
+  if (isOn("timeless_mastery")) {
+    if (!isOn("spartan_lineage")) lockAt("spartan_lineage", 1, "parent");
+    else if (open.has("spartan_lineage")) {
+      const levels = open.get("spartan_lineage").filter((level) => level > 0);
+      if (levels.length) open.set("spartan_lineage", levels);
+      else lockAt("spartan_lineage", 1, "parent");
+    } else if ((locks.get("spartan_lineage") || 0) < 1) {
+      lockAt("spartan_lineage", 1, "parent");
+    }
+    if (!isOn("essence_of_ylith")) lockAt("essence_of_ylith", 1, "parent");
+  }
+  if (isOn("spartan_lineage") && !isOn("essence_of_ylith")) lockAt("essence_of_ylith", 1, "parent");
+
+  return {
+    locks,
+    open,
+    topKey: top ? top.key : null,
+    lockList: pushLockList(locks, reasons),
+  };
+}
+
+function admitPushChampion(plan, champion) {
+  if (!champion) return plan;
+  for (const key of [...PUSH_TALENT_KEYS, ...PUSH_ATTR_KEYS]) {
+    const level = championLevel(champion, key);
+    if (plan.open.has(key)) {
+      plan.open.set(key, uniqLevelsKeepZero([...plan.open.get(key), level]));
+      continue;
+    }
+    const locked = Number(plan.locks.get(key)) || 0;
+    if (locked === level) continue;
+    plan.locks.delete(key);
+    plan.open.set(key, uniqLevelsKeepZero([locked, level]));
+  }
+  plan.lockList = pushLockList(plan.locks, new Map(plan.lockList.map((lock) => [lock.key, lock.reason])));
+  return plan;
+}
+
+function fitPushOpen(plan, ranked, talentBudget, attrBudget, isLegal, cap) {
+  const bestLevel = new Map(ranked.factors.map((factor) => [factor.key, Number(factor.level) || 0]));
+  const lift = new Map(ranked.factors.map((factor) => [factor.key, Number(factor.lift) || 0]));
+  const recount = () => {
+    const talents = pushTalentRows(talentBudget, planChoice(plan));
+    const attributes = pushAttributeRows(attrBudget, planChoice(plan), isLegal);
+    return { talents, attributes };
+  };
+  let built = recount();
+  const candidates = () => [...plan.open.keys()]
+    .filter((key) => (plan.open.get(key) || []).length > 2)
+    .sort((a, b) => (lift.get(a) || 0) - (lift.get(b) || 0) || a.localeCompare(b));
+  while (built.talents.length * built.attributes.length > cap) {
+    const key = candidates()[0];
+    if (!key) break;
+    const next = dropOneFineLevel(plan.open.get(key), bestLevel.get(key) || 0);
+    if (next.length === plan.open.get(key).length) break;
+    plan.open.set(key, next);
+    built = recount();
+  }
+  return built;
+}
+
+function metricOf(score) {
+  const objective = score?.objective || "stage";
+  if (objective === "bosses") return { key: "boss", value: Number(score.bossesPerDay) || 0, unit: "bosses/day", digits: 2 };
+  if (objective === "loot") return { key: "loot", value: Number(score.lootScore) || 0, unit: "loot/min", digits: 1 };
+  return { key: "stage", value: Number(score.avgStage) || 0, unit: "stage", digits: 2 };
+}
+
+function decidingDelta(best, base) {
+  const objective = best?.objective || base?.objective || "stage";
+  if (objective === "bosses" && best.bossesPerDay !== base.bossesPerDay) {
+    return { key: "boss", unit: "bosses/day", digits: 2, delta: best.bossesPerDay - base.bossesPerDay };
+  }
+  if (objective === "loot" && best.lootScore !== base.lootScore) {
+    return { key: "loot", unit: "loot/min", digits: 1, delta: best.lootScore - base.lootScore };
+  }
+  if (objective === "stage" && best.avgStage !== base.avgStage) {
+    return { key: "stage", unit: "stage", digits: 2, delta: best.avgStage - base.avgStage };
+  }
+  if (best.lootScore !== base.lootScore && objective !== "stage") {
+    return { key: "loot", unit: "loot/min", digits: 1, delta: best.lootScore - base.lootScore };
+  }
+  if (best.avgStage !== base.avgStage) {
+    return { key: "stage", unit: "stage", digits: 2, delta: best.avgStage - base.avgStage };
+  }
+  if (best.lootScore !== base.lootScore) {
+    return { key: "loot", unit: "loot/min", digits: 1, delta: best.lootScore - base.lootScore };
+  }
+  return { key: "stage", unit: "stage", digits: 2, delta: 0 };
+}
+
+function pushFactorLifts(samples, objective) {
+  const factors = [];
+  const fixed = [];
+  for (const spec of PUSH_FACTORS) {
+    const groups = new Map();
+    for (const sample of samples) {
+      const level = Number(sample.points[spec.key]) || 0;
+      let group = groups.get(level);
+      if (!group) {
+        group = {
+          n: 0,
+          sum: { stage: 0, loot: 0, boss: 0 },
+          sumsq: { stage: 0, loot: 0, boss: 0 },
+        };
+        groups.set(level, group);
+      }
+      group.n += 1;
+      group.sum.stage += sample.avgStage;
+      group.sum.loot += sample.lootScore;
+      group.sum.boss += sample.bossesPerDay;
+      group.sumsq.stage += sample.avgStage * sample.avgStage;
+      group.sumsq.loot += sample.lootScore * sample.lootScore;
+      group.sumsq.boss += sample.bossesPerDay * sample.bossesPerDay;
+    }
+    if (groups.size < 2) {
+      fixed.push({ key: spec.key, kind: spec.kind, level: [...groups.keys()][0] || 0 });
+      continue;
+    }
+    const meanScore = (group) => ({
+      avgStage: group.sum.stage / group.n,
+      lootScore: group.sum.loot / group.n,
+      bossesPerDay: group.sum.boss / group.n,
+      objective,
+    });
+    let baseLevel = 0;
+    let baseGroup = groups.get(0);
+    if (!baseGroup) {
+      baseGroup = null;
+      for (const [level, group] of groups) {
+        if (!baseGroup || scoreGt(meanScore(baseGroup), meanScore(group))) {
+          baseGroup = group;
+          baseLevel = level;
+        }
+      }
+    }
+    let bestLevel = baseLevel;
+    let bestGroup = baseGroup;
+    for (const [level, group] of groups) {
+      if (scoreGt(meanScore(group), meanScore(bestGroup))) {
+        bestGroup = group;
+        bestLevel = level;
+      }
+    }
+    const bestMean = meanScore(bestGroup);
+    const baseMean = meanScore(baseGroup);
+    const decision = decidingDelta(bestMean, baseMean);
+    const variance = (group, key) => {
+      if (!group || group.n < 2) return 0;
+      const mean = group.sum[key] / group.n;
+      return Math.max(0, group.sumsq[key] / group.n - mean * mean);
+    };
+    const se = Math.sqrt(variance(bestGroup, decision.key) / bestGroup.n + variance(baseGroup, decision.key) / baseGroup.n);
+    const beats = scoreGt(bestMean, baseMean);
+    factors.push({
+      key: spec.key,
+      kind: spec.kind,
+      level: bestLevel,
+      mean: metricOf(bestMean).value,
+      baseMean: metricOf(baseMean).value,
+      baseLevel,
+      lift: decision.delta,
+      unit: decision.unit,
+      digits: decision.digits,
+      primaryUnit: metricOf(bestMean).unit,
+      beats,
+      clear: beats && bestGroup.n >= 2 && baseGroup.n >= 2 && decision.delta > 2 * se,
+    });
+  }
+  factors.sort((a, b) => {
+    if (a.beats !== b.beats) return a.beats ? -1 : 1;
+    if (a.clear !== b.clear) return a.clear ? -1 : 1;
+    return b.lift - a.lift || a.key.localeCompare(b.key);
+  });
+  return { factors, fixed };
+}
+
+function betterPush(current, next) {
+  if (!current) return next || null;
+  if (!next) return current;
+  if (scoreGt(next.score, current.score)) return next;
+  return current;
+}
+
+function asPushChampion(sample) {
+  if (!sample?.talents || !sample?.attributes || !sample.score) return null;
+  return {
+    score: sample.score,
+    avgStage: sample.avgStage,
+    lootScore: sample.lootScore,
+    bossesPerDay: sample.bossesPerDay,
+    talents: { ...sample.talents },
+    attributes: { ...sample.attributes },
+    points: { ...(sample.points || {}), ...sample.talents, ...sample.attributes },
+  };
+}
+
+function publishPush(screen, incumbent) {
+  const own = screen?.score ? {
+    score: screen.score,
+    avgStage: screen.avgStage,
+    lootScore: screen.lootScore,
+    bossesPerDay: screen.bossesPerDay,
+    talents: screen.talents,
+    attributes: screen.attributes,
+  } : null;
+  const chosen = betterPush(incumbent, own);
+  return {
+    ...screen,
+    score: chosen ? chosen.score : null,
+    avgStage: chosen ? chosen.avgStage : null,
+    lootScore: chosen ? chosen.lootScore : null,
+    bossesPerDay: chosen ? chosen.bossesPerDay : null,
+    talents: chosen ? chosen.talents : null,
+    attributes: chosen ? chosen.attributes : null,
+    ownScore: screen?.score || null,
+    kept: !!(incumbent && chosen === incumbent),
+  };
+}
+
+function refineLevelsFor(key, winnerLevel, championLvl) {
+  const cap = Math.max(Number(winnerLevel) || 0, Number(championLvl) || 0);
+  if (cap <= 0) return [];
+  const catalog = PUSH_REFINE_STEPS[key] || [1, 2, 3, 4, 5];
+  return uniqLevelsKeepZero([...catalog.filter((level) => level > 0 && level <= cap), winnerLevel, championLvl]);
+}
+
+function pushRefinePlan(ranked, champion) {
+  const locks = new Map();
+  const reasons = new Map();
+  const open = new Map();
+  const controllable = ranked.factors.filter((factor) => !PUSH_FILLERS.has(factor.key) && factor.beats && factor.level > 0);
+  const chain = controllable.slice(0, 3).map((factor) => factor.key);
+  const lockAt = (key, level, reason) => {
+    open.delete(key);
+    locks.set(key, level);
+    reasons.set(key, reason);
+  };
+  for (const key of [...PUSH_TALENT_KEYS, ...PUSH_ATTR_KEYS]) {
+    lockAt(key, championLevel(champion, key), "incumbent");
+  }
+  for (const key of chain) {
+    const levels = refineLevelsFor(key, controllable.find((factor) => factor.key === key)?.level, championLevel(champion, key));
+    if (levels.length > 1) open.set(key, levels);
+  }
+  if (open.has("timeless_mastery")) {
+    if ((locks.get("spartan_lineage") || 0) < 1 && !open.has("spartan_lineage")) lockAt("spartan_lineage", 1, "parent");
+    if ((locks.get("essence_of_ylith") || 0) < 1 && !open.has("essence_of_ylith")) lockAt("essence_of_ylith", 1, "parent");
+  }
+  if ((open.has("spartan_lineage") || (locks.get("spartan_lineage") || 0) > 0) && (locks.get("essence_of_ylith") || 0) < 1 && !open.has("essence_of_ylith")) {
+    lockAt("essence_of_ylith", 1, "parent");
+  }
+  return {
+    locks,
+    open,
+    chain,
+    openList: [...open.entries()].map(([key, levels]) => ({ key, levels })),
+    lockList: pushLockList(locks, reasons),
+  };
+}
+
+function uniquePushRows(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const id = buildKey(row);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
+function fillerShiftRows(champion, talentBudget) {
+  if (!champion?.talents || !champion?.attributes) return [];
+  const rows = [];
+  const add = (talents, attributes) => {
+    const spent = Object.values(talents).reduce((sum, level) => sum + (Number(level) || 0), 0);
+    if (spent !== talentBudget) return;
+    rows.push({ talents, attributes });
+  };
+  const moveTalent = (from, to, points, maxTo) => {
+    const talents = { ...champion.talents };
+    if ((Number(talents[from]) || 0) < points) return;
+    if ((Number(talents[to]) || 0) + points > maxTo) return;
+    talents[from] = (Number(talents[from]) || 0) - points;
+    talents[to] = (Number(talents[to]) || 0) + points;
+    add(talents, { ...champion.attributes });
+  };
+  moveTalent("presence_of_god", "call_me_lucky_loot", 5, 10);
+  moveTalent("call_me_lucky_loot", "presence_of_god", 5, 15);
+  const attributes = { ...champion.attributes };
+  const spartan = Number(attributes.spartan_lineage) || 0;
+  const ylithMin = spartan > 0 ? 1 : 0;
+  const aresMin = (
+    Number(attributes.essence_of_ylith) ||
+    Number(attributes.helltouch_barrier) ||
+    Number(attributes.book_of_baal) ||
+    Number(attributes.timeless_mastery) ||
+    spartan
+  ) ? 1 : 0;
+  const moveAttr = (from, to, points, minFrom) => {
+    if ((Number(attributes[from]) || 0) - points < minFrom) return;
+    const next = { ...attributes };
+    next[from] = (Number(next[from]) || 0) - points;
+    next[to] = (Number(next[to]) || 0) + points;
+    add({ ...champion.talents }, next);
+  };
+  moveAttr("soul_of_ares", "essence_of_ylith", 5, aresMin);
+  moveAttr("essence_of_ylith", "soul_of_ares", 5, ylithMin);
+  return rows;
+}
+
+function pushSimsFor(builds) {
+  if (builds <= 2500) return PUSH_SCREEN_SIMS;
+  if (builds <= 5000) return 80;
+  return 50;
+}
+
+async function simulatePushScreen({
+  rows, base, engine, hunter, objective, bossStages, level, screen, screens, phase, floor, sims, onProgress, isCancelled,
+}) {
+  const { wasmToSimResult } = hunter;
+  const samples = [];
+  let best = null;
+  const total = rows.length;
+  let done = 0;
+  for (const row of rows) {
+    if (isCancelled()) return { cancelled: true };
+    const cfg = structuredClone(base);
+    cfg.talents = { ...row.talents };
+    cfg.attributes = { ...row.attributes };
+    const validated = validateBudgets(cfg, hunter);
+    done += 1;
+    const shown = betterPush(floor, best);
+    if (!validated.ok) {
+      onProgress({
+        msg: `level ${level} · ${phase} · ${done}/${total}`,
+        done,
+        total,
+        screen,
+        screens,
+        objective,
+        bossStages,
+        stage: shown?.avgStage ?? null,
+        loot: shown?.lootScore ?? null,
+        bossesPerDay: shown?.bossesPerDay ?? null,
+      });
+      continue;
+    }
+    await yieldToUi();
+    if (isCancelled()) return { cancelled: true };
+    const sim = wasmToSimResult(engine.evaluate(validated.config, sims), sims);
+    const score = scoreOf(sim, objective, bossStages);
+    const sample = {
+      score,
+      avgStage: score.avgStage,
+      lootScore: score.lootScore,
+      bossesPerDay: score.bossesPerDay,
+      talents: { ...row.talents },
+      attributes: { ...row.attributes },
+      points: { ...row.talents, ...row.attributes },
+    };
+    samples.push(sample);
+    best = betterPush(best, sample);
+    const next = betterPush(floor, best);
+    onProgress({
+      msg: `level ${level} · ${phase} · ${done}/${total}`,
+      done,
+      total,
+      screen,
+      screens,
+      objective,
+      bossStages,
+      stage: next.avgStage,
+      loot: next.lootScore,
+      bossesPerDay: next.bossesPerDay,
+    });
+  }
+  return { cancelled: false, samples, best };
+}
+
+function packPushScreen(title, kind, run, ranked, extra = {}) {
+  const best = run.best;
+  return {
+    title,
+    kind,
+    rows: run.samples.length,
+    score: best ? best.score : null,
+    avgStage: best ? best.avgStage : null,
+    lootScore: best ? best.lootScore : null,
+    bossesPerDay: best ? best.bossesPerDay : null,
+    talents: best ? best.talents : null,
+    attributes: best ? best.attributes : null,
+    factors: ranked.factors,
+    fixed: ranked.fixed,
+    ...extra,
+  };
+}
+
+/**
+ * Borge stage, loot, and bosses/day funnel.
+ * Screen 1 is a coarse factorial. Screen 2 locks a clear gain and steps the rest.
+ * Refinement holds that build and steps the cheap levels the chart ranked, plus a filler split.
+ * Call Me Lucky Loot and Timeless Mastery are factors. Does not force either one on.
+ */
+export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
+  const onProgress = hooks.onProgress || (() => {});
+  const isCancelled = hooks.isCancelled || (() => false);
+  if (hunter.id !== "borge") {
+    throw new Error("This push screen is set up for Borge.");
+  }
+  const objective = normalizeObjective(optIn.objective);
+  const bossStages = normalizeBossStages(optIn.bossStages);
+  if (objective === "bosses" && !bossStages.length) {
+    throw new Error("Select at least one boss (100 / 200 / 300).");
+  }
+
+  const base = structuredClone(baseConfig);
+  const level = Math.max(0, Math.floor(Number(base.meta?.level) || 0));
+  base.meta = { ...(base.meta || {}), level };
+  const caps = pointBudgets(level);
+  const isLegal = (row) => hunter.attrs.attributesTreeValid(row, caps.attributes).ok;
+  const screen1Built = buildPushScreen1(caps.talents, caps.attributes, isLegal);
+  if (!screen1Built.talents.length || !screen1Built.attributes.length) {
+    throw new Error(
+      `No screening rows fit level ${level} (${caps.talents} talent points, ${caps.attributes} attribute points).`,
+    );
+  }
+
+  const screens = 3;
+  const sims = pushSimsFor(screen1Built.talents.length * screen1Built.attributes.length);
+  const shared = { base, engine, hunter, objective, bossStages, level, screens, sims, onProgress, isCancelled };
+  const firstRun = await simulatePushScreen({
+    ...shared,
+    rows: crossBudgetRows(screen1Built.talents, screen1Built.attributes),
+    screen: 1,
+    phase: "screen 1/3",
+  });
+  if (firstRun.cancelled) return { cancelled: true };
+  if (!firstRun.samples.length) {
+    throw new Error(`No valid screening rows at level ${level}.`);
+  }
+  const ranked1 = pushFactorLifts(firstRun.samples, objective);
+  const screen1 = packPushScreen("Screen 1", "screen1", firstRun, ranked1, {
+    ownScore: firstRun.best?.score || null,
+    kept: false,
+    dropped: screen1Built.dropped,
+  });
+  let champion = asPushChampion(firstRun.best);
+  const plan = pushScreen2Plan(ranked1);
+  admitPushChampion(plan, champion);
+  const fitted = fitPushOpen(plan, ranked1, caps.talents, caps.attributes, isLegal, PUSH_SCREEN2_CAP);
+  const secondRows = includeChampion(crossBudgetRows(fitted.talents, fitted.attributes), champion);
+  let screen2;
+  if (!secondRows.length) {
+    screen2 = publishPush({
+      title: "Screen 2",
+      kind: "screen2",
+      rows: 0,
+      score: null,
+      factors: [],
+      fixed: [],
+      locks: plan.lockList,
+      topKey: plan.topKey,
+    }, champion);
+  } else {
+    const secondRun = await simulatePushScreen({
+      ...shared,
+      rows: secondRows,
+      screen: 2,
+      phase: "screen 2/3",
+      floor: champion,
+    });
+    if (secondRun.cancelled) return { cancelled: true };
+    const ranked2 = pushFactorLifts(secondRun.samples, objective);
+    screen2 = publishPush(packPushScreen("Screen 2", "screen2", secondRun, ranked2, {
+      locks: plan.lockList,
+      topKey: plan.topKey,
+    }), champion);
+  }
+  if (champion && !screen2.score) screen2 = publishPush(screen2, champion);
+  champion = asPushChampion(screen2) || champion;
+
+  let refine = {
+    title: "Refinement",
+    kind: "refine",
+    rows: 0,
+    score: null,
+    avgStage: null,
+    lootScore: null,
+    bossesPerDay: null,
+    talents: null,
+    attributes: null,
+    factors: [],
+    fixed: [],
+    locks: [],
+    openList: [],
+    chain: [],
+  };
+  if (screen2.rows > 0 && champion) {
+    const refineRanked = screen2.factors?.length ? screen2 : screen1;
+    const refinePlan = pushRefinePlan(refineRanked, champion);
+    const fittedRefine = fitPushOpen(refinePlan, refineRanked, caps.talents, caps.attributes, isLegal, PUSH_REFINE_CAP);
+    const refineRows = includeChampion(uniquePushRows([
+      ...crossBudgetRows(fittedRefine.talents, fittedRefine.attributes),
+      ...fillerShiftRows(champion, caps.talents),
+    ]), champion);
+    refine = { ...refine, locks: refinePlan.lockList, openList: refinePlan.openList, chain: refinePlan.chain };
+    if (refineRows.length) {
+      const refineRun = await simulatePushScreen({
+        ...shared,
+        rows: refineRows,
+        screen: 3,
+        phase: "refinement",
+        floor: champion,
+      });
+      if (refineRun.cancelled) return { cancelled: true };
+      const rankedRefine = pushFactorLifts(refineRun.samples, objective);
+      refine = publishPush(packPushScreen("Refinement", "refine", refineRun, rankedRefine, {
+        locks: refinePlan.lockList,
+        openList: refinePlan.openList,
+        chain: refinePlan.chain,
+      }), champion);
+    }
+  }
+  if (champion && !refine.score) refine = publishPush(refine, champion);
+  champion = asPushChampion(refine) || champion;
+
+  const nConfirm = Math.max(1, Math.floor(Number(optIn.nRefine) || DEFAULT_OPTIMIZE.nRefine));
+  onProgress({
+    msg: `Confirming the funnel winner (${nConfirm} sims)…`,
+    done: 1,
+    total: 2,
+    screen: 3,
+    screens: 3,
+    objective,
+    bossStages,
+    stage: champion?.avgStage ?? null,
+    loot: champion?.lootScore ?? null,
+    bossesPerDay: champion?.bossesPerDay ?? null,
+  });
+  const current = validateBudgets(base, hunter);
+  if (!current.ok) throw new Error(current.msg || "Invalid build");
+  if (isCancelled()) return { cancelled: true };
+  await yieldToUi();
+  const baselineEval = hunter.wasmToSimResult(engine.evaluate(current.config, nConfirm), nConfirm);
+  const baselineScore = scoreOf(baselineEval, objective, bossStages);
+  let winnerEval = null;
+  let winnerScore = null;
+  let winnerConfig = null;
+  if (champion?.talents && champion?.attributes) {
+    const winnerCfg = structuredClone(base);
+    winnerCfg.talents = { ...champion.talents };
+    winnerCfg.attributes = { ...champion.attributes };
+    const winnerOk = validateBudgets(winnerCfg, hunter);
+    if (winnerOk.ok && !isCancelled()) {
+      await yieldToUi();
+      winnerEval = hunter.wasmToSimResult(engine.evaluate(winnerOk.config, nConfirm), nConfirm);
+      winnerScore = scoreOf(winnerEval, objective, bossStages);
+      winnerConfig = winnerOk.config;
+    }
+  }
+  if (isCancelled()) return { cancelled: true };
+  const improved = !!(winnerScore && scoreGt(winnerScore, baselineScore));
+  const bestScore = improved ? winnerScore : baselineScore;
+  const bestEval = improved ? winnerEval : baselineEval;
+  const bestConfig = improved ? winnerConfig : current.config;
+  const rowCount = screen1.rows + screen2.rows + refine.rows;
+  return {
+    cancelled: false,
+    funnel: true,
+    objective,
+    bossStages,
+    level,
+    sims,
+    rows: rowCount,
+    talentPoints: caps.talents,
+    attributePoints: caps.attributes,
+    screens: [screen1, screen2, refine],
+    bestConfig,
+    bestScore,
+    bestEval,
+    baselineConfig: current.config,
+    baselineScore,
+    baselineEval,
+    improved,
+    evals: rowCount + 2,
+    loops: 1,
+    nSearch: sims,
+    nRefine: nConfirm,
+  };
+}
+
 /** Stats that are combat spendables for +1 marginal analysis (not progress metadata). */
 const MARGINAL_STAT_SKIP = new Set(["highest_stage_reached"]);
 

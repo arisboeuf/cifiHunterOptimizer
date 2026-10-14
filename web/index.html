@@ -174,9 +174,9 @@
         <h2 id="talentTitle">Talents &amp; Attributes</h2>
         <div class="opt-panel opt-panel-top">
           <div class="opt-row">
-            <button type="button" class="btn btn-primary" id="btnOptimize">Push Average Stage</button>
-            <button type="button" class="btn btn-primary" id="btnOptimizeLoot">Push Material/XP</button>
-            <button type="button" class="btn btn-primary" id="btnOptimizeBoss">Maximize Boss/day</button>
+            <button type="button" class="btn btn-primary" id="btnOptimize" title="Screen 1, screen 2, then a short refinement. Call Me Lucky Loot and Timeless Mastery stay free factors.">Push Average Stage</button>
+            <button type="button" class="btn btn-primary" id="btnOptimizeLoot" title="Same funnel as Push Average Stage, scored by loot per minute. Lucky Loot and Timeless stay free factors.">Push Material/XP</button>
+            <button type="button" class="btn btn-primary" id="btnOptimizeBoss" title="Same funnel, scored by bosses per day. Lucky Loot and Timeless stay free factors.">Maximize Boss/day</button>
             <button
               type="button"
               class="btn btn-primary"
@@ -186,11 +186,11 @@
               First Bosskill Finder
             </button>
             <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
-            <label class="opt-field">
+            <label class="opt-field" title="Ozzy and Knox only. Borge push screens run one funnel.">
               <span>Iterations</span>
               <input id="optLoops" type="number" min="1" max="20" value="3" />
             </label>
-            <label class="opt-check">
+            <label class="opt-check" title="Ozzy and Knox only. On Borge, Timeless Mastery is a free factor in the push screens.">
               <input type="checkbox" id="optForceTimeless" checked />
               <span>Prioritize Timeless Mastery</span>
             </label>
@@ -216,7 +216,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Push Average Stage → Ø stage. Push Material/XP → loot score (mats/XP per minute; Timeless Mastery 5 is required). Maximize Boss/day → checked bosses (clears × runs/day). First Bosskill Finder → two screens at the current level (50 sims per build), ranked by remaining boss HP (lower is closer to the kill). Screen 1 charts every tested skill. Screen 2 locks the largest drop from that chart, turns off skills that did not beat off, and charts the rest at finer levels. A refinement then holds the best build so far and steps the cheap Atlas-chain levels the grids skipped, then charts the step size and the best build. Each later phase keeps that build in the grid. The headline boss HP stays or goes down. The "this phase" column is what that grid found on its own. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. Timeless Mastery and Call Me Lucky Loot stay at 0. Does not change the build. The Iterations field applies to the other three buttons. Only one optimize at a time. Per iteration: screen (~100 sims) → refine top&nbsp;3% (~4000 sims). The Sims field applies only to manual runs / Next-Best.
+            Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge run three screens at the current level. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. The report compares the winner with your current build at 4000 sims, and Apply writes the talents and attributes. First Bosskill Finder is separate: 50 sims per build, ranked by remaining boss HP, and it does not change the build. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery apply to Ozzy and Knox. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -245,6 +245,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=report"></script>
+    <script type="module" src="./js/app.js?v=pushfunnel"></script>
   </body>
 </html>

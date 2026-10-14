@@ -155,7 +155,11 @@ The diamond card is one purchase (5000 diamonds), not a stack of ranks. Owned, i
 
 ## Stage, loot, and bosses/day
 
-Push Average Stage, Push Material/XP, and Maximize Boss/day still run the Monte Carlo in `optimizeBuild`: random full-budget restarts, a one-point neighbor, then a high-sim refine of the top few rows. The boss finder replaced that walk with a funnel. The question here is whether the same funnel would also find better stage and loot builds. The shape would. The boss matrix would not.
+Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge run the same three-phase funnel as the boss finder, with a different score and a different factor list. Ozzy and Knox still use the Monte Carlo in `optimizeBuild`. The boss finder itself is unchanged.
+
+Call Me Lucky Loot and Timeless Mastery are free factors on all three Borge push screens. Off is a legal row. Neither skill is forced on. Presence Of A God and Soul Of Ares still take leftover points, and they are ranked on the chart. Screen 1 also steps Ylith at 1 and 5 when that still fits the row cap; otherwise refinement moves 5 points between Ares and Ylith. The refinement corner follows the skills the chart ranked, and it always tries that filler split. A skill is locked on only when its gain is clear next to the spread of the builds at those levels. Grids up to about 2,500 builds use 100 sims. Larger grids use 80, then 50.
+
+The apply decision resimulates the current hunter and the funnel winner at 4,000 sims. The charts use the screening sims. A row is written onto the hunter only when that confirm is better and the report is accepted.
 
 ### The funnel, apart from boss HP
 
@@ -175,24 +179,23 @@ What is worth keeping:
 
 - One level, both budgets spent, parent gates enforced, Presence and Ares as the dumps only after the toggles are chosen.
 - Coarse, then finer, then a small corner, with the incumbent kept. Fifty-sim noise is why the keep rule exists, and average stage is noisier than a 5-point boss-HP step.
-- Call Me Lucky Loot stays at 0. It is a loot proc on kill.
 
 What has to change before this is a stage search:
 
-- Timeless Mastery stays at 0 in the boss matrix because it is +14% loot per level, not stage. The stage button does the opposite while "Prioritize Timeless Mastery" is on: it buys the parents (Ares 1, Ylith 1, Spartan 1) and up to Timeless 5, which is 19 attribute points, before the walk starts. Those points cannot buy Explosive Punches, Atlas, or more Ares. A stage screen should leave Timeless off, or put 0 and 5 in the chart so the tax is measured. It should not inherit the checkbox.
+- Call Me Lucky Loot and Timeless Mastery are factors on this screen, the same as on Material/XP and Bosses/day. The boss finder pins both at 0. The stage button does the opposite for Timeless while "Prioritize Timeless Mastery" is on: it buys the parents (Ares 1, Ylith 1, Spartan 1) and up to Timeless 5, which is 19 attribute points, before the walk starts. A stage screen puts Lucky Loot and Timeless in the chart (off and the high level, plus a middle level for Timeless) and lets the score decide. It does not inherit the checkbox, and it does not force either skill on.
 - Presence and Ares are not bars. The chart then locks whichever toggled skill moved the mean, even when the real change was the filler that skill freed or consumed. That confound already showed up on boss HP, where Impeccable 5 was only legal next to Life of the Hunt 5. On stage it matters more, because Presence (−4% enemy HP per level) and Ares (+1% Max HP and +0.2% ATK per level) are often the spend. A stage screen has to rank them, not only park leftovers on them.
 - Ylith is pinned at 1 whenever Spartan is on. Extra Ylith is regen and HP, which stage can want.
 - Soul of Athena, Soul of the Minotaur, and Soul of Hermes stay at 0. Athena's heavy attack is a stage candidate this matrix never turns on.
 - The refinement corner is Baal, Sensors, and Atlas because those were the boss-HP chain. A stage corner has to walk the skills the stage chart ranked, and the filler split. Copying the Atlas steps would tighten the wrong corner.
 - Boss HP had steps of several points, so 50 sims could rank them. Average-stage gaps are often a fraction of a stage. A stage screen should lock a skill only when the lift is large next to the spread, and it wants more than 50 sims on the coarse pass.
 
-The funnel is a better first stage search than the random walk once Presence, Ares, and Ylith are real factors and Timeless is not forced on. Running today's boss matrix and reading the winner as a stage build would answer the boss question a second time.
+The funnel is a better first stage search than the random walk once Presence, Ares, and Ylith are real factors and Lucky Loot and Timeless are free factors. Running today's boss matrix and reading the winner as a stage build would answer the boss question a second time.
 
 ### Push Material/XP
 
 Loot per minute is loot per drop times how fast things die. Combat skills stay in the screen. A build that clears slower can lose loot/min even with a larger multiplier.
 
-The boss matrix forces the two loot skills to 0. A loot screen has to put them back in as factors:
+The boss matrix forces the two loot skills to 0. Stage, Material/XP, and Bosses/day all put them back in as free factors. Off is a legal row. Neither skill is required:
 
 - Timeless Mastery, +14% loot per level, cost 3, max 5. With the parents above, level 5 is 19 attribute points. Spartan does not have to be 6. The current button will not start unless level 5 fits, and then every row has it. The screen should include off and 5, and a middle level, so the chart can say whether +70% loot beats spending those points on clear speed.
 - Call Me Lucky Loot, +20% loot per level on kill, cost 1, max 10. It competes with Death, Presence, and Fires. It is a toggle. Presence still takes the talent points that remain.
@@ -205,12 +208,12 @@ The funnel is the right shape for loot, and it can beat the current walk, becaus
 
 ### Maximize Boss/day
 
-Bosses/day is clears times runs per day. It is closer to this finder than average stage is, but the score is a kill, not remaining HP. Until some rows actually get past the boss, almost every row is 0 and there is nothing to lock. Boss HP is the screen to run while the boss still lives. Bosses/day is the score to switch to after kills start. This matrix is not that switch.
+Bosses/day is clears times runs per day. It is closer to this finder than average stage is, but the score is a kill, not remaining HP. Until some rows actually get past the boss, almost every row is 0 and there is nothing to lock. Boss HP is the screen to run while the boss still lives. Bosses/day is the score to switch to after kills start. This matrix is not that switch. Call Me Lucky Loot and Timeless Mastery are still free factors on that screen, the same as on stage and Material/XP.
 
-### Not built
+### Wired
 
-No stage screen and no loot screen is wired to those buttons. The evaluation above is the reason to change the factors first, rather than point the three buttons at `findFirstBossKill`.
+Borge's three push buttons call `findPushBuild`. The First Bosskill Finder still calls `findFirstBossKill`. Ozzy and Knox keep `optimizeBuild`.
 
 ## Not done yet
 
-The refinement only steps the cheap Atlas-chain levels. It does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked. Ozzy and Knox are not on this matrix.
+The boss finder's refinement only steps the cheap Atlas-chain levels. It does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked. Ozzy and Knox are not on the push funnel.

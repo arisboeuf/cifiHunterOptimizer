@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js?v=funnel";
+import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js?v=pushfunnel";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -1050,6 +1050,178 @@ function optReportCell(value, cls = "") {
   return `<span class="v${cls ? ` ${cls}` : ""}">${value}</span>`;
 }
 
+function pushLiftText(factor) {
+  const lift = Number(factor.lift) || 0;
+  const digits = Number.isFinite(Number(factor.digits)) ? Number(factor.digits) : 1;
+  if (lift > 0.0001) return `+${lift.toFixed(digits)}`;
+  if (lift < -0.0001) return lift.toFixed(digits);
+  return "0";
+}
+
+function pushFactorPlotMarkup(factors, labels) {
+  const primary = factors.filter((factor) => factor.unit && factor.unit === factor.primaryUnit);
+  const maxLift = primary.reduce((mx, factor) => Math.max(mx, Number(factor.lift) || 0), 0);
+  return factors.map((factor) => {
+    const lift = Number(factor.lift) || 0;
+    const sameUnit = !factor.primaryUnit || factor.unit === factor.primaryUnit;
+    const pct = sameUnit && maxLift > 0 ? Math.max(0, lift) / maxLift * 100 : (lift > 0 ? 18 : 0);
+    const level = factor.level > 0 ? String(factor.level) : "off";
+    const unit = factor.unit ? ` ${escapeReportText(factor.unit)}` : "";
+    return `<div class="factor-plot-row">
+      <span class="factor-plot-name">${factorName(labels, factor.key)}</span>
+      <span class="factor-plot-lvl">${escapeReportText(level)}</span>
+      <span class="factor-plot-track" aria-hidden="true"><span class="factor-plot-bar" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="factor-plot-lift${lift > 0 ? " is-up" : ""}">${pushLiftText(factor)}${unit}</span>
+    </div>`;
+  }).join("");
+}
+
+function pushBestLine(factors, kind, title, labels) {
+  const factor = factors.find((row) => row.kind === kind && row.beats && row.level > 0);
+  if (!factor) return `<p class="boss-find-lead">${title}: none beat off.</p>`;
+  const base = Number(factor.baseLevel) || 0;
+  const vs = base > 0 ? `level ${base}` : "off";
+  return `<p class="boss-find-lead">${title}: ${factorName(labels, factor.key)} at ${factor.level} · ${pushLiftText(factor)} ${escapeReportText(factor.unit || "")} vs ${vs}</p>`;
+}
+
+function pushLockNote(screen, labels) {
+  const locks = Array.isArray(screen.locks) ? screen.locks : [];
+  const tops = locks.filter((lock) => lock.reason === "top" && lock.level > 0);
+  const parents = locks.filter((lock) => lock.reason === "parent");
+  const off = locks.filter((lock) => lock.reason === "off");
+  const parts = [];
+  if (tops.length) {
+    const [first] = tops;
+    parts.push(`${labels[first.key] || first.key} stays at ${first.level} because it was the largest clear gain in screen 1.`);
+  } else {
+    parts.push("Screen 1 had no clear gain, so nothing was locked on.");
+  }
+  if (parents.length) {
+    parts.push(`${parents.map((lock) => `${labels[lock.key] || lock.key} stays at ${lock.level}`).join(", ")} so a skill that needs it can be screened.`);
+  }
+  if (off.length) {
+    parts.push(`Left off after screen 1: ${off.map((lock) => labels[lock.key] || lock.key).join(", ")}.`);
+  }
+  return parts.join(" ");
+}
+
+function pushMetricText(screen, objective) {
+  if (!screen) return "—";
+  if (objective === "bosses") {
+    const value = Number(screen.bossesPerDay);
+    return Number.isFinite(value) ? `${value.toFixed(2)} bosses/day` : "—";
+  }
+  if (objective === "loot") {
+    const value = Number(screen.lootScore);
+    return Number.isFinite(value) ? `${value.toFixed(1)} loot/min` : "—";
+  }
+  const value = Number(screen.avgStage);
+  return Number.isFinite(value) ? `Ø ${value.toFixed(2)}` : "—";
+}
+
+function pushPhaseValue(screen, objective) {
+  if (!screen) return null;
+  if (objective === "bosses") return Number(screen.bossesPerDay);
+  if (objective === "loot") return Number(screen.lootScore);
+  return Number(screen.avgStage);
+}
+
+function pushCompare(screens, objective) {
+  const rows = (screens || []).filter((screen) => Number.isFinite(pushPhaseValue(screen, objective)) && screen.rows);
+  if (rows.length < 2) return "";
+  const first = pushPhaseValue(rows[0], objective);
+  const best = Math.max(...rows.map((screen) => pushPhaseValue(screen, objective)));
+  const body = rows.map((screen) => {
+    const value = pushPhaseValue(screen, objective);
+    const delta = value - first;
+    const shown = delta > 0.0001 ? `+${delta.toFixed(2)}` : delta < -0.0001 ? delta.toFixed(2) : "0";
+    const cls = delta > 0.0001 ? "is-up" : delta < -0.0001 ? "is-down" : "";
+    const width = best > 0 ? Math.max(0, value) / best * 100 : 0;
+    const deltaCell = screen === rows[0] ? "<td>—</td>" : `<td class="${cls}">${shown}</td>`;
+    return `<tr>
+      <th>${escapeReportText(screen.title || "Screen")}</th>
+      <td>${pushMetricText(screen, objective)}</td>
+      ${deltaCell}
+      <td><span class="factor-plot-track"><span class="factor-plot-bar" style="width:${width.toFixed(1)}%"></span></span></td>
+    </tr>`;
+  }).join("");
+  return `<h3 class="factor-screen-title">Funnel</h3>
+    <table class="boss-find-table">
+      <thead><tr><th></th><th>Best</th><th>vs first</th><th></th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <p class="boss-find-note">Best is the running champion. It stays or goes up. Higher is better.</p>`;
+}
+
+function pushBuildBlock(screen, labels, costs, objective) {
+  if (!screen?.talents || !screen?.attributes) return "";
+  const talentCost = costs.TALENT_COSTS || {};
+  const attrCost = costs.ATTRIBUTE_COSTS || {};
+  const talentOrder = costs.TALENT_ORDER || Object.keys(screen.talents);
+  const attrOrder = costs.ATTR_ORDER || Object.keys(screen.attributes);
+  const lines = [];
+  let talentPts = 0;
+  let attrPts = 0;
+  for (const key of talentOrder) {
+    const level = Number(screen.talents[key]) || 0;
+    if (!level) continue;
+    const pts = level * Number(talentCost[key]?.cost || 1);
+    talentPts += pts;
+    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
+  }
+  for (const key of attrOrder) {
+    const level = Number(screen.attributes[key]) || 0;
+    if (!level) continue;
+    const pts = level * Number(attrCost[key]?.cost || 1);
+    attrPts += pts;
+    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
+  }
+  return `<h3 class="factor-screen-title">Best build</h3>
+    <p class="boss-find-lead">${pushMetricText(screen, objective)} · ${talentPts} talent points · ${attrPts} attribute points</p>
+    <table class="boss-find-table">
+      <thead><tr><th>Skill</th><th>Level</th><th>Points</th></tr></thead>
+      <tbody>${lines.join("")}</tbody>
+    </table>
+    <p class="boss-find-note">${screen.kept ? "This is the running champion carried into this phase. This phase did not beat it." : "This is the best row in the last phase."} Apply writes it onto the hunter.</p>`;
+}
+
+function pushScreenBlock(screen, labels, result) {
+  const factors = Array.isArray(screen.factors) ? screen.factors : [];
+  const metric = pushMetricText(screen, result.objective);
+  if (!screen.rows) {
+    return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
+      <p class="boss-find-lead">No legal builds at this budget.</p>
+      <p class="boss-find-note">${escapeReportText(pushLockNote(screen, labels))}</p>`;
+  }
+  const dropped = Array.isArray(screen.dropped) ? screen.dropped : [];
+  const droppedText = dropped.length
+    ? ` Intermediate levels left out of this grid: ${dropped.map((key) => labels[key] || key).join(", ")}.`
+    : "";
+  const note = screen.kind === "screen2"
+    ? `${pushLockNote(screen, labels)} Other skills that beat off are stepped. ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares.`
+    : screen.kind === "refine"
+      ? `Holds the running champion and steps the cheap levels of the skills this funnel ranked, plus a 5-point split between Presence and Lucky Loot and between Ares and Ylith. ${result.sims} sims per build.`
+      : `Bars are the gain versus off, largest clear gain first. ${result.sims} sims per build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares.`;
+  const summary = factors.length
+    ? `${pushBestLine(factors, "talent", "Talent", labels)}
+    ${pushBestLine(factors, "attribute", "Attribute", labels)}`
+    : `<p class="boss-find-lead">No skill still moves in this screen.</p>`;
+  const costs = hunter().costs || {};
+  return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
+    <p class="boss-find-lead">${screen.rows} builds · best ${escapeReportText(metric)}</p>
+    ${summary}
+    <div class="factor-plot" role="img" aria-label="${escapeReportText(screen.title || "Screen")} skills ranked by gain versus off">${pushFactorPlotMarkup(factors, labels)}</div>
+    <p class="boss-find-note">${escapeReportText(note)}${droppedText ? ` ${escapeReportText(droppedText.trim())}` : ""}</p>
+    ${screen.kind === "refine" ? `${pushCompare(result.screens, result.objective)}${pushBuildBlock(screen, labels, costs, result.objective)}` : ""}`;
+}
+
+function pushScreenReport(result) {
+  const costs = hunter().costs || {};
+  const labels = { ...(costs.TALENT_LABELS || {}), ...(costs.ATTRIBUTE_LABELS || {}) };
+  const screens = Array.isArray(result.screens) ? result.screens : [];
+  return screens.map((screen) => pushScreenBlock(screen, labels, result)).join("");
+}
+
 /** Always-on post-optimize report. Returns true only if user applies an improved build. */
 async function showOptReport({ mode, modeLabel, result, bossStages }) {
   const modal = $("#optConfirmModal");
@@ -1148,10 +1320,13 @@ async function showOptReport({ mode, modeLabel, result, bossStages }) {
       ${matRows}
     </div>
     <p class="opt-report-meta">
-      ${result.evals} evals · ${result.loops || 1} iteration(s) · screen ${result.nSearch} / refine ${result.nRefine} sims
+      ${result.funnel
+        ? `${result.rows} builds · ${result.sims} sims each · confirm ${result.nRefine} sims`
+        : `${result.evals} evals · ${result.loops || 1} iteration(s) · screen ${result.nSearch} / refine ${result.nRefine} sims`}
       ${mode === "bosses" ? `<br />Boss targets: ${(bossStages || []).join(", ") || "—"}` : ""}
-      ${mode === "loot" ? "<br />Timeless Mastery 5: required" : ""}
+      ${mode === "loot" && !result.funnel ? "<br />Timeless Mastery 5: required" : ""}
     </p>
+    ${result.funnel ? pushScreenReport(result) : ""}
     ${improved ? `<p class="opt-report-ask">Apply talents &amp; attributes from the best build?</p>` : ""}
   `;
 
@@ -1725,9 +1900,10 @@ async function runOptimize(objective = "stage") {
   $("#btnOptCancel").hidden = false;
   $("#btnTalentClose").disabled = true;
   $("#optProgressBar").style.width = "0%";
-  // Material/XP farm: Timeless Mastery 5 is mandatory; checkbox is inactive for this run.
+  // Material/XP on Ozzy and Knox still requires Timeless Mastery 5. Borge push screens leave it free.
+  const useFunnel = hunter().id === "borge";
   let tmCheckboxRestore = null;
-  if (mode === "loot") {
+  if (!useFunnel && mode === "loot") {
     const tmEl = $("#optForceTimeless");
     if (tmEl) {
       tmCheckboxRestore = tmEl.checked;
@@ -1744,27 +1920,45 @@ async function runOptimize(objective = "stage") {
     mode === "bosses" ? "Boss Maximizer" : mode === "loot" ? "Push Material/XP" : "Push Average Stage";
 
   try {
-    const result = await optimizeBuild(
-      state.build,
-      state.engine,
-      hunter(),
-      {
-        loops,
-        prioritizeTimelessMastery: mode === "loot" ? true : $("#optForceTimeless").checked,
-        objective: mode,
-        bossStages,
-      },
-      {
-        isCancelled: () => state.optCancel,
-        onProgress: (p) => {
-          const pct = Math.min(100, Math.round((p.done / Math.max(1, p.total)) * 100));
-          $("#optProgressBar").style.width = `${pct}%`;
-          $("#optStatus").textContent = `${p.msg}${formatOptProgressExtra(p)}`;
+    const result = useFunnel
+      ? await findPushBuild(
+        state.build,
+        state.engine,
+        hunter(),
+        { objective: mode, bossStages },
+        {
+          isCancelled: () => state.optCancel,
+          onProgress: (p) => {
+            const screens = Math.max(1, Number(p.screens) || 1);
+            const screen = Math.max(1, Number(p.screen) || 1);
+            const frac = ((screen - 1) + (p.done / Math.max(1, p.total))) / screens;
+            const pct = Math.min(95, Math.round(frac * 100));
+            $("#optProgressBar").style.width = `${pct}%`;
+            $("#optStatus").textContent = `${modeLabel} · ${p.msg}${formatOptProgressExtra(p)}`;
+          },
         },
-      },
-    );
+      )
+      : await optimizeBuild(
+        state.build,
+        state.engine,
+        hunter(),
+        {
+          loops,
+          prioritizeTimelessMastery: mode === "loot" ? true : $("#optForceTimeless").checked,
+          objective: mode,
+          bossStages,
+        },
+        {
+          isCancelled: () => state.optCancel,
+          onProgress: (p) => {
+            const pct = Math.min(100, Math.round((p.done / Math.max(1, p.total)) * 100));
+            $("#optProgressBar").style.width = `${pct}%`;
+            $("#optStatus").textContent = `${p.msg}${formatOptProgressExtra(p)}`;
+          },
+        },
+      );
 
-    if (state.optCancel) {
+    if (result.cancelled || state.optCancel) {
       $("#optStatus").textContent = "Optimization cancelled.";
       return;
     }
@@ -1797,10 +1991,14 @@ async function runOptimize(objective = "stage") {
           ? `loot ${bestLoot} (current ${baseLoot})`
           : `Ø ${bestAvg} (current ${baseAvg})`;
 
+    const effort = result.funnel
+      ? `${result.rows} builds · ${result.sims} sims`
+      : `${result.evals} evals · ${loopsN} iteration(s)`;
+
     $("#optProgressBar").style.width = "100%";
     $("#optStatus").textContent = result.improved
-      ? `Done · ${improvedLine} · ${result.evals} evals — report open`
-      : `Done · no improvement · ${noImproveLine} · ${result.evals} evals — report open`;
+      ? `Done · ${improvedLine} · ${effort} — report open`
+      : `Done · no improvement · ${noImproveLine} · ${effort} — report open`;
 
     const apply = await showOptReport({ mode, modeLabel, result, bossStages });
 
@@ -1815,22 +2013,22 @@ async function runOptimize(objective = "stage") {
       if (result.bestEval) showResult(result.bestEval);
       if (mode === "stage") {
         $("#optStatus").textContent =
-          `Applied · ${improvedLine} · ${result.evals} evals · ${loopsN} iteration(s) · Next-Best-Opti…`;
+          `Applied · ${improvedLine} · ${effort} · Next-Best-Opti…`;
         $("#status").textContent =
           `${modeLabel}: Ø Stage ${bestAvg} (↑ from ${baseAvg}) — applied · Next-Best-Opti…`;
         runNextBestAfterApply = true;
       } else {
         $("#optStatus").textContent =
-          `Applied · ${improvedLine} · ${result.evals} evals · ${loopsN} iteration(s)`;
+          `Applied · ${improvedLine} · ${effort}`;
         $("#status").textContent = `${modeLabel}: applied · ${improvedLine}`;
       }
     } else if (result.improved) {
       $("#optStatus").textContent =
-        `Discarded · suggested ${discardSuggest} · ${result.evals} evals`;
+        `Discarded · suggested ${discardSuggest} · ${effort}`;
       $("#status").textContent = `${modeLabel}: suggestion discarded (${discardSuggest})`;
     } else {
       $("#optStatus").textContent =
-        `No improvement · ${noImproveLine} · ${result.evals} evals · ${loopsN} iteration(s)`;
+        `No improvement · ${noImproveLine} · ${effort}`;
       $("#status").textContent = `${modeLabel}: no improvement · see report`;
       if (result.baselineEval) showResult(result.baselineEval);
     }

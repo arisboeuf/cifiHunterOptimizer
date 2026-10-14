@@ -186,15 +186,15 @@
               First Bosskill Finder
             </button>
             <button type="button" class="btn" id="btnOptCancel" hidden>Cancel</button>
-            <label class="opt-field" title="Ozzy and Knox only. Borge push screens run one funnel.">
+            <label class="opt-field" title="Unused by the push screens. Those run one funnel.">
               <span>Iterations</span>
               <input id="optLoops" type="number" min="1" max="20" value="3" />
             </label>
-            <label class="opt-check" title="Ozzy and Knox only. On Borge, Timeless Mastery is a free factor in the push screens.">
+            <label class="opt-check" title="Unused by the push screens. Timeless Mastery is a free factor there.">
               <input type="checkbox" id="optForceTimeless" checked />
               <span>Prioritize Timeless Mastery</span>
             </label>
-            <label class="opt-check" title="Open the screen charts when the finder finishes. Uncheck to keep only the status line.">
+            <label class="opt-check" title="Open the screen charts when a push or the First Bosskill Finder finishes. Uncheck to hide the charts. A better push build still asks whether to apply it.">
               <input type="checkbox" id="optShowBossReport" checked />
               <span>Show finder report</span>
             </label>
@@ -216,7 +216,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge run three screens at the current level. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares. The report compares the winner with your current build at 4000 sims, and Apply writes the talents and attributes. First Bosskill Finder is separate: 50 sims per build, ranked by remaining boss HP, and it does not change the build. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery apply to Ozzy and Knox. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
+            Push Average Stage, Push Material/XP, and Maximize Boss/day run three screens at the current level for Borge, Ozzy, and Knox. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover points go to that hunter's filler skills. The compare step resimulates the winner and your current build at 4000 sims. Apply writes the talents and attributes when that confirm is better. Uncheck Show finder report to hide the charts; a better build still asks whether to apply it. First Bosskill Finder is separate: 50 sims per build, ranked by remaining boss HP, and it does not change the build. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery are not used by these screens. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -245,6 +245,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=pushfunnel"></script>
+    <script type="module" src="./js/app.js?v=pushall"></script>
   </body>
 </html>

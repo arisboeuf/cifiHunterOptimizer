@@ -1873,24 +1873,224 @@ function pushScreen1Levels() {
   };
 }
 
+let pushP = null;
+
+function borgePushProfile() {
+  return {
+    fillers: PUSH_FILLERS,
+    talentKeys: PUSH_TALENT_KEYS,
+    attrKeys: PUSH_ATTR_KEYS,
+    talentFiller: BORGE_TALENT_FILLER,
+    talentFillerMax: BORGE_TALENT_FILLER_MAX,
+    attrFiller: "soul_of_ares",
+    attrParent: PUSH_ATTR_PARENT,
+    attrCost: PUSH_ATTR_COST,
+    attrGate: PUSH_ATTR_GATE,
+    gatedKeys: PUSH_GATED_KEYS,
+    factors: PUSH_FACTORS,
+    fineLevels: PUSH_FINE_LEVELS,
+    refineSteps: PUSH_REFINE_STEPS,
+    screen1: pushScreen1Levels,
+    attrDrops: SCREEN1_ATTR_DROPS,
+    talentDrops: SCREEN1_TALENT_DROPS,
+    tiedTo: { essence_of_ylith: "spartan_lineage" },
+    luckyKey: "call_me_lucky_loot",
+    luckyMax: 10,
+    shiftAttr: "essence_of_ylith",
+    shiftAttrMinChild: "spartan_lineage",
+  };
+}
+
+function ozzyPushProfile() {
+  const talentKeys = [
+    "death_is_my_companion", "tricksters_boon", "unfair_advantage", "thousand_needles",
+    "omen_of_decay", "call_me_lucky_loot", "crippling_shots",
+  ];
+  const attrKeys = [
+    "exo_piercers", "wings_of_ibu", "shimmering_scorpions", "timeless_mastery",
+    "extermination_protocol", "soul_of_snek", "vectid_elixir", "gift_of_medusa",
+    "cycle_of_death", "deal_with_death", "dance_of_dashes", "blessing_of_the_sisters",
+    "blessing_of_the_scarab", "blessing_of_the_cat",
+  ];
+  const attrCost = {
+    living_off_the_land: 1, exo_piercers: 1, shimmering_scorpions: 3, timeless_mastery: 3,
+    wings_of_ibu: 2, extermination_protocol: 2, soul_of_snek: 3, vectid_elixir: 2,
+    cycle_of_death: 3, deal_with_death: 5, gift_of_medusa: 3, dance_of_dashes: 3,
+    blessing_of_the_sisters: 15, blessing_of_the_scarab: 2, blessing_of_the_cat: 2,
+  };
+  const attrParent = {
+    shimmering_scorpions: "exo_piercers",
+    timeless_mastery: "exo_piercers",
+    extermination_protocol: "wings_of_ibu",
+    soul_of_snek: "extermination_protocol",
+    vectid_elixir: "extermination_protocol",
+    gift_of_medusa: "extermination_protocol",
+    cycle_of_death: "soul_of_snek",
+    deal_with_death: "cycle_of_death",
+    dance_of_dashes: "shimmering_scorpions",
+    blessing_of_the_sisters: "deal_with_death",
+    blessing_of_the_scarab: "gift_of_medusa",
+    blessing_of_the_cat: "dance_of_dashes",
+  };
+  const attrGate = {
+    deal_with_death: 90, gift_of_medusa: 90, dance_of_dashes: 90,
+    blessing_of_the_sisters: 180, blessing_of_the_scarab: 150, blessing_of_the_cat: 150,
+  };
+  return {
+    fillers: new Set(["echo_bullets", "living_off_the_land"]),
+    talentKeys,
+    attrKeys,
+    talentFiller: "echo_bullets",
+    talentFillerMax: 20,
+    attrFiller: "living_off_the_land",
+    attrParent,
+    attrCost,
+    attrGate,
+    gatedKeys: Object.keys(attrGate),
+    factors: [
+      ...talentKeys.map((key) => ({ key, kind: "talent" })),
+      { key: "echo_bullets", kind: "talent" },
+      ...attrKeys.map((key) => ({ key, kind: "attribute" })),
+      { key: "living_off_the_land", kind: "attribute" },
+    ],
+    fineLevels: {
+      death_is_my_companion: [0, 2], tricksters_boon: [0, 1], unfair_advantage: [0, 2, 5],
+      thousand_needles: [0, 5, 10], omen_of_decay: [0, 5, 10], call_me_lucky_loot: [0, 5, 10],
+      crippling_shots: [0, 5, 10, 15], exo_piercers: [0, 2, 5], wings_of_ibu: [0, 2, 5],
+      shimmering_scorpions: [0, 2, 5], timeless_mastery: [0, 2, 5], extermination_protocol: [0, 2, 5],
+      soul_of_snek: [0, 2, 5], vectid_elixir: [0, 5, 10], gift_of_medusa: [0, 2, 5],
+      cycle_of_death: [0, 2, 5], deal_with_death: [0, 1, 3], dance_of_dashes: [0, 2, 4],
+      blessing_of_the_sisters: [0, 1], blessing_of_the_scarab: [0, 5], blessing_of_the_cat: [0, 5],
+    },
+    refineSteps: {
+      call_me_lucky_loot: [1, 2, 5, 7, 10], timeless_mastery: [1, 2, 3, 4, 5],
+      exo_piercers: [1, 2, 3, 5], crippling_shots: [5, 10, 15], echo_bullets: [5, 10, 15, 20],
+    },
+    screen1: () => ({
+      talents: {
+        death_is_my_companion: [0, 2], tricksters_boon: [0, 1], unfair_advantage: [0, 5],
+        thousand_needles: [0, 10], omen_of_decay: [0, 10], call_me_lucky_loot: [0, 10],
+        crippling_shots: [0, 15],
+      },
+      attributes: {
+        exo_piercers: [0, 5], wings_of_ibu: [0, 5], shimmering_scorpions: [0, 5],
+        timeless_mastery: [0, 5], extermination_protocol: [0, 5], soul_of_snek: [0, 5],
+        vectid_elixir: [0, 10], gift_of_medusa: [0, 5], cycle_of_death: [0, 5],
+        deal_with_death: [0, 3], dance_of_dashes: [0, 4], blessing_of_the_sisters: [0, 1],
+        blessing_of_the_scarab: [0, 5], blessing_of_the_cat: [0, 5],
+      },
+    }),
+    attrDrops: [],
+    talentDrops: [],
+    tiedTo: {},
+    luckyKey: "call_me_lucky_loot",
+    luckyMax: 10,
+    shiftAttr: "exo_piercers",
+    shiftAttrMinChild: null,
+  };
+}
+
+function knoxPushProfile() {
+  const talentKeys = [
+    "death_is_my_companion", "calypsos_advantage", "unfair_advantage", "ghost_bullets",
+    "omen_of_defeat", "call_me_lucky_loot", "presence_of_god",
+  ];
+  const attrKeys = [
+    "soul_amplification", "dead_men_tell_no_tales", "space_pirate_armory", "pirates_life_for_knox",
+    "timeless_mastery", "searious_efficiency", "passive_charge_tank", "king_of_torpedos",
+    "fortification_elixir", "shield_of_poseidon",
+  ];
+  const attrCost = {
+    release_the_kraken: 1, soul_amplification: 1, dead_men_tell_no_tales: 2, space_pirate_armory: 2,
+    pirates_life_for_knox: 3, timeless_mastery: 3, searious_efficiency: 2, passive_charge_tank: 4,
+    king_of_torpedos: 5, fortification_elixir: 2, shield_of_poseidon: 3,
+  };
+  const attrParent = {
+    dead_men_tell_no_tales: "soul_amplification",
+    pirates_life_for_knox: "space_pirate_armory",
+    timeless_mastery: "pirates_life_for_knox",
+    passive_charge_tank: "searious_efficiency",
+    king_of_torpedos: "passive_charge_tank",
+    shield_of_poseidon: "fortification_elixir",
+  };
+  return {
+    fillers: new Set(["finishing_move", "release_the_kraken"]),
+    talentKeys,
+    attrKeys,
+    talentFiller: "finishing_move",
+    talentFillerMax: 15,
+    attrFiller: "release_the_kraken",
+    attrParent,
+    attrCost,
+    attrGate: {},
+    gatedKeys: [],
+    factors: [
+      ...talentKeys.map((key) => ({ key, kind: "talent" })),
+      { key: "finishing_move", kind: "talent" },
+      ...attrKeys.map((key) => ({ key, kind: "attribute" })),
+      { key: "release_the_kraken", kind: "attribute" },
+    ],
+    fineLevels: {
+      death_is_my_companion: [0, 2], calypsos_advantage: [0, 2, 5], unfair_advantage: [0, 2, 5],
+      ghost_bullets: [0, 5, 10, 15], omen_of_defeat: [0, 5, 10], call_me_lucky_loot: [0, 5, 10],
+      presence_of_god: [0, 5, 10], soul_amplification: [0, 5, 10], dead_men_tell_no_tales: [0, 5, 10],
+      space_pirate_armory: [0, 5, 10], pirates_life_for_knox: [0, 5, 10], timeless_mastery: [0, 2, 5],
+      searious_efficiency: [0, 2, 5], passive_charge_tank: [0, 2, 5], king_of_torpedos: [0, 2, 5],
+      fortification_elixir: [0, 5, 10], shield_of_poseidon: [0, 5, 10],
+    },
+    refineSteps: {
+      call_me_lucky_loot: [1, 2, 5, 7, 10], timeless_mastery: [1, 2, 3, 4, 5],
+      soul_amplification: [1, 2, 5, 10], presence_of_god: [1, 5, 10], finishing_move: [5, 10, 15],
+    },
+    screen1: () => ({
+      talents: {
+        death_is_my_companion: [0, 2], calypsos_advantage: [0, 5], unfair_advantage: [0, 5],
+        ghost_bullets: [0, 15], omen_of_defeat: [0, 10], call_me_lucky_loot: [0, 10],
+        presence_of_god: [0, 10],
+      },
+      attributes: {
+        soul_amplification: [0, 10], dead_men_tell_no_tales: [0, 10], space_pirate_armory: [0, 10],
+        pirates_life_for_knox: [0, 5], timeless_mastery: [0, 5], searious_efficiency: [0, 5],
+        passive_charge_tank: [0, 5], king_of_torpedos: [0, 5], fortification_elixir: [0, 10],
+        shield_of_poseidon: [0, 5],
+      },
+    }),
+    attrDrops: [],
+    talentDrops: [],
+    tiedTo: {},
+    luckyKey: "call_me_lucky_loot",
+    luckyMax: 10,
+    shiftAttr: "soul_amplification",
+    shiftAttrMinChild: null,
+  };
+}
+
+function pushProfileFor(hunterId) {
+  if (hunterId === "ozzy") return ozzyPushProfile();
+  if (hunterId === "knox") return knoxPushProfile();
+  if (hunterId === "borge") return borgePushProfile();
+  return null;
+}
+
 function gatedAttrCost(picked, key, level) {
   let high = 0;
-  for (const gated of PUSH_GATED_KEYS) {
+  for (const gated of pushP.gatedKeys) {
     const lvl = gated === key ? level : Number(picked[gated]) || 0;
-    high += lvl * (PUSH_ATTR_COST[gated] || 1);
+    high += lvl * (pushP.attrCost[gated] || 1);
   }
   return high;
 }
 
 function constrainAttrChoices(key, choices, picked, budget) {
-  const parent = PUSH_ATTR_PARENT[key];
-  if (parent && !(Number(picked[parent]) > 0)) return [0];
-  if (key === "essence_of_ylith") {
-    if (!(Number(picked.spartan_lineage) > 0)) return [0];
+  const tiedChild = pushP.tiedTo?.[key];
+  if (tiedChild) {
+    if (!(Number(picked[tiedChild]) > 0)) return [0];
     const positive = choices.filter((level) => level >= 1);
     return positive.length ? positive : [1];
   }
-  const gate = PUSH_ATTR_GATE[key] || 0;
+  const parent = pushP.attrParent[key];
+  if (parent && parent !== pushP.attrFiller && !(Number(picked[parent]) > 0)) return [0];
+  const gate = pushP.attrGate[key] || 0;
   return choices.filter((level) => {
     if (level <= 0) return true;
     if (gate && budget - gatedAttrCost(picked, key, level) < gate) return false;
@@ -1900,47 +2100,28 @@ function constrainAttrChoices(key, choices, picked, budget) {
 
 function finishAttrRow(budget, picked) {
   let spent = 0;
-  for (const [key, cost] of Object.entries(PUSH_ATTR_COST)) {
-    if (key === "soul_of_ares") continue;
-    spent += (Number(picked[key]) || 0) * cost;
+  for (const key of pushP.attrKeys) {
+    spent += (Number(picked[key]) || 0) * (pushP.attrCost[key] || 1);
   }
-  const ares = budget - spent;
-  const ylith = Number(picked.essence_of_ylith) || 0;
-  const hell = Number(picked.helltouch_barrier) || 0;
-  const baal = Number(picked.book_of_baal) || 0;
-  const timeless = Number(picked.timeless_mastery) || 0;
-  const aresMin = ylith || hell || baal || timeless ? 1 : 0;
-  if (ares < aresMin) return null;
-  return {
-    soul_of_ares: ares,
-    essence_of_ylith: ylith,
-    spartan_lineage: Number(picked.spartan_lineage) || 0,
-    timeless_mastery: timeless,
-    book_of_baal: baal,
-    superior_sensors: Number(picked.superior_sensors) || 0,
-    helltouch_barrier: hell,
-    lifedrain_inhalers: Number(picked.lifedrain_inhalers) || 0,
-    explosive_punches: Number(picked.explosive_punches) || 0,
-    atlas_protocol: Number(picked.atlas_protocol) || 0,
-    weakspot_analysis: Number(picked.weakspot_analysis) || 0,
-    born_for_battle: Number(picked.born_for_battle) || 0,
-    soul_of_the_minotaur: Number(picked.soul_of_the_minotaur) || 0,
-    soul_of_hermes: Number(picked.soul_of_hermes) || 0,
-    soul_of_athena: Number(picked.soul_of_athena) || 0,
-  };
+  const filler = budget - spent;
+  const anyOn = pushP.attrKeys.some((key) => Number(picked[key]) > 0);
+  if (filler < (anyOn ? 1 : 0)) return null;
+  const row = { [pushP.attrFiller]: filler };
+  for (const key of pushP.attrKeys) row[key] = Number(picked[key]) || 0;
+  return row;
 }
 
 function pushTalentRows(budget, choiceOf) {
   const rows = [];
   const picked = {};
   const walk = (index, spent) => {
-    if (index === PUSH_TALENT_KEYS.length) {
-      const presence = budget - spent;
-      if (presence < 0 || presence > BORGE_TALENT_FILLER_MAX) return;
-      rows.push({ ...picked, presence_of_god: presence });
+    if (index === pushP.talentKeys.length) {
+      const filler = budget - spent;
+      if (filler < 0 || filler > pushP.talentFillerMax) return;
+      rows.push({ ...picked, [pushP.talentFiller]: filler });
       return;
     }
-    const key = PUSH_TALENT_KEYS[index];
+    const key = pushP.talentKeys[index];
     for (const level of choiceOf(key)) {
       if (spent + level > budget) continue;
       picked[key] = level;
@@ -1955,14 +2136,14 @@ function pushAttributeRows(budget, choiceOf, isLegal) {
   const rows = [];
   const picked = {};
   const walk = (index) => {
-    if (index === PUSH_ATTR_KEYS.length) {
+    if (index === pushP.attrKeys.length) {
       const row = finishAttrRow(budget, picked);
       if (!row) return;
       if (isLegal && !isLegal(row)) return;
       rows.push(row);
       return;
     }
-    const key = PUSH_ATTR_KEYS[index];
+    const key = pushP.attrKeys[index];
     const choices = constrainAttrChoices(key, choiceOf(key), picked, budget);
     for (const level of choices) {
       picked[key] = level;
@@ -1974,7 +2155,7 @@ function pushAttributeRows(budget, choiceOf, isLegal) {
 }
 
 function buildPushScreen1(talentBudget, attrBudget, isLegal) {
-  const levels = pushScreen1Levels();
+  const levels = pushP.screen1();
   const dropped = [];
   const talentChoice = (key) => levels.talents[key] || [0];
   const attrChoice = (key) => levels.attributes[key] || [0];
@@ -1998,8 +2179,8 @@ function buildPushScreen1(talentBudget, attrBudget, isLegal) {
       dropped.push(key);
     }
   };
-  shrink(levels.attributes, SCREEN1_ATTR_DROPS, "attribute");
-  shrink(levels.talents, SCREEN1_TALENT_DROPS, "talent");
+  shrink(levels.attributes, pushP.attrDrops, "attribute");
+  shrink(levels.talents, pushP.talentDrops, "talent");
   return { talents, attributes, dropped };
 }
 
@@ -2015,15 +2196,38 @@ function pushLockList(locks, reasons) {
   }));
 }
 
+function enforcePushParents(isOn, lockAt, open, locks) {
+  for (const [child, parent] of Object.entries(pushP.attrParent)) {
+    if (pushP.fillers.has(parent) || !isOn(child)) continue;
+    const childOpen = open.has(child) ? open.get(child) : null;
+    const childCanBeOff = !!(childOpen && childOpen.includes(0));
+    if (childCanBeOff) continue;
+    if (!isOn(parent)) {
+      lockAt(parent, 1, "parent");
+      continue;
+    }
+    if (open.has(parent)) {
+      const levels = open.get(parent).filter((level) => level > 0);
+      if (levels.length) open.set(parent, levels);
+      else lockAt(parent, 1, "parent");
+    } else if ((locks.get(parent) || 0) < 1) {
+      lockAt(parent, 1, "parent");
+    }
+  }
+  for (const [key, child] of Object.entries(pushP.tiedTo || {})) {
+    if (isOn(child) && !isOn(key)) lockAt(key, 1, "parent");
+  }
+}
+
 function pushScreen2Plan(ranked) {
   const locks = new Map();
   const reasons = new Map();
   const open = new Map();
-  const controllable = ranked.factors.filter((factor) => !PUSH_FILLERS.has(factor.key));
+  const controllable = ranked.factors.filter((factor) => !pushP.fillers.has(factor.key));
   const clear = controllable.filter((factor) => factor.level > 0 && factor.beats && factor.clear);
   const top = clear[0] || null;
   const lockAt = (key, level, reason) => {
-    if (PUSH_FILLERS.has(key)) return;
+    if (pushP.fillers.has(key)) return;
     open.delete(key);
     locks.set(key, level);
     reasons.set(key, reason);
@@ -2040,38 +2244,13 @@ function pushScreen2Plan(ranked) {
       lockAt(factor.key, level, "top");
       continue;
     }
-    const fine = PUSH_FINE_LEVELS[factor.key];
+    const fine = pushP.fineLevels[factor.key];
     if (fine) open.set(factor.key, fine.slice());
     else lockAt(factor.key, level, "held");
   }
 
   const isOn = (key) => open.has(key) || (locks.get(key) || 0) > 0;
-  if ((isOn("lifedrain_inhalers") || isOn("explosive_punches")) && reasons.get("helltouch_barrier") !== "top") {
-    lockAt("helltouch_barrier", 1, "parent");
-  }
-  if ((locks.get("helltouch_barrier") || 0) <= 0 && !open.has("helltouch_barrier")) {
-    if (isOn("lifedrain_inhalers")) lockAt("lifedrain_inhalers", 0, "off");
-    if (isOn("explosive_punches")) lockAt("explosive_punches", 0, "off");
-  }
-  if (!isOn("book_of_baal") && isOn("superior_sensors")) lockAt("superior_sensors", 0, "off");
-  if (!isOn("superior_sensors") && isOn("atlas_protocol")) lockAt("atlas_protocol", 0, "off");
-  if (!isOn("atlas_protocol") && isOn("soul_of_the_minotaur")) lockAt("soul_of_the_minotaur", 0, "off");
-  if (!isOn("explosive_punches") && isOn("weakspot_analysis")) lockAt("weakspot_analysis", 0, "off");
-  if (!isOn("weakspot_analysis") && isOn("soul_of_hermes")) lockAt("soul_of_hermes", 0, "off");
-  if (!isOn("spartan_lineage") && isOn("born_for_battle")) lockAt("born_for_battle", 0, "off");
-  if (!isOn("born_for_battle") && isOn("soul_of_athena")) lockAt("soul_of_athena", 0, "off");
-  if (isOn("timeless_mastery")) {
-    if (!isOn("spartan_lineage")) lockAt("spartan_lineage", 1, "parent");
-    else if (open.has("spartan_lineage")) {
-      const levels = open.get("spartan_lineage").filter((level) => level > 0);
-      if (levels.length) open.set("spartan_lineage", levels);
-      else lockAt("spartan_lineage", 1, "parent");
-    } else if ((locks.get("spartan_lineage") || 0) < 1) {
-      lockAt("spartan_lineage", 1, "parent");
-    }
-    if (!isOn("essence_of_ylith")) lockAt("essence_of_ylith", 1, "parent");
-  }
-  if (isOn("spartan_lineage") && !isOn("essence_of_ylith")) lockAt("essence_of_ylith", 1, "parent");
+  enforcePushParents(isOn, lockAt, open, locks, reasons);
 
   return {
     locks,
@@ -2083,7 +2262,7 @@ function pushScreen2Plan(ranked) {
 
 function admitPushChampion(plan, champion) {
   if (!champion) return plan;
-  for (const key of [...PUSH_TALENT_KEYS, ...PUSH_ATTR_KEYS]) {
+  for (const key of [...pushP.talentKeys, ...pushP.attrKeys]) {
     const level = championLevel(champion, key);
     if (plan.open.has(key)) {
       plan.open.set(key, uniqLevelsKeepZero([...plan.open.get(key), level]));
@@ -2154,7 +2333,7 @@ function decidingDelta(best, base) {
 function pushFactorLifts(samples, objective) {
   const factors = [];
   const fixed = [];
-  for (const spec of PUSH_FACTORS) {
+  for (const spec of pushP.factors) {
     const groups = new Map();
     for (const sample of samples) {
       const level = Number(sample.points[spec.key]) || 0;
@@ -2283,7 +2462,7 @@ function publishPush(screen, incumbent) {
 function refineLevelsFor(key, winnerLevel, championLvl) {
   const cap = Math.max(Number(winnerLevel) || 0, Number(championLvl) || 0);
   if (cap <= 0) return [];
-  const catalog = PUSH_REFINE_STEPS[key] || [1, 2, 3, 4, 5];
+  const catalog = pushP.refineSteps[key] || [1, 2, 3, 4, 5];
   return uniqLevelsKeepZero([...catalog.filter((level) => level > 0 && level <= cap), winnerLevel, championLvl]);
 }
 
@@ -2291,27 +2470,22 @@ function pushRefinePlan(ranked, champion) {
   const locks = new Map();
   const reasons = new Map();
   const open = new Map();
-  const controllable = ranked.factors.filter((factor) => !PUSH_FILLERS.has(factor.key) && factor.beats && factor.level > 0);
+  const controllable = ranked.factors.filter((factor) => !pushP.fillers.has(factor.key) && factor.beats && factor.level > 0);
   const chain = controllable.slice(0, 3).map((factor) => factor.key);
   const lockAt = (key, level, reason) => {
     open.delete(key);
     locks.set(key, level);
     reasons.set(key, reason);
   };
-  for (const key of [...PUSH_TALENT_KEYS, ...PUSH_ATTR_KEYS]) {
+  for (const key of [...pushP.talentKeys, ...pushP.attrKeys]) {
     lockAt(key, championLevel(champion, key), "incumbent");
   }
   for (const key of chain) {
     const levels = refineLevelsFor(key, controllable.find((factor) => factor.key === key)?.level, championLevel(champion, key));
     if (levels.length > 1) open.set(key, levels);
   }
-  if (open.has("timeless_mastery")) {
-    if ((locks.get("spartan_lineage") || 0) < 1 && !open.has("spartan_lineage")) lockAt("spartan_lineage", 1, "parent");
-    if ((locks.get("essence_of_ylith") || 0) < 1 && !open.has("essence_of_ylith")) lockAt("essence_of_ylith", 1, "parent");
-  }
-  if ((open.has("spartan_lineage") || (locks.get("spartan_lineage") || 0) > 0) && (locks.get("essence_of_ylith") || 0) < 1 && !open.has("essence_of_ylith")) {
-    lockAt("essence_of_ylith", 1, "parent");
-  }
+  const isOn = (key) => open.has(key) || (locks.get(key) || 0) > 0;
+  enforcePushParents(isOn, lockAt, open, locks);
   return {
     locks,
     open,
@@ -2349,18 +2523,12 @@ function fillerShiftRows(champion, talentBudget) {
     talents[to] = (Number(talents[to]) || 0) + points;
     add(talents, { ...champion.attributes });
   };
-  moveTalent("presence_of_god", "call_me_lucky_loot", 5, 10);
-  moveTalent("call_me_lucky_loot", "presence_of_god", 5, 15);
+  moveTalent(pushP.talentFiller, pushP.luckyKey, 5, pushP.luckyMax);
+  moveTalent(pushP.luckyKey, pushP.talentFiller, 5, pushP.talentFillerMax);
   const attributes = { ...champion.attributes };
-  const spartan = Number(attributes.spartan_lineage) || 0;
-  const ylithMin = spartan > 0 ? 1 : 0;
-  const aresMin = (
-    Number(attributes.essence_of_ylith) ||
-    Number(attributes.helltouch_barrier) ||
-    Number(attributes.book_of_baal) ||
-    Number(attributes.timeless_mastery) ||
-    spartan
-  ) ? 1 : 0;
+  const minChild = pushP.shiftAttrMinChild;
+  const shiftMin = minChild && Number(attributes[minChild]) > 0 ? 1 : 0;
+  const fillerMin = pushP.attrKeys.some((key) => Number(attributes[key]) > 0) ? 1 : 0;
   const moveAttr = (from, to, points, minFrom) => {
     if ((Number(attributes[from]) || 0) - points < minFrom) return;
     const next = { ...attributes };
@@ -2368,8 +2536,8 @@ function fillerShiftRows(champion, talentBudget) {
     next[to] = (Number(next[to]) || 0) + points;
     add({ ...champion.talents }, next);
   };
-  moveAttr("soul_of_ares", "essence_of_ylith", 5, aresMin);
-  moveAttr("essence_of_ylith", "soul_of_ares", 5, ylithMin);
+  moveAttr(pushP.attrFiller, pushP.shiftAttr, 5, fillerMin);
+  moveAttr(pushP.shiftAttr, pushP.attrFiller, 5, shiftMin);
   return rows;
 }
 
@@ -2461,7 +2629,7 @@ function packPushScreen(title, kind, run, ranked, extra = {}) {
 }
 
 /**
- * Borge stage, loot, and bosses/day funnel.
+ * Stage, loot, and bosses/day funnel for Borge, Ozzy, and Knox.
  * Screen 1 is a coarse factorial. Screen 2 locks a clear gain and steps the rest.
  * Refinement holds that build and steps the cheap levels the chart ranked, plus a filler split.
  * Call Me Lucky Loot and Timeless Mastery are factors. Does not force either one on.
@@ -2469,9 +2637,8 @@ function packPushScreen(title, kind, run, ranked, extra = {}) {
 export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
   const isCancelled = hooks.isCancelled || (() => false);
-  if (hunter.id !== "borge") {
-    throw new Error("This push screen is set up for Borge.");
-  }
+  pushP = pushProfileFor(hunter.id);
+  if (!pushP) throw new Error("This push screen is not set up for this hunter.");
   const objective = normalizeObjective(optIn.objective);
   const bossStages = normalizeBossStages(optIn.bossStages);
   if (objective === "bosses" && !bossStages.length) {
@@ -2636,6 +2803,10 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
     bossStages,
     level,
     sims,
+    talentFiller: pushP.talentFiller,
+    attrFiller: pushP.attrFiller,
+    luckyKey: pushP.luckyKey,
+    shiftAttr: pushP.shiftAttr,
     rows: rowCount,
     talentPoints: caps.talents,
     attributePoints: caps.attributes,

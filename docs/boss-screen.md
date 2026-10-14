@@ -1,6 +1,6 @@
 # Boss screen: what we tried and what the finder does
 
-Notes from the October 2026 design discussion. The First Bosskill Finder runs the two screens described under [Current screen](#current-screen) and [Second screen](#second-screen), then the short pass under [Refinement](#refinement). [Stage, loot, and bosses/day](#stage-loot-and-bossesday) is whether that funnel should also replace the other three buttons. It should not, yet. Those three still use the Monte Carlo in `optimizeBuild`.
+Notes from the October 2026 design discussion. The First Bosskill Finder runs the two screens described under [Current screen](#current-screen) and [Second screen](#second-screen), then the short pass under [Refinement](#refinement). [Stage, loot, and bosses/day](#stage-loot-and-bossesday) is the same funnel shape with a different score. Borge, Ozzy, and Knox all use it. The boss finder itself is unchanged.
 
 ## Current screen
 
@@ -155,11 +155,11 @@ The diamond card is one purchase (5000 diamonds), not a stack of ranks. Owned, i
 
 ## Stage, loot, and bosses/day
 
-Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge run the same three-phase funnel as the boss finder, with a different score and a different factor list. Ozzy and Knox still use the Monte Carlo in `optimizeBuild`. The boss finder itself is unchanged.
+Push Average Stage, Push Material/XP, and Maximize Boss/day on Borge, Ozzy, and Knox run the same three-phase funnel as the boss finder, with a different score and a different factor list. The boss finder itself is unchanged.
 
-Call Me Lucky Loot and Timeless Mastery are free factors on all three Borge push screens. Off is a legal row. Neither skill is forced on. Presence Of A God and Soul Of Ares still take leftover points, and they are ranked on the chart. Screen 1 also steps Ylith at 1 and 5 when that still fits the row cap; otherwise refinement moves 5 points between Ares and Ylith. The refinement corner follows the skills the chart ranked, and it always tries that filler split. A skill is locked on only when its gain is clear next to the spread of the builds at those levels. Grids up to about 2,500 builds use 100 sims. Larger grids use 80, then 50.
+Call Me Lucky Loot and Timeless Mastery are free factors on all three push screens. Off is a legal row. Neither skill is forced on. Each hunter parks leftover talent points on one filler (Borge: Presence Of A God, Ozzy: Echo Bullets, Knox: Finishing Move) and leftover attribute points on another (Borge: Soul Of Ares, Ozzy: Living Off The Land, Knox: Release The Kraken). Those fillers are ranked on the chart. Screen 1 also steps Borge's Ylith at 1 and 5 when that still fits the row cap; otherwise refinement moves 5 points between the attribute filler and its shift partner (Ylith, Exo Piercers, or Soul Amplification). The refinement corner follows the skills the chart ranked, and it always tries that filler split. A skill is locked on only when its gain is clear next to the spread of the builds at those levels. Grids up to about 2,500 builds use 100 sims. Larger grids use 80, then 50.
 
-The apply decision resimulates the current hunter and the funnel winner at 4,000 sims. The charts use the screening sims. A row is written onto the hunter only when that confirm is better and the report is accepted.
+The apply decision resimulates the current hunter and the funnel winner at 4,000 sims. The charts use the screening sims. A row is written onto the hunter only when that confirm is better and Apply is accepted. Show finder report hides the charts when it is off. A better confirm still opens the apply question.
 
 ### The funnel, apart from boss HP
 
@@ -212,8 +212,8 @@ Bosses/day is clears times runs per day. It is closer to this finder than averag
 
 ### Wired
 
-Borge's three push buttons call `findPushBuild`. The First Bosskill Finder still calls `findFirstBossKill`. Ozzy and Knox keep `optimizeBuild`.
+Borge, Ozzy, and Knox call `findPushBuild` from the three push buttons. The First Bosskill Finder still calls `findFirstBossKill`.
 
 ## Not done yet
 
-The boss finder's refinement only steps the cheap Atlas-chain levels. It does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked. Ozzy and Knox are not on the push funnel.
+The boss finder's refinement only steps the cheap Atlas-chain levels. It does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked.

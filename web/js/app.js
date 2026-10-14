@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages, optimizeBuild } from "./optimize.js?v=pushfunnel";
+import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=pushall";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -216,14 +216,6 @@ function setOptBossChecksDisabled(disabled) {
   for (const el of document.querySelectorAll(".opt-boss")) {
     el.disabled = !!disabled;
   }
-}
-
-function setTimelessOptDisabled(disabled) {
-  const el = $("#optForceTimeless");
-  if (!el) return;
-  el.disabled = !!disabled;
-  const label = el.closest("label");
-  if (label) label.classList.toggle("is-disabled", !!disabled);
 }
 
 function fmtDelta(n, digits = 2) {
@@ -1197,11 +1189,14 @@ function pushScreenBlock(screen, labels, result) {
   const droppedText = dropped.length
     ? ` Intermediate levels left out of this grid: ${dropped.map((key) => labels[key] || key).join(", ")}.`
     : "";
+  const talentDump = factorName(labels, result.talentFiller);
+  const attrDump = factorName(labels, result.attrFiller);
+  const leftover = `Leftover talent points go to ${talentDump}. Leftover attribute points go to ${attrDump}.`;
   const note = screen.kind === "screen2"
-    ? `${pushLockNote(screen, labels)} Other skills that beat off are stepped. ${result.sims} sims per build. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares.`
+    ? `${pushLockNote(screen, labels)} Other skills that beat off are stepped. ${result.sims} sims per build. ${leftover}`
     : screen.kind === "refine"
-      ? `Holds the running champion and steps the cheap levels of the skills this funnel ranked, plus a 5-point split between Presence and Lucky Loot and between Ares and Ylith. ${result.sims} sims per build.`
-      : `Bars are the gain versus off, largest clear gain first. ${result.sims} sims per build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover talent points go to Presence Of A God. Leftover attribute points go to Soul Of Ares.`;
+      ? `Holds the running champion and steps the cheap levels of the skills this funnel ranked, plus a 5-point split between ${talentDump} and ${factorName(labels, result.luckyKey)} and between ${attrDump} and ${factorName(labels, result.shiftAttr)}. ${result.sims} sims per build.`
+      : `Bars are the gain versus off, largest clear gain first. ${result.sims} sims per build. Call Me Lucky Loot and Timeless Mastery are free factors. ${leftover}`;
   const summary = factors.length
     ? `${pushBestLine(factors, "talent", "Talent", labels)}
     ${pushBestLine(factors, "attribute", "Attribute", labels)}`
@@ -1223,7 +1218,7 @@ function pushScreenReport(result) {
 }
 
 /** Always-on post-optimize report. Returns true only if user applies an improved build. */
-async function showOptReport({ mode, modeLabel, result, bossStages }) {
+async function showOptReport({ mode, modeLabel, result, bossStages, showPlots = true }) {
   const modal = $("#optConfirmModal");
   const body = $("#optConfirmBody");
   const btnClose = $("#btnOptReportClose");
@@ -1326,7 +1321,7 @@ async function showOptReport({ mode, modeLabel, result, bossStages }) {
       ${mode === "bosses" ? `<br />Boss targets: ${(bossStages || []).join(", ") || "—"}` : ""}
       ${mode === "loot" && !result.funnel ? "<br />Timeless Mastery 5: required" : ""}
     </p>
-    ${result.funnel ? pushScreenReport(result) : ""}
+    ${result.funnel && showPlots ? pushScreenReport(result) : ""}
     ${improved ? `<p class="opt-report-ask">Apply talents &amp; attributes from the best build?</p>` : ""}
   `;
 
@@ -1900,63 +1895,29 @@ async function runOptimize(objective = "stage") {
   $("#btnOptCancel").hidden = false;
   $("#btnTalentClose").disabled = true;
   $("#optProgressBar").style.width = "0%";
-  // Material/XP on Ozzy and Knox still requires Timeless Mastery 5. Borge push screens leave it free.
-  const useFunnel = hunter().id === "borge";
-  let tmCheckboxRestore = null;
-  if (!useFunnel && mode === "loot") {
-    const tmEl = $("#optForceTimeless");
-    if (tmEl) {
-      tmCheckboxRestore = tmEl.checked;
-      tmEl.checked = true;
-    }
-    setTimelessOptDisabled(true);
-  }
-
-  const loops = Math.max(1, Math.min(20, Math.floor(Number($("#optLoops").value) || 1)));
-  $("#optLoops").value = String(loops);
 
   let runNextBestAfterApply = false;
   const modeLabel =
     mode === "bosses" ? "Boss Maximizer" : mode === "loot" ? "Push Material/XP" : "Push Average Stage";
 
   try {
-    const result = useFunnel
-      ? await findPushBuild(
-        state.build,
-        state.engine,
-        hunter(),
-        { objective: mode, bossStages },
-        {
-          isCancelled: () => state.optCancel,
-          onProgress: (p) => {
-            const screens = Math.max(1, Number(p.screens) || 1);
-            const screen = Math.max(1, Number(p.screen) || 1);
-            const frac = ((screen - 1) + (p.done / Math.max(1, p.total))) / screens;
-            const pct = Math.min(95, Math.round(frac * 100));
-            $("#optProgressBar").style.width = `${pct}%`;
-            $("#optStatus").textContent = `${modeLabel} · ${p.msg}${formatOptProgressExtra(p)}`;
-          },
+    const result = await findPushBuild(
+      state.build,
+      state.engine,
+      hunter(),
+      { objective: mode, bossStages },
+      {
+        isCancelled: () => state.optCancel,
+        onProgress: (p) => {
+          const screens = Math.max(1, Number(p.screens) || 1);
+          const screen = Math.max(1, Number(p.screen) || 1);
+          const frac = ((screen - 1) + (p.done / Math.max(1, p.total))) / screens;
+          const pct = Math.min(95, Math.round(frac * 100));
+          $("#optProgressBar").style.width = `${pct}%`;
+          $("#optStatus").textContent = `${modeLabel} · ${p.msg}${formatOptProgressExtra(p)}`;
         },
-      )
-      : await optimizeBuild(
-        state.build,
-        state.engine,
-        hunter(),
-        {
-          loops,
-          prioritizeTimelessMastery: mode === "loot" ? true : $("#optForceTimeless").checked,
-          objective: mode,
-          bossStages,
-        },
-        {
-          isCancelled: () => state.optCancel,
-          onProgress: (p) => {
-            const pct = Math.min(100, Math.round((p.done / Math.max(1, p.total)) * 100));
-            $("#optProgressBar").style.width = `${pct}%`;
-            $("#optStatus").textContent = `${p.msg}${formatOptProgressExtra(p)}`;
-          },
-        },
-      );
+      },
+    );
 
     if (result.cancelled || state.optCancel) {
       $("#optStatus").textContent = "Optimization cancelled.";
@@ -1970,8 +1931,6 @@ async function runOptimize(objective = "stage") {
     const baseBosses = Number(result.baselineScore.bossesPerDay) || 0;
     const bestBosses = Number(result.bestScore.bossesPerDay) || 0;
     const bossesLabel = bossStages.join(", ");
-    const loopsN = result.loops || 1;
-
     const improvedLine =
       mode === "bosses"
         ? `${bestBosses.toFixed(1)} bosses/d (was ${baseBosses.toFixed(1)}) · bosses ${bossesLabel}`
@@ -1991,16 +1950,17 @@ async function runOptimize(objective = "stage") {
           ? `loot ${bestLoot} (current ${baseLoot})`
           : `Ø ${bestAvg} (current ${baseAvg})`;
 
-    const effort = result.funnel
-      ? `${result.rows} builds · ${result.sims} sims`
-      : `${result.evals} evals · ${loopsN} iteration(s)`;
+    const effort = `${result.rows} builds · ${result.sims} sims`;
+    const showPlots = $("#optShowBossReport")?.checked !== false;
 
     $("#optProgressBar").style.width = "100%";
     $("#optStatus").textContent = result.improved
-      ? `Done · ${improvedLine} · ${effort} — report open`
-      : `Done · no improvement · ${noImproveLine} · ${effort} — report open`;
+      ? `Done · ${improvedLine} · ${effort} — ${showPlots ? "report open" : "apply open"}`
+      : `Done · no improvement · ${noImproveLine} · ${effort}${showPlots ? " — report open" : ""}`;
 
-    const apply = await showOptReport({ mode, modeLabel, result, bossStages });
+    const apply = result.improved || showPlots
+      ? await showOptReport({ mode, modeLabel, result, bossStages, showPlots })
+      : false;
 
     if (result.improved && apply) {
       state.build = {
@@ -2029,7 +1989,9 @@ async function runOptimize(objective = "stage") {
     } else {
       $("#optStatus").textContent =
         `No improvement · ${noImproveLine} · ${effort}`;
-      $("#status").textContent = `${modeLabel}: no improvement · see report`;
+      $("#status").textContent = showPlots
+        ? `${modeLabel}: no improvement · see report`
+        : `${modeLabel}: no improvement · ${noImproveLine}`;
       if (result.baselineEval) showResult(result.baselineEval);
     }
   } catch (err) {
@@ -2038,11 +2000,6 @@ async function runOptimize(objective = "stage") {
   } finally {
     state.optimizing = false;
     state.optCancel = false;
-    setTimelessOptDisabled(false);
-    if (mode === "loot" && tmCheckboxRestore != null) {
-      const tmEl = $("#optForceTimeless");
-      if (tmEl) tmEl.checked = tmCheckboxRestore;
-    }
     syncActionButtons();
     $("#btnOptCancel").hidden = true;
     $("#btnTalentClose").disabled = false;

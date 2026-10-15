@@ -8,12 +8,12 @@ import {
   loadSharedWasm,
   probeOfflineApi,
   storageKeyFor,
-} from "./hunters/index.js?v=engine9";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine9";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine9";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine9";
-import { initGemsModule } from "./gems/ui.js?v=engine9";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine9";
+} from "./hunters/index.js?v=engine10";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine10";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine10";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine10";
+import { initGemsModule } from "./gems/ui.js?v=engine10";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine10";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";

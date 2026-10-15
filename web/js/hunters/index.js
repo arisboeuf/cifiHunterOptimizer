@@ -12,7 +12,7 @@ import * as knoxAttrs from "./knox/attr-rules.js";
 import { WasmKnoxEngine, wasmToSimResult as knoxWasmToSim } from "./knox/wasm-engine.js?v=engine5";
 
 import { loadWasmExports } from "./wasm-shared.js?v=engine6";
-import { OfflineHuntEngine, probeOfflineApi } from "./offline-engine.js?v=engine9";
+import { OfflineHuntEngine, probeOfflineApi } from "./offline-engine.js?v=engine10";
 
 export { OfflineHuntEngine, probeOfflineApi };
 

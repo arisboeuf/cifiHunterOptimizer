@@ -67,6 +67,7 @@ class HunterHandler(SimpleHTTPRequestHandler):
                     "ok": True,
                     "offline_sim": True,
                     "hunters": ["borge", "ozzy"],
+                    "stats_engine": "hunt_statistics",
                     "note": "WASM still served as static web/wasm/release.wasm",
                 },
             )
@@ -87,26 +88,14 @@ class HunterHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            import importlib
+            # Always load a fresh sim package (reload can leave stale bindings).
+            for _name in list(sys.modules):
+                if _name == "sim" or _name.startswith("sim."):
+                    del sys.modules[_name]
 
-            import sim.bonuses as _sim_bonuses
-            import sim.config as _sim_config
-            import sim.engine as _sim_engine
-            import sim.hunt_statistics as _sim_hunt_statistics
-            import sim.hunter_stats as _sim_hunter_stats
-            import sim.upgrades_helper as _sim_upgrades_helper
-
-            # Local-dev: pick up sim/ edits without restarting launch.py.
-            importlib.reload(_sim_upgrades_helper)
-            importlib.reload(_sim_bonuses)
-            importlib.reload(_sim_config)
-            importlib.reload(_sim_hunt_statistics)
-            importlib.reload(_sim_hunter_stats)
-            importlib.reload(_sim_engine)
-
-            build_from_dict = _sim_config.build_from_dict
-            run_monte_carlo = _sim_engine.run_monte_carlo
-            resolve_combat_stats = _sim_hunter_stats.resolve_combat_stats
+            from sim.config import build_from_dict
+            from sim.engine import run_monte_carlo
+            from sim.hunter_stats import resolve_combat_stats
 
             hunter = str(data.get("hunter") or (data.get("build") or {}).get("meta", {}).get("hunter") or "borge")
             hunter = hunter.lower()
@@ -114,14 +103,14 @@ class HunterHandler(SimpleHTTPRequestHandler):
                 self._send_json(400, {"error": "offline sim supports borge and ozzy only (not knox)"})
                 return
 
-            build_data = data.get("build") or {}
+            build_data = dict(data.get("build") or {})
+            # Offline API always computes finals via HuntStatistics (ignore saved WASM dumps).
+            build_data.pop("combat", None)
             if isinstance(build_data.get("meta"), dict):
                 build_data = {
                     **build_data,
-                    "meta": {**build_data["meta"], "hunter": hunter.capitalize() if hunter != "ozzy" else "Ozzy"},
+                    "meta": {**build_data["meta"], "hunter": "Ozzy" if hunter == "ozzy" else "Borge"},
                 }
-                if hunter == "borge":
-                    build_data["meta"]["hunter"] = "Borge"
             else:
                 build_data = {**build_data, "meta": {"hunter": "Borge" if hunter == "borge" else "Ozzy"}}
 

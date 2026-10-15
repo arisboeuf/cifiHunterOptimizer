@@ -35,7 +35,9 @@ jobs:
           cp -a web/. _site/
           if [ ! -f _site/wasm/release.wasm ]; then
             mkdir -p _site/wasm
-            curl -fsSL -o _site/wasm/release.wasm https://cifi-tools.com/wasm/release.wasm
+            # Prefer cifi-toolkit build (exposes bossHpWorst/Best); fall back to cifi-tools.
+            curl -fsSL -o _site/wasm/release.wasm https://www.cifi-toolkit.com/wasm/release.wasm \
+              || curl -fsSL -o _site/wasm/release.wasm https://cifi-tools.com/wasm/release.wasm
           fi
           touch _site/.nojekyll
 

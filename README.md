@@ -14,7 +14,7 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 | Item | Source |
 | --- | --- |
-| `release.wasm` combat evaluation | [cifi-tools](https://cifi-tools.com/) (`EVALBORGE_WASM`, `EVALOZZY_WASM`, `EVALKNOX_WASM`) |
+| `release.wasm` combat evaluation | [cifi-toolkit](https://www.cifi-toolkit.com/) / [cifi-tools](https://cifi-tools.com/) (`EVALBORGE_WASM`, `EVALOZZY_WASM`, `EVALKNOX_WASM`; toolkit build includes Worst/Best boss HP getters) |
 | Eval parameter order & WASM result getters | Same online sim / JS bundle |
 | Talent, attribute, inscryption costs, caps, labels | Online sim hunter definitions |
 | Attribute tree (dependencies, min path points) | Online sim `ATTRIBUTE_DEPENDENCIES` / `MIN_VALUE` |
@@ -79,7 +79,7 @@ HTTP required — ES modules + WASM do not work via `file://`.
 
 1. Repo **Settings → Pages → Source: GitHub Actions**
 2. Push to `main` / `master`, or run workflow **Deploy Hunter Sim** manually
-3. The workflow publishes `web/`. If `wasm/release.wasm` is missing in the repo, it downloads it from cifi-tools.com
+3. The workflow publishes `web/`. If `wasm/release.wasm` is missing in the repo, it downloads from cifi-toolkit.com (fallback: cifi-tools.com)
 
 ---
 

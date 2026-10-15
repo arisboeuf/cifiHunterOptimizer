@@ -1,5 +1,17 @@
 /** Shared WASM helpers. */
 
+/** Call an optional WASM export; missing or non-finite → NaN. */
+export function wasmFloat(ex, name, ...args) {
+  const fn = ex?.[name];
+  if (typeof fn !== "function") return NaN;
+  try {
+    const v = Number(fn.apply(ex, args));
+    return Number.isFinite(v) ? v : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
 export async function loadWasmExports(wasmUrl = "./wasm/release.wasm") {
   const imports = {
     env: {

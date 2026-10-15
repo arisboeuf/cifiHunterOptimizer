@@ -1,4 +1,6 @@
 /** Browser WASM bridge for Borge (`EVALBORGE_WASM`). */
+import { wasmFloat } from "../wasm-shared.js";
+
 
 export const EVAL_PARAMS = [
   "lvl",
@@ -245,8 +247,8 @@ export class WasmBorgeEngine {
       maxStage: Number(this.ex.getLastMaxStage()),
       bossHpPercent: Number(this.ex.getLastBossHpPercent()),
       bossKillRate: Number(this.ex.getLastBossKillRate()),
-      bossHpWorst: Number(this.ex.getLastBossHpWorst?.() ?? NaN),
-      bossHpBest: Number(this.ex.getLastBossHpBest?.() ?? NaN),
+      bossHpWorst: wasmFloat(this.ex, "getLastBossHpWorst"),
+      bossHpBest: wasmFloat(this.ex, "getLastBossHpBest"),
       mat1: Number(this.ex.getLastMat1()),
       mat2: Number(this.ex.getLastMat2()),
       mat3: Number(this.ex.getLastMat3()),

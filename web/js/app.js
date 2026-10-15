@@ -9,12 +9,12 @@ import {
   probeOfflineApi,
   probeRustSim,
   storageKeyFor,
-} from "./hunters/index.js?v=engine16";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine16";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine16";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine16";
-import { initGemsModule } from "./gems/ui.js?v=engine16";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine16";
+} from "./hunters/index.js?v=engine17";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine17";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine17";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine17";
+import { initGemsModule } from "./gems/ui.js?v=engine17";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine17";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
@@ -1258,7 +1258,7 @@ async function init() {
   }
 
   try {
-    state.wasmExports = await loadSharedWasm("./wasm/release.wasm");
+    state.wasmExports = await loadSharedWasm("./wasm/release.wasm?v=engine17");
     applyEngineMode(preferred, { silent: true });
     const eng = engineModeLabel();
     const notes = [];

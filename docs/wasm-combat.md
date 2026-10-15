@@ -2,9 +2,10 @@
 
 ## What `web/wasm/release.wasm` is
 
-The file lives in this repo under `web/wasm/release.wasm`, but **we did not write the combat math**. It is the public engine from [cifi-tools](https://cifi-tools.com/) (`EVALBORGE_WASM`, `EVALOZZY_WASM`, `EVALKNOX_WASM`).
+The file lives in this repo under `web/wasm/release.wasm`, but **we did not write the combat math**. It is the public engine from [cifi-toolkit](https://www.cifi-toolkit.com/) / [cifi-tools](https://cifi-tools.com/) (`EVALBORGE_WASM`, `EVALOZZY_WASM`, `EVALKNOX_WASM`).
 
-- Deploy: if the file is missing, `.github/workflows/deploy-hunter-web.yml` downloads it from `https://cifi-tools.com/wasm/release.wasm`.
+- Deploy: if the file is missing, `.github/workflows/deploy-hunter-web.yml` downloads from `https://www.cifi-toolkit.com/wasm/release.wasm` (fallback: cifi-tools.com). The toolkit build exposes `getLast*BossHpWorst` / `getLast*BossHpBest` used for Worst/Best run HP.
+- An older cifi-tools-only binary (~94 KB) lacks those getters; Boss Finder then shows `—` for Worst/Best.
 - Our JS only **bridges** builds into eval params and reads result getters (see `web/js/hunters/*/wasm-engine.js`).
 
 If a run stages, dies, and loots correctly, that behavior comes from **their** binary. UI, optimizer, and charts are ours.

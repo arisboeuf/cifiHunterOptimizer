@@ -38,7 +38,8 @@ Every screening row is simulated **50** times. The score is **remaining boss HP*
 The WASM value (`getLastBossHpPercent`) is already in percent, and it is only filled in when the hunter dies on that boss. It is 0 in two opposite cases: the run never reaches the boss, and the run is already past it. The screen splits those:
 
 - Stage still below the boss: 100% (not there yet).
-- Died on the boss: the WASM percent.
+- Died on the boss with a positive WASM percent: that percent.
+- Died on the boss with WASM 0%: treated as 100% (artifact — the getter also returns 0 when the boss was never reached or is already past).
 - Stage past the boss: 0% (the boss is dead).
 
 The report is a bar chart, largest drop first. A factor's bar is how many points of boss HP its best tested level removes compared with that skill at 0. Presence Of A God and Soul Of Ares are fillers, so they are not bars. A factor that cannot change at this budget is named under the chart as staying at 0. At level 26 that is Atlas, Weakspot, and Born For Battle: the lower path must already hold 75 points, and the skill itself costs more than the 3 points left in a 78-point budget.
@@ -147,7 +148,7 @@ The chart can only talk about levels that were put in the matrix on purpose. It 
 On [cifi-tools Borge](https://cifi-tools.com/borge) the two boss readouts are different:
 
 - **Boss Kill %** is the share of runs that kill the boss. Same quantity as this app's Boss Kill % (`bossKillRate`). Bosses/day is that clear rate times runs per day. A clear is a run that ends past the boss stage.
-- **Boss HP %** is the average boss health still left when the hunter dies on the boss. Lower means the failed runs got closer. The WASM getter is `getLastBossHpPercent` (`bossHpPercent` on the Borge bridge), already scaled as a percent (about 18.6 means 18.6%, not 0.186). The First Bosskill Finder ranks on this number. The main metric cards still show Boss Kill % only.
+- **Boss HP %** is remaining boss health for the first selected boss. Lower means the failed runs got closer. Past the boss is 0%. Never reaching it, or a WASM 0% while still on the boss, is 100%. The First Bosskill Finder ranks on this number. The main metric cards show Boss Kill % and Boss HP for every hunter.
 
 ## Gaiden card
 

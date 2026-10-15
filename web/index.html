@@ -115,7 +115,8 @@
             <div class="metric"><div class="k">Loot Score</div><div class="v" id="mLoot">—</div></div>
             <div class="metric"><div class="k">Ø Stage (Range)</div><div class="v" id="mStage">—</div></div>
             <div class="metric"><div class="k">Ø Time (Runs/d)</div><div class="v" id="mTime">—</div></div>
-            <div class="metric"><div class="k">Boss Kill %</div><div class="v" id="mBoss">—</div></div>
+            <div class="metric" title="Share of runs that clear the first selected boss (100 / 200 / 300)."><div class="k">Boss Kill %</div><div class="v" id="mBoss">—</div></div>
+            <div class="metric" title="Remaining boss HP for the first selected boss. Past the boss is 0%. Never reaching it, or a WASM 0 while still on the boss, is 100%."><div class="k">Boss HP</div><div class="v" id="mBossHp">—</div></div>
           </div>
 
           <div class="tabs" role="tablist" aria-label="Results">
@@ -245,6 +246,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=bossconfirm"></script>
+    <script type="module" src="./js/app.js?v=bosshpui"></script>
   </body>
 </html>

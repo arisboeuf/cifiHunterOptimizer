@@ -963,17 +963,18 @@ function borgeAttributeRows(budget) {
 
 /**
  * Remaining boss HP in percent. Lower is closer to a kill.
- * The WASM getter is 0 both when the hunter never reaches the boss and when the
- * boss is already dead, so those two cases are split on the stage.
+ * Past the boss is a real 0%. Never reaching it is 100%.
+ * On the boss, only a positive WASM percent counts — 0 there is an artifact
+ * (same getter as never-reached / already-past), so it is ignored as 100%.
  */
-function bossHpRemaining(sim, bossStage) {
+export function bossHpRemaining(sim, bossStage) {
   const hp = Number(sim.bossHpPercent);
   const avg = Number(sim.avgStage) || 0;
   const max = Number(sim.maxStage) || avg;
   if (max > bossStage + 0.05) return 0;
   if (max < bossStage - 0.05) return 100;
-  if (!Number.isFinite(hp) || hp <= 0) return avg >= bossStage - 0.05 ? 0 : 100;
-  return hp;
+  if (Number.isFinite(hp) && hp > 0) return hp;
+  return 100;
 }
 
 function screen2Plan(ranked) {

@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bossconfirm";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bosshpui";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -631,6 +631,7 @@ function clearResultUi() {
   $("#mStage").textContent = "—";
   $("#mTime").textContent = "—";
   $("#mBoss").textContent = "—";
+  if ($("#mBossHp")) $("#mBossHp").textContent = "—";
   $("#sMin").textContent = "—";
   $("#sAvg").textContent = "—";
   $("#sMax").textContent = "—";
@@ -841,6 +842,15 @@ function showResult(res) {
   $("#mStage").textContent = `${res.avgStage.toFixed(1)}  (${res.minStage.toFixed(0)}–${res.maxStage.toFixed(0)})`;
   $("#mTime").textContent = `${formatDuration(res.avgTimeS)}  (${res.runsPerDay.toFixed(1)})`;
   $("#mBoss").textContent = `${(res.bossKillRate * 100).toFixed(1)}%`;
+  const bossStage = selectedBossStages()[0];
+  const bossHpEl = $("#mBossHp");
+  if (bossHpEl) {
+    if (bossStage == null) {
+      bossHpEl.textContent = "—";
+    } else {
+      bossHpEl.textContent = `${bossHpRemaining(res, bossStage).toFixed(1)}%`;
+    }
+  }
   $("#sMin").textContent = res.minStage.toFixed(1);
   $("#sAvg").textContent = res.avgStage.toFixed(1);
   $("#sMax").textContent = res.maxStage.toFixed(1);
@@ -1147,32 +1157,29 @@ function pushCompare(screens, objective) {
 
 function pushBuildBlock(screen, labels, costs, objective) {
   if (!screen?.talents || !screen?.attributes) return "";
-  const talentCost = costs.TALENT_COSTS || {};
-  const attrCost = costs.ATTRIBUTE_COSTS || {};
-  const talentOrder = costs.TALENT_ORDER || Object.keys(screen.talents);
-  const attrOrder = costs.ATTR_ORDER || Object.keys(screen.attributes);
-  const lines = [];
-  let talentPts = 0;
-  let attrPts = 0;
-  for (const key of talentOrder) {
-    const level = Number(screen.talents[key]) || 0;
-    if (!level) continue;
-    const pts = level * Number(talentCost[key]?.cost || 1);
-    talentPts += pts;
-    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
-  }
-  for (const key of attrOrder) {
-    const level = Number(screen.attributes[key]) || 0;
-    if (!level) continue;
-    const pts = level * Number(attrCost[key]?.cost || 1);
-    attrPts += pts;
-    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
-  }
+  const talents = spendRows(
+    orderedSpendKeys(costs.TALENT_ORDER, screen.talents),
+    screen.talents,
+    costs.TALENT_COSTS || {},
+    labels,
+  );
+  const attrs = spendRows(
+    orderedSpendKeys(costs.ATTR_ORDER, screen.attributes),
+    screen.attributes,
+    costs.ATTRIBUTE_COSTS || {},
+    labels,
+  );
+  const talentBody = talents.lines.length
+    ? `<tr class="sec"><th colspan="3">Talents</th></tr>${talents.lines.join("")}`
+    : `<tr class="sec"><th colspan="3">Talents</th></tr><tr><th colspan="3">None on</th></tr>`;
+  const attrBody = attrs.lines.length
+    ? `<tr class="sec"><th colspan="3">Attributes</th></tr>${attrs.lines.join("")}`
+    : `<tr class="sec"><th colspan="3">Attributes</th></tr><tr><th colspan="3">None on</th></tr>`;
   return `<h3 class="factor-screen-title">Best build</h3>
-    <p class="boss-find-lead">${pushMetricText(screen, objective)} · ${talentPts} talent points · ${attrPts} attribute points</p>
+    <p class="boss-find-lead">${pushMetricText(screen, objective)} · ${talents.points} talent points · ${attrs.points} attribute points</p>
     <table class="boss-find-table">
       <thead><tr><th>Skill</th><th>Level</th><th>Points</th></tr></thead>
-      <tbody>${lines.join("")}</tbody>
+      <tbody>${talentBody}${attrBody}</tbody>
     </table>
     <p class="boss-find-note">${screen.kept ? "This is the running champion carried into this phase. This phase did not beat it." : "This is the best row in the last phase."} Apply writes it onto the hunter.</p>`;
 }
@@ -1657,37 +1664,65 @@ function bossHpCompare(screens) {
     <p class="boss-find-note">Best is the running champion. It stays or goes down. This phase is what that grid found on its own. Lower boss HP is closer to the kill.</p>`;
 }
 
+function orderedSpendKeys(order, spend) {
+  const seen = new Set();
+  const keys = [];
+  for (const key of order || []) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  for (const key of Object.keys(spend || {})) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
+}
+
+function spendRows(keys, spend, costMap, labels) {
+  const lines = [];
+  let points = 0;
+  for (const key of keys) {
+    const level = Number(spend[key]) || 0;
+    if (!level) continue;
+    const pts = level * Number(costMap[key]?.cost || 1);
+    points += pts;
+    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
+  }
+  return { lines, points };
+}
+
 function winningBuildBlock(screen, labels, costs, heading = "Best build", note) {
   if (!screen?.talents || !screen?.attributes) return "";
   const talentCost = costs.TALENT_COSTS || {};
   const attrCost = costs.ATTRIBUTE_COSTS || {};
-  const talentOrder = costs.TALENT_ORDER || Object.keys(screen.talents);
-  const attrOrder = costs.ATTR_ORDER || Object.keys(screen.attributes);
-  const lines = [];
-  let talentPts = 0;
-  let attrPts = 0;
-  for (const key of talentOrder) {
-    const level = Number(screen.talents[key]) || 0;
-    if (!level) continue;
-    const pts = level * Number(talentCost[key]?.cost || 1);
-    talentPts += pts;
-    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
-  }
-  for (const key of attrOrder) {
-    const level = Number(screen.attributes[key]) || 0;
-    if (!level) continue;
-    const pts = level * Number(attrCost[key]?.cost || 1);
-    attrPts += pts;
-    lines.push(`<tr><th>${factorName(labels, key)}</th><td>${level}</td><td>${pts}</td></tr>`);
-  }
+  const talents = spendRows(
+    orderedSpendKeys(costs.TALENT_ORDER, screen.talents),
+    screen.talents,
+    talentCost,
+    labels,
+  );
+  const attrs = spendRows(
+    orderedSpendKeys(costs.ATTR_ORDER, screen.attributes),
+    screen.attributes,
+    attrCost,
+    labels,
+  );
+  const talentBody = talents.lines.length
+    ? `<tr class="sec"><th colspan="3">Talents</th></tr>${talents.lines.join("")}`
+    : `<tr class="sec"><th colspan="3">Talents</th></tr><tr><th colspan="3">None on</th></tr>`;
+  const attrBody = attrs.lines.length
+    ? `<tr class="sec"><th colspan="3">Attributes</th></tr>${attrs.lines.join("")}`
+    : `<tr class="sec"><th colspan="3">Attributes</th></tr><tr><th colspan="3">None on</th></tr>`;
   const hp = Number(screen.bossHp);
   const hpText = Number.isFinite(hp) ? `${hp.toFixed(1)}% boss HP` : "the refinement winner";
   const noteText = note || `${screen.kept ? "This is the running champion carried into this phase. This phase did not beat it." : "This is the lowest remaining boss HP, not the average of the bars."} Apply, when offered, writes the highest bosses/day build instead.`;
   return `<h3 class="factor-screen-title">${escapeReportText(heading)}</h3>
-    <p class="boss-find-lead">${hpText} · ${talentPts} talent points · ${attrPts} attribute points</p>
+    <p class="boss-find-lead">${hpText} · ${talents.points} talent points · ${attrs.points} attribute points</p>
     <table class="boss-find-table">
       <thead><tr><th>Skill</th><th>Level</th><th>Points</th></tr></thead>
-      <tbody>${lines.join("")}</tbody>
+      <tbody>${talentBody}${attrBody}</tbody>
     </table>
     <p class="boss-find-note">${escapeReportText(noteText)}</p>`;
 }
@@ -1727,7 +1762,7 @@ function factorScreenBlock(screen, labels, result) {
     ? `${screen2LockNote(screen, labels)} Other skills that beat off are stepped. Same score, ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`
     : screen.kind === "refine"
       ? `${bossRefineNote(result, labels)} Bosses/day is recorded and does not change these locks.`
-      : `Bars are boss HP removed versus off, largest drop first. Lower boss HP is closer to the kill. Never reaching boss ${result.bossStage} counts as 100%. Getting past it counts as 0%. ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`;
+      : `Bars are boss HP removed versus off, largest drop first. Lower boss HP is closer to the kill. Never reaching boss ${result.bossStage} counts as 100%. Getting past it counts as 0%. A WASM 0% while still on the boss is ignored as 100%. ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`;
   const fixed = screen.kind === "screen1"
     ? (screen.fixed || []).filter((factor) => Number(factor.level) === 0)
     : [];
@@ -1770,7 +1805,7 @@ function bossConfirmTable(result) {
     ...confirms.map((row, index) => rowHtml(row, `Candidate ${index + 1}`)),
   ].join("");
   return `<h3 class="factor-screen-title">500-sim confirm</h3>
-    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage} (0% remaining boss HP). Screening still used ${result.sims} sims and ranked by boss HP.</p>
+    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage}. Only those count as 0% remaining boss HP. A WASM 0% while still on the boss is ignored. Screening used ${result.sims} sims.</p>
     <table class="boss-find-table">
       <thead><tr><th>Build</th><th>Clears</th><th>Boss HP</th><th>Bosses/day</th></tr></thead>
       <tbody>${body}</tbody>

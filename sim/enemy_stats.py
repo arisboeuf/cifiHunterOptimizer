@@ -37,12 +37,19 @@ def stage_scaling(hunter: str, stage: int) -> float:
     return scale * 1.01 ** max(stage - POWER_ANCHOR[hunter], 0)
 
 
+_ENEMY_STATS_CACHE: dict[tuple[str, int], dict] = {}
+
+
 def enemy_stats(hunter: str, stage: int) -> dict:
     hunter = hunter.lower()
     if hunter not in RAMPS:
         raise ValueError("hunter must be borge, ozzy or knox")
     if not isinstance(stage, int) or isinstance(stage, bool) or stage < 1:
         raise ValueError("stage must be a positive integer")
+    cache_key = (hunter, stage)
+    cached = _ENEMY_STATS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     n = stage - 1
     b = floor(n / 100) if stage >= 101 else 0
     k = stage_scaling(hunter, stage)
@@ -107,7 +114,7 @@ def enemy_stats(hunter: str, stage: int) -> dict:
             interval *= 2.85
     if hunter == "borge" and stage > 400:
         effect += 0.004999999888241291
-    return {
+    out = {
         "hunter": hunter,
         "stage": stage,
         "band": b,
@@ -124,3 +131,5 @@ def enemy_stats(hunter: str, stage: int) -> dict:
         "attack_interval_seconds": interval,
         "loot": loot,
     }
+    _ENEMY_STATS_CACHE[cache_key] = out
+    return out

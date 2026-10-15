@@ -27,6 +27,11 @@ python launch.py
 & "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe" -m sim mc --build sim/fixtures/ozzy_default.json --n 100 --stop-after-boss 100
 ```
 
+## Docs
+
+- [How we built the Offline Python sim vs WASM](../docs/offline-python-sim.md)
+- [Port status matrix](STATUS.md)
+
 ## Build JSON
 
 Same shape as the web app (`meta`, `stats`, `talents`, `attributes`, `inscryptions`, `relics`, `gems`, `mods`).

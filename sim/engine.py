@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .actions import ActionKind, UnitActions
 from .config import BuildConfig
 from .enemy import EnemyUnit, spawn_enemy
+from .hunt_stage import HuntStage
 from .hunter_stats import CombatStats, resolve_combat_stats
 from .result import HuntResult, MonteCarloResult
 from .rng import HuntRoll, seed_state
@@ -32,6 +33,7 @@ class HuntEngine:
         stop_after_boss: int | None = None,
         max_time: float = 86_400.0,
         max_stage: int = 2000,
+        stats: CombatStats | None = None,
     ):
         if build.hunter_id not in ("borge", "ozzy"):
             raise ValueError("only borge and ozzy are supported")
@@ -42,7 +44,7 @@ class HuntEngine:
         self.max_time = max_time
         self.max_stage = max_stage
 
-        self.stats = resolve_combat_stats(build)
+        self.stats = stats if stats is not None else resolve_combat_stats(build)
         self.time = HuntTime(0.0)
         self.actions = UnitActions()
         self.rng = HuntRoll(seed_state(seed))
@@ -52,7 +54,8 @@ class HuntEngine:
             stats=self.stats,
             revives_left=max(0, self.stats.revival_charges),
         )
-        self.stage = 1
+        self.hunt_stage = HuntStage(number=1, progress=0)
+        self.stage = self.hunt_stage.number
         self.enemy: EnemyUnit | None = None
         self.enemies_killed = 0
         self.bosses_killed = 0
@@ -91,14 +94,14 @@ class HuntEngine:
             self.actions.set(ActionKind.HARDEN, self.time.in_(25.0))
 
     def _clear_enemy_actions(self) -> None:
-        for kind in (
-            ActionKind.ENEMY_ATTACK,
-            ActionKind.ENEMY_SECONDARY,
-            ActionKind.BOSS_SKILL,
-            ActionKind.HARDEN,
-        ):
-            # remove all tags for these kinds
-            self.actions._items = [a for a in self.actions._items if a.kind != kind]
+        self.actions.clear_kinds(
+            (
+                ActionKind.ENEMY_ATTACK,
+                ActionKind.ENEMY_SECONDARY,
+                ActionKind.BOSS_SKILL,
+                ActionKind.HARDEN,
+            )
+        )
 
     def run(self) -> HuntResult:
         steps = 0
@@ -158,19 +161,27 @@ class HuntEngine:
 
     def _on_regen(self) -> None:
         assert self.enemy is not None
-        # Hunter regen
-        if self.hunter.hp > 0:
-            self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + self.stats.hp_regen)
-        # Enemy regen
-        if self.enemy.hp > 0:
-            self.enemy.hp = min(
-                self.enemy.max_hp,
-                self.enemy.hp + self.enemy.effective_regen(),
-            )
-        # Harden expiry
-        if self.enemy.harden_active and self.time.now >= self.enemy.harden_end:
+        # Batch idle regen until the next scheduled action (or harden expiry).
+        nxt_t = self.actions.earliest_time()
+        seconds = 1.0
+        if nxt_t is not None:
+            seconds = max(1.0, min(float(int(nxt_t - self.time.now)), 60.0))
+        if self.enemy.harden_active:
+            until = max(0.0, self.enemy.harden_end - self.time.now)
+            if until <= 0:
+                self.enemy.harden_active = False
+            else:
+                seconds = max(1.0, min(seconds, float(int(until)) or 1.0))
+
+        h_regen = self.stats.hp_regen * seconds
+        e_regen = self.enemy.effective_regen() * seconds
+        if self.hunter.hp > 0 and h_regen:
+            self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + h_regen)
+        if self.enemy.hp > 0 and e_regen:
+            self.enemy.hp = min(self.enemy.max_hp, self.enemy.hp + e_regen)
+        if self.enemy.harden_active and self.time.now + seconds >= self.enemy.harden_end:
             self.enemy.harden_active = False
-        self.actions.set(ActionKind.REGEN_TICK, self.time.next_second())
+        self.actions.set(ActionKind.REGEN_TICK, self.time.now + seconds)
 
     def _deal_to_enemy(self, raw_damage: float) -> bool:
         """Apply damage to enemy. Returns True if enemy died."""
@@ -312,7 +323,9 @@ class HuntEngine:
         if cleared_boss:
             self.bosses_killed += 1
         self._clear_enemy_actions()
-        self.stage += 1
+        # OfflineHunt: 10 kills per normal stage; bosses (stage % 100 == 0) clear in 1.
+        advanced = self.hunt_stage.advance()
+        self.stage = self.hunt_stage.number
         self._spawn_enemy()
         assert self.enemy is not None
         self.actions.set(ActionKind.ENEMY_ATTACK, self.time.in_(self.enemy.current_interval()))
@@ -321,7 +334,8 @@ class HuntEngine:
                 ActionKind.ENEMY_SECONDARY,
                 self.time.in_(self.enemy.current_secondary_interval()),
             )
-        self._schedule_boss_skills()
+        if advanced:
+            self._schedule_boss_skills()
         if self.stop_after_boss and cleared_boss and (self.stage - 1) == self.stop_after_boss:
             self.stop_reason = f"stop_after_boss_{self.stop_after_boss}"
 
@@ -369,6 +383,7 @@ def run_hunt(
     stop_after_boss: int | None = None,
     max_time: float = 86_400.0,
     max_stage: int = 2000,
+    stats: CombatStats | None = None,
 ) -> HuntResult:
     return HuntEngine(
         build,
@@ -376,6 +391,7 @@ def run_hunt(
         stop_after_boss=stop_after_boss,
         max_time=max_time,
         max_stage=max_stage,
+        stats=stats,
     ).run()
 
 
@@ -400,6 +416,8 @@ def run_monte_carlo(
     min_s = 10**9
     max_s = 0
     sum_s = 0.0
+    # Finals are deterministic for a build — resolve once for the whole batch.
+    shared_stats = resolve_combat_stats(build)
 
     for i in range(n):
         r = run_hunt(
@@ -408,6 +426,7 @@ def run_monte_carlo(
             stop_after_boss=stop_after_boss,
             max_time=max_time,
             max_stage=max_stage,
+            stats=shared_stats,
         )
         if keep_runs:
             runs.append(r)

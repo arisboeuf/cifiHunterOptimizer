@@ -7,6 +7,7 @@ Legend: **ported** = used in combat path · **stub** = present but approximate �
 | Area | Borge | Ozzy | Notes |
 | --- | --- | --- | --- |
 | HuntTime / UnitActions event loop | ported | ported | Shared kernel |
+| HuntStage Progress (10 kills / boss 1) | ported | ported | `sim/hunt_stage.py` — was 1 kill = 1 stage (time ~7–10× too short) |
 | HuntRoll (Xoshiro256**) | ported | ported | Fresh-run seed init is synthetic |
 | Shared enemy_stats + boss multipliers | ported | ported | Matches extraction; Borge/Ozzy WASM constants align |
 | Stage factory / spawn | ported | ported | Named bosses by stage band |
@@ -35,13 +36,11 @@ Legend: **ported** = used in combat path · **stub** = present but approximate �
 
 Honesty label for outputs: `engine=offline_hunt_port` · `parity=unvalidated` until WASM distribution bands are agreed.
 
-## Snapshot validation (2026-10-15)
+Narrative (approach, WASM vs Python differences, major bugs fixed): [docs/offline-python-sim.md](../docs/offline-python-sim.md).
 
-Fixture `borge_lvl14_example.json` with WASM-dumped `combat` (n=50):
+## Snapshot notes
 
-| | Offline sim | WASM oracle |
-| --- | --- | --- |
-| avg stage | ~57 | ~47 |
-| boss 100 kill rate | 0 | 0 |
-
-Delta ~10 stages is expected while talent graphs / loot timing remain stubs. Prefer `node scripts/wasm_oracle.mjs --write-combat` before serious MC.
+- Finals: fixture dumps match `hunt_statistics` (Borge/Ozzy) field-for-field.
+- Before `HuntStage` (10 kills/stage): Ø time was ~7–10× too short at similar death stages.
+- Remaining stage/loot gaps: ability graph, soft-enrage, `AcquireLoot` — see matrix above.
+- Prefer `node scripts/wasm_oracle.mjs` / `compare_sim_vs_wasm.mjs` for distribution checks.

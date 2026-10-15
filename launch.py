@@ -22,10 +22,41 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
 PREFERRED_PORT = 8080
+_SIM_MTIME_TOKEN: float | None = None
 
 # Import sim package from repo root
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _sim_mtime_token() -> float:
+    """Max mtime of sim/*.py — cheap change detector for local edits."""
+    latest = 0.0
+    sim_dir = ROOT / "sim"
+    if sim_dir.is_dir():
+        for path in sim_dir.glob("*.py"):
+            try:
+                latest = max(latest, path.stat().st_mtime)
+            except OSError:
+                pass
+    return latest
+
+
+def _ensure_sim_loaded() -> None:
+    """Import sim once; only purge+reimport when sim sources change on disk."""
+    global _SIM_MTIME_TOKEN
+    token = _sim_mtime_token()
+    if _SIM_MTIME_TOKEN is not None and token == _SIM_MTIME_TOKEN and "sim.engine" in sys.modules:
+        return
+    for name in list(sys.modules):
+        if name == "sim" or name.startswith("sim."):
+            del sys.modules[name]
+    # Touch imports so modules exist before handlers use them.
+    import sim.config  # noqa: F401
+    import sim.engine  # noqa: F401
+    import sim.hunter_stats  # noqa: F401
+
+    _SIM_MTIME_TOKEN = token
 
 
 def find_free_port(preferred: int) -> int:
@@ -88,11 +119,7 @@ class HunterHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            # Always load a fresh sim package (reload can leave stale bindings).
-            for _name in list(sys.modules):
-                if _name == "sim" or _name.startswith("sim."):
-                    del sys.modules[_name]
-
+            _ensure_sim_loaded()
             from sim.config import build_from_dict
             from sim.engine import run_monte_carlo
             from sim.hunter_stats import resolve_combat_stats
@@ -122,7 +149,8 @@ class HunterHandler(SimpleHTTPRequestHandler):
             bosses = data.get("bosses") or [100, 200, 300]
             bosses = [int(b) for b in bosses]
             # Bound wall-clock per hunt so a bad loop cannot freeze the UI.
-            max_time = float(data.get("max_time") or 3_600.0)
+            # Hunts with StageProgress (~10 kills/stage) routinely exceed 1h sim-time.
+            max_time = float(data.get("max_time") or 86_400.0)
             max_stage = int(data.get("max_stage") or 2000)
 
             mc = run_monte_carlo(

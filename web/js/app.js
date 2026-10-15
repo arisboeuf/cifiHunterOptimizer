@@ -724,7 +724,7 @@ function syncEngineUi() {
   if (!note) return;
   const h = hunter();
   if (state.engineMode === "offline") {
-    note.innerHTML = `Combat via <strong>OfflineHunt</strong> for <em>Run Simulation</em> (same saved build → WASM finals, then Python fight). Push/Finder/Next-Best always use fast WASM. Active: <strong>${h.name}</strong>.`;
+    note.innerHTML = `Combat via <strong>OfflineHunt</strong> for <em>Run Simulation</em> (Python HuntStatistics + fight loop). Push/Finder/Next-Best always use fast WASM. Active: <strong>${h.name}</strong>.`;
   } else {
     note.innerHTML = `Combat via <code>release.wasm</code> (same engine as
       <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).

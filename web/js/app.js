@@ -8,7 +8,7 @@ import {
   storageKeyFor,
 } from "./hunters/index.js";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bossfarm2";
+import { findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bossconfirm";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
 import { initGemsModule } from "./gems/ui.js";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js";
@@ -1751,6 +1751,32 @@ function factorScreenBlock(screen, labels, result) {
     ${screen.kind === "refine" ? `${refineStepBlock(screen, labels)}${bossHpCompare(result.screens)}${winningBuildBlock(screen, labels, costs)}${pairSection(screen.pairs || [], labels, "Refinement pairs")}` : ""}`;
 }
 
+function bossConfirmTable(result) {
+  const confirms = Array.isArray(result.confirm) ? result.confirm : [];
+  const base = result.baselineConfirm;
+  if (!confirms.length && !base) return "";
+  const sims = Number(result.confirmSims) || 500;
+  const rowHtml = (row, label) => {
+    if (!row) return "";
+    const clears = Number(row.clearRuns) || 0;
+    const total = Number(row.sims) || sims;
+    const hp = Number(row.bossHp);
+    const day = Number(row.bossesPerDay) || 0;
+    const pick = result.pick && row === result.pick ? " ★" : "";
+    return `<tr><th>${escapeReportText(label)}${pick}</th><td>${clears}/${total}</td><td>${Number.isFinite(hp) ? `${hp.toFixed(1)}%` : "—"}</td><td>${day.toFixed(2)}</td></tr>`;
+  };
+  const body = [
+    rowHtml(base, "Current"),
+    ...confirms.map((row, index) => rowHtml(row, `Candidate ${index + 1}`)),
+  ].join("");
+  return `<h3 class="factor-screen-title">500-sim confirm</h3>
+    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage} (0% remaining boss HP). Screening still used ${result.sims} sims and ranked by boss HP.</p>
+    <table class="boss-find-table">
+      <thead><tr><th>Build</th><th>Clears</th><th>Boss HP</th><th>Bosses/day</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+}
+
 function factorScreenReport(result) {
   const costs = hunter().costs || {};
   const labels = { ...(costs.TALENT_LABELS || {}), ...(costs.ATTRIBUTE_LABELS || {}) };
@@ -1765,36 +1791,48 @@ function factorScreenReport(result) {
   const baseDay = Number(result.baselineBossesPerDay);
   const farmText = Number.isFinite(farmDay) ? farmDay.toFixed(1) : "—";
   const baseText = Number.isFinite(baseDay) ? baseDay.toFixed(1) : "—";
-  const verdict = result.farmImproved
-    ? "That build can be applied. Skills were still ranked by remaining boss HP."
-    : "It does not beat the current build, so nothing is written. Skills were ranked by remaining boss HP.";
+  const pick = result.pick;
+  const pickClears = pick ? `${Number(pick.clearRuns) || 0}/${Number(pick.sims) || result.confirmSims || 500}` : "—";
+  const baseClears = result.baselineConfirm
+    ? `${Number(result.baselineConfirm.clearRuns) || 0}/${Number(result.baselineConfirm.sims) || result.confirmSims || 500}`
+    : "—";
+  const verdict = result.confirmImproved
+    ? "That confirm winner can be applied. Skills were still locked by remaining boss HP during the screens."
+    : "Confirm did not beat the current hunter, so nothing is written. Skills were ranked by remaining boss HP.";
   return `
     <p class="boss-find-lead">Level ${result.level} · boss ${result.bossStage} · ${result.talentPoints} talent points · ${result.attributePoints} attribute points</p>
-    <p class="boss-find-lead">Highest bosses/day among tested builds: ${farmText} (current ${baseText}). ${verdict}</p>
-    ${result.farm ? winningBuildBlock(result.farm, labels, costs, "Highest bosses/day", `${farmText} bosses/day at ${result.sims} sims. This is the build Apply writes when it beats the current hunter.`) : ""}
+    ${bossConfirmTable(result)}
+    <p class="boss-find-lead">Best confirm clears: ${pickClears} (current ${baseClears}). Screening bosses/day high: ${farmText} (current ${baseText}). ${verdict}</p>
+    ${pick ? winningBuildBlock(pick, labels, costs, "Confirm pick", `${pickClears} clears · ${(Number(pick.bossesPerDay) || 0).toFixed(2)} bosses/day at ${Number(pick.sims) || result.confirmSims || 500} sims. Apply writes this build when it beats the current hunter.`) : ""}
+    ${result.farm ? winningBuildBlock(result.farm, labels, costs, "Highest bosses/day (screening)", `${farmText} bosses/day at ${result.sims} sims. Not used to lock skills.`) : ""}
     ${blocks}
     ${pairSection(Array.isArray(result.pairs) ? result.pairs : [], labels)}
     ${refineBlocks}
   `;
 }
 
-/** Boss-finder report. Returns true only when the user applies the highest bosses/day build. */
+/** Boss-finder report. Returns true only when the user applies the confirm pick. */
 async function showBossFinderReport({ result, showPlots, offerApply }) {
   const modal = $("#optConfirmModal");
   const body = $("#optConfirmBody");
   const btnClose = $("#btnOptReportClose");
   const btnDiscard = $("#btnOptDiscard");
   const btnApply = $("#btnOptApply");
-  const farmDay = Number(result.farm?.bossesPerDay) || 0;
-  const baseDay = Number(result.baselineBossesPerDay) || 0;
+  const pick = result.pick;
+  const pickClears = pick ? `${Number(pick.clearRuns) || 0}/${Number(pick.sims) || result.confirmSims || 500}` : "—";
+  const baseClears = result.baselineConfirm
+    ? `${Number(result.baselineConfirm.clearRuns) || 0}/${Number(result.baselineConfirm.sims) || result.confirmSims || 500}`
+    : "—";
   const ask = offerApply
-    ? `<p class="opt-report-ask">Apply talents &amp; attributes from the highest bosses/day build?</p>`
+    ? `<p class="opt-report-ask">Apply talents &amp; attributes from the confirm pick (${pickClears} clears)?</p>`
     : "";
   const plots = showPlots ? factorScreenReport(result) : "";
   const summary = offerApply && !showPlots
-    ? `<p class="opt-report-summary"><strong>Higher bosses/day</strong><br />${farmDay.toFixed(1)} bosses/d (current ${baseDay.toFixed(1)}). Skills were ranked by remaining boss HP.</p>`
-    : "";
-  $("#optConfirmTitle").textContent = offerApply ? "First Bosskill Finder — higher bosses/day" : "First Bosskill Finder";
+    ? `<p class="opt-report-summary"><strong>Stronger confirm</strong><br />${pickClears} clears (current ${baseClears}) · ${(Number(pick?.bossesPerDay) || 0).toFixed(2)} bosses/d. Screens still ranked by remaining boss HP.</p>${bossConfirmTable(result)}`
+    : !showPlots && pick
+      ? bossConfirmTable(result)
+      : "";
+  $("#optConfirmTitle").textContent = offerApply ? "First Bosskill Finder — confirm pick" : "First Bosskill Finder";
   body.classList.toggle("is-boss-find", !!showPlots);
   body.innerHTML = `${summary}${plots}${ask}`;
   btnClose.hidden = !!offerApply;
@@ -1852,7 +1890,7 @@ async function runFirstBossFinder() {
   $("#optProgressBar").style.width = "0%";
   const startLevel = Math.max(0, Math.floor(Number(state.build.meta?.level) || 0));
   $("#optStatus").textContent =
-    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · screen 1 of 3`;
+    `First Bosskill Finder · ${hunter().name} · level ${startLevel} · screen 1 of 4`;
 
   try {
     const result = await findFirstBossKill(
@@ -1887,46 +1925,47 @@ async function runFirstBossFinder() {
       const hp = Number(screen?.bossHp);
       return Number.isFinite(hp) ? `${hp.toFixed(1)}%` : "—";
     };
-    const status = `First Bosskill Finder · level ${result.level} · boss ${result.bossStage} · screen 1 ${hpText(screens[0])} · screen 2 ${hpText(screens[1])} · refinement ${hpText(screens[2])} boss HP · ${result.rows} builds`;
-    const farmDay = Number(result.farm?.bossesPerDay);
-    const baseDay = Number(result.baselineBossesPerDay);
-    const dayBit = Number.isFinite(farmDay)
-      ? ` · ${farmDay.toFixed(1)} bosses/d (current ${Number.isFinite(baseDay) ? baseDay.toFixed(1) : "—"})`
-      : "";
+    const pick = result.pick;
+    const pickClears = pick ? `${Number(pick.clearRuns) || 0}/${Number(pick.sims) || result.confirmSims || 500}` : "—";
+    const baseClears = result.baselineConfirm
+      ? `${Number(result.baselineConfirm.clearRuns) || 0}/${Number(result.baselineConfirm.sims) || result.confirmSims || 500}`
+      : "—";
+    const status = `First Bosskill Finder · level ${result.level} · boss ${result.bossStage} · screen 1 ${hpText(screens[0])} · screen 2 ${hpText(screens[1])} · refinement ${hpText(screens[2])} boss HP · ${result.rows} builds · confirm ${pickClears} clears (current ${baseClears})`;
     const showPlots = $("#optShowBossReport")?.checked !== false;
-    const offerApply = !!result.farmImproved;
+    const offerApply = !!result.confirmImproved;
 
     $("#optStatus").textContent = offerApply
-      ? `${status}${dayBit} — ${showPlots ? "report open" : "apply open"}`
-      : `${status}${dayBit} · build unchanged${showPlots ? " — report open" : ""}`;
-    $("#status").textContent = `${status}${dayBit}`;
+      ? `${status} — ${showPlots ? "report open" : "apply open"}`
+      : `${status} · build unchanged${showPlots ? " — report open" : ""}`;
+    $("#status").textContent = status;
 
     const apply = offerApply || showPlots
       ? await showBossFinderReport({ result, showPlots, offerApply })
       : false;
 
-    if (offerApply && apply && result.farm) {
+    if (offerApply && apply && result.pick) {
       state.build = {
         ...state.build,
-        talents: { ...result.farm.talents },
-        attributes: { ...result.farm.attributes },
+        talents: { ...result.pick.talents },
+        attributes: { ...result.pick.attributes },
       };
       buildLeftLists();
       onBuildChanged();
       const h = hunter();
-      const sim = h.wasmToSimResult(state.engine.evaluate(state.build, result.sims), result.sims);
+      const confirmSims = Number(result.confirmSims) || 500;
+      const sim = h.wasmToSimResult(state.engine.evaluate(state.build, confirmSims), confirmSims);
       showResult(sim);
       $("#optStatus").textContent =
-        `Applied · ${farmDay.toFixed(1)} bosses/d (was ${baseDay.toFixed(1)}) · boss ${result.bossStage}`;
+        `Applied · ${pickClears} clears (was ${baseClears}) · boss ${result.bossStage}`;
       $("#status").textContent =
-        `First Bosskill Finder: applied ${farmDay.toFixed(1)} bosses/d (was ${baseDay.toFixed(1)})`;
+        `First Bosskill Finder: applied ${pickClears} clears (was ${baseClears})`;
     } else if (offerApply) {
       $("#optStatus").textContent =
-        `Discarded · suggested ${farmDay.toFixed(1)} bosses/d (current ${baseDay.toFixed(1)})`;
+        `Discarded · suggested ${pickClears} clears (current ${baseClears})`;
       $("#status").textContent =
-        `First Bosskill Finder: suggestion discarded (${farmDay.toFixed(1)} bosses/d, current ${baseDay.toFixed(1)})`;
+        `First Bosskill Finder: suggestion discarded (${pickClears} clears, current ${baseClears})`;
     } else {
-      $("#optStatus").textContent = `${status}${dayBit} · build unchanged`;
+      $("#optStatus").textContent = `${status} · build unchanged`;
     }
   } catch (err) {
     console.error(err);

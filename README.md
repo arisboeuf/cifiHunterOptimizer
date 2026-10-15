@@ -30,7 +30,7 @@ See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, 
 
 | Item | What it does |
 | --- | --- |
-| **Talent / attribute optimizer** | Screen funnel for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss among 100/200/300). Call Me Lucky Loot and Timeless Mastery are free factors. A better 4,000-sim confirm asks to apply. **First Bosskill Finder** ranks remaining boss HP, records bosses/day without using it to lock skills, and can apply the tested build with the highest bosses/day. Prioritize Timeless Mastery and Iterations are not used |
+| **Talent / attribute optimizer** | Screen funnel for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss among 100/200/300). Call Me Lucky Loot and Timeless Mastery are free factors. A better 4,000-sim confirm asks to apply. **First Bosskill Finder** ranks remaining boss HP, records bosses/day without using it to lock skills, then confirms a few candidates at 500 sims and can apply the one with the most clears. Prioritize Timeless Mastery and Iterations are not used |
 | **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |

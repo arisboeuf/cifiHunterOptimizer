@@ -181,7 +181,7 @@
               type="button"
               class="btn btn-primary"
               id="btnFirstBoss"
-              title="Two screens plus a short refinement, ranked by remaining boss HP. Bosses/day is recorded and does not lock skills. Apply can write the tested build with the highest bosses/day. Lucky Loot and Timeless stay at 0. Borge, Ozzy, and Knox."
+              title="Two screens plus a short refinement, ranked by remaining boss HP. A 500-sim confirm retests a few candidates and can apply the one with the most clears past the boss. Lucky Loot and Timeless stay at 0. Borge, Ozzy, and Knox."
             >
               First Bosskill Finder
             </button>
@@ -194,7 +194,7 @@
               <input type="checkbox" id="optForceTimeless" checked />
               <span>Prioritize Timeless Mastery</span>
             </label>
-            <label class="opt-check" title="Open the screen charts when a push or the First Bosskill Finder finishes. Uncheck to hide the charts. A better push build, or a higher bosses/day build from the finder, still asks whether to apply it.">
+            <label class="opt-check" title="Open the screen charts when a push or the First Bosskill Finder finishes. Uncheck to hide the charts. A better push build, or a stronger boss-finder confirm, still asks whether to apply it.">
               <input type="checkbox" id="optShowBossReport" checked />
               <span>Show finder report</span>
             </label>
@@ -216,7 +216,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Push Average Stage, Push Material/XP, and Maximize Boss/day run three screens at the current level for Borge, Ozzy, and Knox. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover points go to that hunter's filler skills. The compare step resimulates the winner and your current build at 4000 sims. Apply writes the talents and attributes when that confirm is better. Uncheck Show finder report to hide the charts; a better build still asks whether to apply it. First Bosskill Finder is separate and runs for Borge, Ozzy, and Knox: 50 sims per build, ranked by remaining boss HP. Bosses/day is recorded on those rows and does not change the locks. Apply writes the tested build with the highest bosses/day when that rate beats the current hunter. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery are not used by these screens. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
+            Push Average Stage, Push Material/XP, and Maximize Boss/day run three screens at the current level for Borge, Ozzy, and Knox. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover points go to that hunter's filler skills. The compare step resimulates the winner and your current build at 4000 sims. Apply writes the talents and attributes when that confirm is better. Uncheck Show finder report to hide the charts; a better build still asks whether to apply it. First Bosskill Finder is separate and runs for Borge, Ozzy, and Knox: 50 sims per build, ranked by remaining boss HP. Bosses/day is recorded and does not change the locks. A final 500-sim confirm retests up to six candidates plus the current hunter and can apply the build with the most clears past the boss. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery are not used by these screens. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -245,6 +245,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=bossfarm2"></script>
+    <script type="module" src="./js/app.js?v=bossconfirm"></script>
   </body>
 </html>

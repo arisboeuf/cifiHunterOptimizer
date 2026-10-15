@@ -788,6 +788,9 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
 
 /** Sims per screened build. Screening only; no refine pass. */
 const FIRST_BOSS_SCREEN_SIMS = 50;
+/** Final confirm for a few funnel candidates. Not used to lock skills. */
+const FIRST_BOSS_CONFIRM_SIMS = 500;
+const FIRST_BOSS_CONFIRM_CAP = 6;
 
 /** Talent points left after the toggles go here so the level budget is spent. */
 const BORGE_TALENT_FILLER = "presence_of_god";
@@ -1338,12 +1341,33 @@ function bossesPerDayOf(sim, bossStage) {
   return scoreOf(sim, "bosses", [bossStage]).bossesPerDay;
 }
 
-async function currentBossesPerDay(base, engine, hunter, bossStage) {
-  const validated = validateBudgets(base, hunter);
-  const cfg = validated.ok ? validated.config : base;
-  await yieldToUi();
-  const sim = hunter.wasmToSimResult(engine.evaluate(cfg, FIRST_BOSS_SCREEN_SIMS), FIRST_BOSS_SCREEN_SIMS);
-  return bossesPerDayOf(sim, bossStage);
+/** Runs that ended past the boss. Those count as 0% remaining boss HP. */
+function clearRunsOf(sim, bossStage) {
+  const counts = sim?.stageCounts || {};
+  let clears = 0;
+  let n = 0;
+  for (const [stageRaw, countRaw] of Object.entries(counts)) {
+    const stage = Number(stageRaw);
+    const c = Number(countRaw);
+    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
+    n += c;
+    if (stage > bossStage) clears += c;
+  }
+  if (n <= 0) n = Math.max(1, Number(sim?.n) || FIRST_BOSS_CONFIRM_SIMS);
+  return { clears, n };
+}
+
+function betterConfirm(current, next) {
+  if (!next) return current || null;
+  if (!current) return next;
+  const clearA = Number(current.clearRuns) || 0;
+  const clearB = Number(next.clearRuns) || 0;
+  if (clearB !== clearA) return clearB > clearA ? next : current;
+  const dayA = Number(current.bossesPerDay) || 0;
+  const dayB = Number(next.bossesPerDay) || 0;
+  if (dayB !== dayA) return dayB > dayA ? next : current;
+  if ((next.bossHp ?? 100) !== (current.bossHp ?? 100)) return next.bossHp < current.bossHp ? next : current;
+  return (next.avgStage || 0) > (current.avgStage || 0) ? next : current;
 }
 
 function farmFromRuns(runs) {
@@ -1359,16 +1383,142 @@ function farmFromRuns(runs) {
   };
 }
 
-async function attachBossFarm(payload, runs, base, engine, hunter, bossStage, isCancelled) {
+function pickBossConfirmCandidates(runs, farm, hpWinner, cap) {
+  const byKey = new Map();
+  const consider = (sample) => {
+    if (!sample?.talents || !sample?.attributes) return;
+    const row = {
+      talents: { ...sample.talents },
+      attributes: { ...sample.attributes },
+      bossesPerDay: Number(sample.bossesPerDay) || 0,
+      bossHp: sample.bossHp ?? 100,
+      avgStage: sample.avgStage || 0,
+    };
+    const id = buildKey(row);
+    const prev = byKey.get(id);
+    if (!prev || betterFarm(prev, row) === row) byKey.set(id, row);
+  };
+  for (const run of runs) {
+    for (const sample of run?.samples || []) consider(sample);
+  }
+  const ranked = [...byKey.values()].sort((a, b) => {
+    const day = (Number(b.bossesPerDay) || 0) - (Number(a.bossesPerDay) || 0);
+    if (day) return day;
+    const hp = (a.bossHp ?? 100) - (b.bossHp ?? 100);
+    if (hp) return hp;
+    return (b.avgStage || 0) - (a.avgStage || 0);
+  });
+  const out = [];
+  const add = (sample) => {
+    if (!sample?.talents || !sample?.attributes) return;
+    const row = { talents: { ...sample.talents }, attributes: { ...sample.attributes } };
+    const id = buildKey(row);
+    if (out.some((item) => buildKey(item) === id)) return;
+    out.push(row);
+  };
+  add(farm);
+  add(hpWinner);
+  for (const row of ranked) {
+    if (out.length >= cap) break;
+    add(row);
+  }
+  return out.slice(0, cap);
+}
+
+async function evaluateBossConfirm(row, base, engine, hunter, bossStage, sims) {
+  const cfg = structuredClone(base);
+  cfg.talents = { ...(row.talents || {}) };
+  cfg.attributes = { ...(row.attributes || {}) };
+  const validated = validateBudgets(cfg, hunter);
+  const use = validated.ok ? validated.config : cfg;
+  await yieldToUi();
+  const sim = hunter.wasmToSimResult(engine.evaluate(use, sims), sims);
+  const { clears, n } = clearRunsOf(sim, bossStage);
+  return {
+    talents: { ...use.talents },
+    attributes: { ...use.attributes },
+    sims,
+    clearRuns: clears,
+    clearRate: clears / n,
+    n,
+    bossesPerDay: bossesPerDayOf(sim, bossStage),
+    bossHp: bossHpRemaining(sim, bossStage),
+    avgStage: Number(sim.avgStage) || 0,
+    bossKillRate: Number(sim.bossKillRate) || 0,
+  };
+}
+
+async function attachBossFarm(payload, runs, base, engine, hunter, bossStage, hooks = {}) {
+  const isCancelled = hooks.isCancelled || (() => false);
+  const onProgress = hooks.onProgress || (() => {});
   if (isCancelled()) return { cancelled: true };
+
   const farm = farmFromRuns(runs);
-  const baselineBossesPerDay = await currentBossesPerDay(base, engine, hunter, bossStage);
+  const hpWinner = payload.talents && payload.attributes
+    ? {
+      talents: payload.talents,
+      attributes: payload.attributes,
+      bossHp: payload.bossHp,
+      avgStage: payload.avgStage,
+      bossesPerDay: 0,
+    }
+    : null;
+  const candidates = pickBossConfirmCandidates(runs, farm, hpWinner, FIRST_BOSS_CONFIRM_CAP);
+  const screens = Math.max(4, Number(hooks.screens) || 4);
+  const level = payload.level;
+  const total = candidates.length + 1;
+  let done = 0;
+  let bestConfirm = null;
+
+  const report = (row) => {
+    done += 1;
+    bestConfirm = betterConfirm(bestConfirm, row);
+    const bestClears = bestConfirm ? `${bestConfirm.clearRuns}/${bestConfirm.sims}` : "—";
+    onProgress({
+      msg: `level ${level} · boss ${bossStage} · confirm ${done}/${total} · best ${bestClears} clears · ${Number(bestConfirm?.bossesPerDay || 0).toFixed(2)} bosses/d`,
+      done,
+      total,
+      screen: screens,
+      screens,
+    });
+  };
+
+  const baselineConfirm = await evaluateBossConfirm(
+    { talents: base.talents || {}, attributes: base.attributes || {} },
+    base,
+    engine,
+    hunter,
+    bossStage,
+    FIRST_BOSS_CONFIRM_SIMS,
+  );
   if (isCancelled()) return { cancelled: true };
+  report(baselineConfirm);
+
+  const confirm = [];
+  for (const row of candidates) {
+    if (isCancelled()) return { cancelled: true };
+    const measured = await evaluateBossConfirm(row, base, engine, hunter, bossStage, FIRST_BOSS_CONFIRM_SIMS);
+    confirm.push(measured);
+    report(measured);
+  }
+
+  confirm.sort((a, b) => (betterConfirm(a, b) === b ? 1 : -1));
+  const pick = confirm[0] || null;
+  const pickBeatsBaseline = !!(pick && betterConfirm(baselineConfirm, pick) === pick);
+  const pickIsNew = !!(pick && buildKey(pick) !== buildKey(baselineConfirm));
+  const confirmImproved = pickBeatsBaseline && pickIsNew;
+  const baselineBossesPerDay = Number(baselineConfirm.bossesPerDay) || 0;
+
   return {
     ...payload,
     farm,
     baselineBossesPerDay,
     farmImproved: !!(farm && farm.bossesPerDay > baselineBossesPerDay),
+    confirmSims: FIRST_BOSS_CONFIRM_SIMS,
+    confirm,
+    baselineConfirm,
+    pick,
+    confirmImproved,
   };
 }
 
@@ -2049,13 +2199,13 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
   }
 
   const bossStage = bossStages[0];
-  const screens = 3;
+  const screens = 4;
   const shared = { base, engine, hunter, bossStage, level, screens, onProgress, isCancelled };
   const firstRun = await simulateBossScreen({
     ...shared,
     rows: crossBudgetRows(talentRows, attrRows),
     screen: 1,
-    phase: "screen 1/3",
+    phase: "screen 1/4",
   });
   if (firstRun.cancelled) return { cancelled: true };
   if (!firstRun.samples.length) {
@@ -2093,7 +2243,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
       ...shared,
       rows: secondRows,
       screen: 2,
-      phase: "screen 2/3",
+      phase: "screen 2/4",
       floor: champion,
     });
     if (secondRun.cancelled) return { cancelled: true };
@@ -2139,7 +2289,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
         ...shared,
         rows: refineRows,
         screen: 3,
-        phase: "refinement",
+        phase: "screen 3/4",
         floor: champion,
       });
       if (refineRun.cancelled) return { cancelled: true };
@@ -2185,7 +2335,7 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
     fixed: screen1.fixed,
     screens: [screen1, screen2, refine],
     pairs: profileMergePairs(profileCollectPairs(firstRun.samples, "Screen 1"), profileCollectPairs(secondSamples, "Screen 2")),
-  }, farmRuns, base, engine, hunter, bossStage, isCancelled);
+  }, farmRuns, base, engine, hunter, bossStage, { isCancelled, onProgress, screens });
 }
 
 /**
@@ -2193,7 +2343,8 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
  * Screen 1 toggles each skill. Screen 2 locks the largest drop and steps the rest.
  * Refinement holds those winners and steps the cheap levels of that hunter's chain.
  * 50 sims per build. Ranked by remaining boss HP. Bosses/day is recorded and does not lock skills.
- * Call Me Lucky Loot and Timeless Mastery stay at 0. The caller may apply the highest bosses/day row.
+ * A short 500-sim confirm retests a few candidates and may suggest the highest clear count.
+ * Call Me Lucky Loot and Timeless Mastery stay at 0.
  */
 export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
@@ -2220,13 +2371,13 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
   }
 
   const bossStage = bossStages[0];
-  const screens = 3;
+  const screens = 4;
   const shared = { base, engine, hunter, bossStage, level, screens, onProgress, isCancelled };
   const firstRun = await simulateBossScreen({
     ...shared,
     rows: crossBudgetRows(talentRows, attrRows),
     screen: 1,
-    phase: "screen 1/3",
+    phase: "screen 1/4",
   });
   if (firstRun.cancelled) return { cancelled: true };
   if (!firstRun.samples.length) {
@@ -2264,7 +2415,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
       ...shared,
       rows: secondRows,
       screen: 2,
-      phase: "screen 2/3",
+      phase: "screen 2/4",
       floor: champion,
     });
     if (secondRun.cancelled) return { cancelled: true };
@@ -2309,7 +2460,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
         ...shared,
         rows: refineRows,
         screen: 3,
-        phase: "refinement",
+        phase: "screen 3/4",
         floor: champion,
       });
       if (refineRun.cancelled) return { cancelled: true };
@@ -2356,7 +2507,7 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     fixed: screen1.fixed,
     screens: [screen1, screen2, refine],
     pairs: mergePairs(collectPairs(firstRun.samples, "Screen 1"), collectPairs(secondSamples, "Screen 2")),
-  }, farmRuns, base, engine, hunter, bossStage, isCancelled);
+  }, farmRuns, base, engine, hunter, bossStage, { isCancelled, onProgress, screens });
 }
 
 /** Sims per build on the stage / loot / bosses-day funnel. Final compare uses nRefine. */

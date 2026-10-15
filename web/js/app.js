@@ -8,7 +8,7 @@ import {
   loadSharedWasm,
   probeOfflineApi,
   storageKeyFor,
-} from "./hunters/index.js?v=engine10";
+} from "./hunters/index.js?v=engine11";
 import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine10";
 import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine10";
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine10";

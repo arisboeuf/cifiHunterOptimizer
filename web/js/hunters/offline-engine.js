@@ -113,6 +113,8 @@ export class OfflineHuntEngine {
       build,
       n: Math.max(1, Number(iterations) || 1),
       seed: 1,
+      // Must match launch.py default. Old servers that capped at 3600 looked "stuck" at ~stage 36.
+      max_time: 86_400,
     };
     let res;
     try {

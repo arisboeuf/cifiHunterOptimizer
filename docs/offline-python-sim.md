@@ -207,6 +207,10 @@ See [`sim/STATUS.md`](../sim/STATUS.md). Highest impact after StageProgress:
 | --- | --- | --- |
 | Heuristic finals | ATK/HP ~10× too high; stages ~180 | Port `HuntStatistics` |
 | 1 kill = 1 stage | Ø time ~7–10× too short | `HuntStage.Advance` |
+| Ozzy follow-ups only if enemy lived | Too little DPS → death ~stage 36 vs ~58 | Gate MS/Echo/… on hit-connect |
+| Trickster as +2% evade | Almost no sustain | Free-evade charge consume |
+| Revive at 100% HP, no Cycle/Deal | Wrong post-death power curve | 80% HP + Cycle/Deal per revive |
+| Boss enrage on hunter hits | Furious too early with Multistrike | Enrage on boss attack only |
 | WASM dump + tip re-apply | Double buffs | Strip `combat` on Offline API |
 | Echo/Crippling from wrong attrs | Ozzy skew | Read talent slots |
 | Fake Sensors/Baal ATK amp | Extra DPS | Remove; Baal/scorpions as lifesteal |

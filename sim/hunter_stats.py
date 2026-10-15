@@ -30,6 +30,7 @@ class CombatStats:
     presence: int = 0
     born_for_battle: int = 0
     fires_of_war: int = 0
+    life_of_the_hunt: int = 0
     lifedrain: int = 0
     ares: int = 0
     baal: int = 0
@@ -38,14 +39,25 @@ class CombatStats:
     explosive: int = 0
     hermes: int = 0
     weakspot: int = 0
+    helltouch: int = 0
     revival_charges: int = 0
-    omen: int = 0
+    omen: int = 0  # Borge: Omen of Defeat · Ozzy: Omen of Decay (different effects)
     unfair: int = 0
     impeccable: int = 0
     echo_level: int = 0
     crippling: int = 0
     thousand_needles: int = 0
     tricksters_boon: int = 0
+    cycle_of_death: int = 0
+    deal_with_death: int = 0
+    # Ozzy combat abilities (attr / gem knobs)
+    dance_of_dashes: int = 0
+    vectid_elixir: int = 0
+    gift_of_medusa: int = 0
+    soul_of_snek: int = 0
+    blessing_scarab: int = 0
+    shimmering_scorpions: int = 0
+    catchup_level: int = 0  # Attraction Catch-Up gem
 
 
 def _g(d: dict, *keys: str, default: float = 0.0) -> float:
@@ -95,21 +107,26 @@ def _from_combat_block(c: dict) -> HuntFinals:
 
 
 def _lifesteal_from_build(build: BuildConfig) -> float:
-    """On-hit lifesteal not stored on HuntStatistics; tip rates from attrs."""
+    """On-hit lifesteal not stored on HuntStatistics; tip rates from attrs.
+
+    Ozzy Shimmering Scorpions are applied pre-DR in the fight loop (not via this).
+    """
     a = build.attributes
     if build.hunter_id == "borge":
         return 0.0111 * _g(a, "book_of_baal")
-    return 0.033 * _g(a, "shimmering_scorpions")
+    return 0.0
 
 
 def resolve_combat_stats(build: BuildConfig) -> CombatStats:
     t = build.talents
     a = build.attributes
     c = build.combat
+    g = build.gems
 
     presence = int(_g(t, "presence_of_god"))
     born = int(_g(a, "born_for_battle"))
     fires = int(_g(t, "fires_of_war"))
+    life_hunt = int(_g(t, "life_of_the_hunt"))
     lifedrain = int(_g(a, "lifedrain_inhalers"))
     ares = int(_g(a, "soul_of_ares"))
     baal = int(_g(a, "book_of_baal"))
@@ -118,14 +135,27 @@ def resolve_combat_stats(build: BuildConfig) -> CombatStats:
     explosive = int(_g(a, "explosive_punches"))
     hermes = int(_g(a, "soul_of_hermes"))
     weakspot = int(_g(a, "weakspot_analysis"))
+    helltouch = int(_g(a, "helltouch_barrier"))
     revival = int(_g(t, "death_is_my_companion"))
-    omen = int(_g(t, "omen_of_defeat", "omen_of_decay"))
+    if build.hunter_id == "borge":
+        omen = int(_g(t, "omen_of_defeat"))
+    else:
+        omen = int(_g(t, "omen_of_decay"))
     unfair = int(_g(t, "unfair_advantage"))
     impeccable = int(_g(t, "impeccable_impacts"))
     echo = _level_from(t, a, "echo_bullets")
     crippling = _level_from(t, a, "crippling_shots")
     needles = int(_g(t, "thousand_needles"))
     trickster = int(_g(t, "tricksters_boon"))
+    cycle = int(_g(a, "cycle_of_death"))
+    deal = int(_g(a, "deal_with_death"))
+    dance = int(_g(a, "dance_of_dashes"))
+    vectid = int(_g(a, "vectid_elixir"))
+    medusa = int(_g(a, "gift_of_medusa"))
+    snek = int(_g(a, "soul_of_snek"))
+    scarab = int(_g(a, "blessing_of_the_scarab"))
+    scorp = int(_g(a, "shimmering_scorpions"))
+    catchup = int(_g(g, "attraction_catch-up", "attraction_catchup", "catchup"))
 
     if c:
         finals = _from_combat_block(c)
@@ -174,6 +204,7 @@ def resolve_combat_stats(build: BuildConfig) -> CombatStats:
         presence=presence,
         born_for_battle=born,
         fires_of_war=fires,
+        life_of_the_hunt=life_hunt,
         lifedrain=lifedrain,
         ares=ares,
         baal=baal,
@@ -182,6 +213,7 @@ def resolve_combat_stats(build: BuildConfig) -> CombatStats:
         explosive=explosive,
         hermes=hermes,
         weakspot=weakspot,
+        helltouch=helltouch,
         revival_charges=revival,
         omen=omen,
         unfair=unfair,
@@ -190,4 +222,13 @@ def resolve_combat_stats(build: BuildConfig) -> CombatStats:
         crippling=crippling,
         thousand_needles=needles,
         tricksters_boon=trickster,
+        cycle_of_death=cycle,
+        deal_with_death=deal,
+        dance_of_dashes=dance,
+        vectid_elixir=vectid,
+        gift_of_medusa=medusa,
+        soul_of_snek=snek,
+        blessing_scarab=scarab,
+        shimmering_scorpions=scorp,
+        catchup_level=catchup,
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .actions import ActionKind, UnitActions
 from .config import BuildConfig
@@ -13,6 +13,9 @@ from .result import HuntResult, MonteCarloResult
 from .rng import HuntRoll, seed_state
 from .time_model import HuntTime
 
+# Extraction QueueEffects uses ~0.3s between follow-up hits.
+_OZYY_FOLLOWUP_DELAY = 0.3
+
 
 @dataclass
 class HunterState:
@@ -22,7 +25,9 @@ class HunterState:
     revives_left: int
     fires_bonus: float = 0.0  # seconds of interval reduction bank
     crippling_stacks: int = 0
-    evade_stacks: int = 0  # trickster stub
+    evade_stacks: int = 0  # Trickster / Dance free-evade charges
+    vectid_ticks: int = 0  # remaining Vectid regen-buff ticks
+    catchup_active: bool = False
 
 
 class HuntEngine:
@@ -44,7 +49,9 @@ class HuntEngine:
         self.max_time = max_time
         self.max_stage = max_stage
 
-        self.stats = stats if stats is not None else resolve_combat_stats(build)
+        # Per-hunt copy so revive buffs (Cycle/Deal) do not leak across MC runs.
+        base = stats if stats is not None else resolve_combat_stats(build)
+        self.stats = replace(base)
         self.time = HuntTime(0.0)
         self.actions = UnitActions()
         self.rng = HuntRoll(seed_state(seed))
@@ -64,10 +71,41 @@ class HuntEngine:
         self.revives_used = 0
         self.boss_hp_at_death: float | None = None
         self.stop_reason = ""
+        self._activate_catchup_if_needed()
         self._spawn_enemy()
         self._schedule_initial()
 
+    def _catchup_mult(self) -> float:
+        lvl = self.stats.catchup_level
+        if lvl < 1:
+            return 1.0
+        return 1.08**lvl
+
+    def _activate_catchup_if_needed(self) -> None:
+        """Attraction Catch-Up: ×1.08^lvl ATK & speed until stage 100 boss."""
+        if self.hunter.catchup_active:
+            return
+        if self.stats.catchup_level < 1 or self.stage > 99:
+            return
+        m = self._catchup_mult()
+        self.stats.atk_power *= m
+        self.stats.atk_interval = max(0.05, self.stats.atk_interval / m)
+        self.hunter.catchup_active = True
+
+    def _deactivate_catchup(self) -> None:
+        if not self.hunter.catchup_active:
+            return
+        m = self._catchup_mult()
+        self.stats.atk_power /= m
+        self.stats.atk_interval *= m
+        self.hunter.catchup_active = False
+
     def _spawn_enemy(self) -> None:
+        # Catch-Up drops on first boss (stage 100 / Benchy / Frogbloth).
+        if self.stage >= 100 and self.hunter.catchup_active:
+            self._deactivate_catchup()
+        elif self.stage <= 99:
+            self._activate_catchup_if_needed()
         self.enemy = spawn_enemy(self.hunter_id, self.stage, self.stats.presence)
 
     def _schedule_initial(self) -> None:
@@ -173,8 +211,32 @@ class HuntEngine:
             else:
                 seconds = max(1.0, min(seconds, float(int(until)) or 1.0))
 
+        # Vectid Elixir: one Consume per regen second; don't batch past remaining ticks
+        if self.hunter.vectid_ticks > 0:
+            seconds = max(1.0, min(seconds, float(self.hunter.vectid_ticks)))
         h_regen = self.stats.hp_regen * seconds
+        if self.hunter.vectid_ticks > 0:
+            self.hunter.vectid_ticks -= int(seconds)
+            if self.hunter.vectid_ticks <= 0:
+                self.hunter.vectid_ticks = 0
+                if self.stats.vectid_elixir > 0:
+                    self.stats.hp_regen /= 1.0 + 0.15 * self.stats.vectid_elixir
+                    h_regen = self.stats.hp_regen * seconds
+
         e_regen = self.enemy.effective_regen() * seconds
+        if e_regen > 0:
+            if self.hunter_id == "borge" and self.stats.omen > 0:
+                # Omen of Defeat: regen × (1 − 0.08×lvl) / boss (1 − 0.04×lvl)
+                cut = 0.04 if self.enemy.is_boss else 0.08
+                e_regen *= max(0.0, 1.0 - cut * self.stats.omen)
+            if self.hunter_id == "ozzy":
+                # Soul of Snek: regen × (1 − 0.088×lvl)
+                if self.stats.soul_of_snek > 0:
+                    e_regen *= max(0.0, 1.0 - 0.088 * self.stats.soul_of_snek)
+                # Gift of Medusa: regen − hunter_regen × 0.06×lvl
+                if self.stats.gift_of_medusa > 0:
+                    e_regen -= self.stats.hp_regen * 0.06 * self.stats.gift_of_medusa * seconds
+                    e_regen = max(0.0, e_regen)
         if self.hunter.hp > 0 and h_regen:
             self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + h_regen)
         if self.enemy.hp > 0 and e_regen:
@@ -183,67 +245,107 @@ class HuntEngine:
             self.enemy.harden_active = False
         self.actions.set(ActionKind.REGEN_TICK, self.time.now + seconds)
 
-    def _deal_to_enemy(self, raw_damage: float) -> bool:
-        """Apply damage to enemy. Returns True if enemy died."""
+    def _deal_to_enemy(self, raw_damage: float) -> tuple[bool, bool]:
+        """Apply damage. Returns (hit_connected, killed).
+
+        Extraction Defend returns hit-connected (!evade), not 'still alive'.
+        Follow-ups (MS/Echo/…) must run on connect even if the pack died.
+        """
         assert self.enemy is not None
         e = self.enemy
         if self.rng.succeeds(e.evade_chance):
-            return False
+            return False, False
         dmg = raw_damage
-        # Crippling shots consume on Ozzy damage applications
-        if self.hunter_id == "ozzy" and self.hunter.crippling_stacks >= 1:
-            dmg *= 1.0 + 0.03 * self.hunter.crippling_stacks
-            self.hunter.crippling_stacks = 0
+        # Ozzy Defend order: Scorpion heal (pre-DR) → Omen %HP → Crippling → DR
+        if self.hunter_id == "ozzy":
+            if self.stats.shimmering_scorpions > 0:
+                heal = dmg * 0.033 * self.stats.shimmering_scorpions
+                self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + heal)
+            if self.stats.omen > 0 and e.hp > 0:
+                frac = 0.008 * self.stats.omen
+                if e.is_boss:
+                    frac *= 0.1
+                dmg += e.hp * frac
+            if self.hunter.crippling_stacks >= 1:
+                dmg *= 1.0 + 0.03 * self.hunter.crippling_stacks
+                self.hunter.crippling_stacks = 0
+        # Life of the Hunt: EC → heal 6%×lvl of pre-DR damage (Defend order)
+        if (
+            self.hunter_id == "borge"
+            and self.stats.life_of_the_hunt > 0
+            and self.rng.succeeds(self.stats.effect_chance)
+        ):
+            heal = dmg * 0.06 * self.stats.life_of_the_hunt
+            self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + heal)
         dmg *= 1.0 - e.effective_dr()
         e.hp -= dmg
         heal_frac = self.stats.lifesteal
         if self.stats.lifedrain > 0:
-            # Lifedrain Inhalers tip: missing-HP regen; stub as small on-hit heal.
             heal_frac += 0.0008 * self.stats.lifedrain
         if heal_frac > 0:
             self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + dmg * heal_frac)
-        if e.is_boss:
-            e.enrage(1)
         if e.hp <= 0:
             self._on_enemy_killed()
-            return True
-        return False
+            return True, True
+        return True, False
+
+    def _borge_on_hit_followups(self) -> None:
+        """Borge chain after a connected hit (Impeccable → Fires of War)."""
+        assert self.enemy is not None
+        # Impeccable Impacts: EC → stun 0.1s×lvl (boss half)
+        if self.stats.impeccable > 0 and self.rng.succeeds(self.stats.effect_chance):
+            stun = 0.1 * self.stats.impeccable
+            if self.enemy.is_boss:
+                stun *= 0.5
+            rem = self.actions.remaining(ActionKind.ENEMY_ATTACK, self.time.now)
+            if rem is not None:
+                self.actions.set(ActionKind.ENEMY_ATTACK, self.time.in_(rem + stun))
+        # Fires of War: EC → SET frenzy bank to 0.1s×lvl (not accumulate)
+        if self.stats.fires_of_war > 0 and self.rng.succeeds(self.stats.effect_chance):
+            self.hunter.fires_bonus = 0.1 * self.stats.fires_of_war
+
+    def _ozzy_on_hit_followups(self, *, from_echo: bool = False) -> None:
+        """Ozzy chain after a connected hit.
+
+        Primary Attack: Crippling → MS → Echo → Trickster → Needles.
+        Echo hit: Crippling → TriggerMultiStrike only (no nested Echo).
+        """
+        if self.stats.crippling > 0 and self.rng.succeeds(self.stats.effect_chance):
+            self.hunter.crippling_stacks += self.stats.crippling
+        if self.rng.succeeds(self.stats.crit_chance):
+            self.actions.set(ActionKind.MULTISTRIKE, self.time.in_(_OZYY_FOLLOWUP_DELAY))
+        if from_echo:
+            return
+        echo_p = 0.5 * self.stats.effect_chance if self.stats.echo_level > 0 else 0.0
+        if echo_p > 0 and self.rng.succeeds(echo_p):
+            self.actions.set(ActionKind.ECHO, self.time.in_(_OZYY_FOLLOWUP_DELAY))
+        # Trickster: ½ effect chance → gain `level` free-evade charges
+        if self.stats.tricksters_boon > 0 and self.rng.succeeds(0.5 * self.stats.effect_chance):
+            self.hunter.evade_stacks += self.stats.tricksters_boon
+        # Thousand Needles: stun enemy attack timer
+        if self.stats.thousand_needles > 0 and self.rng.succeeds(self.stats.effect_chance):
+            stun = 0.05 * self.stats.thousand_needles
+            rem = self.actions.remaining(ActionKind.ENEMY_ATTACK, self.time.now)
+            if rem is not None:
+                self.actions.set(ActionKind.ENEMY_ATTACK, self.time.in_(rem + stun))
 
     def _hunter_attack(self) -> bool:
         assert self.enemy is not None
         dmg = self.stats.atk_power
         if self.hunter_id == "borge":
-            # Born for Battle
             dmg *= 1.0 + 0.01 * self.stats.born_for_battle
             if self.rng.succeeds(self.stats.crit_chance):
                 dmg *= self.stats.crit_power
-            killed = self._deal_to_enemy(dmg)
-            # Fires of War / Athena stubs after successful connect
-            if not killed and self.stats.fires_of_war > 0:
-                self.hunter.fires_bonus += 0.05 * self.stats.fires_of_war
+            hit, _killed = self._deal_to_enemy(dmg)
+            if hit:
+                self._borge_on_hit_followups()
             self._schedule_next_hunter_attack()
-            if killed:
-                return True
             return False
 
-        # Ozzy primary
-        killed = self._deal_to_enemy(dmg)
-        if killed:
-            self._schedule_next_hunter_attack()
-            return True
-        # Crippling stack chance (effect)
-        if self.stats.crippling > 0 and self.rng.succeeds(self.stats.effect_chance):
-            self.hunter.crippling_stacks += self.stats.crippling
-        # Multistrike
-        if self.rng.succeeds(self.stats.crit_chance):
-            self.actions.set(ActionKind.MULTISTRIKE, self.time.in_(0.01))
-        # Echo
-        echo_p = 0.5 * self.stats.effect_chance if self.stats.echo_level > 0 else 0.0
-        if echo_p > 0 and self.rng.succeeds(echo_p):
-            self.actions.set(ActionKind.ECHO, self.time.in_(0.02))
-        # Trickster evade stacks (stub)
-        if self.stats.tricksters_boon > 0 and self.rng.succeeds(0.1 * self.stats.tricksters_boon):
-            self.hunter.evade_stacks += 1
+        # Ozzy primary — follow-ups gate on hit-connect, not on kill
+        hit, _killed = self._deal_to_enemy(dmg)
+        if hit:
+            self._ozzy_on_hit_followups(from_echo=False)
         self._schedule_next_hunter_attack()
         return False
 
@@ -252,10 +354,15 @@ class HuntEngine:
             dmg = self.stats.atk_power * self.stats.crit_power
         else:
             dmg = self.stats.atk_power * 0.05 * max(1, self.stats.echo_level)
-        killed = self._deal_to_enemy(dmg)
-        if not killed and self.stats.crippling > 0 and self.rng.succeeds(self.stats.effect_chance):
-            self.hunter.crippling_stacks += self.stats.crippling
-        return killed
+        hit, _killed = self._deal_to_enemy(dmg)
+        if hit:
+            if multistrike:
+                if self.stats.crippling > 0 and self.rng.succeeds(self.stats.effect_chance):
+                    self.hunter.crippling_stacks += self.stats.crippling
+            else:
+                # Echo connect: Crippling + TriggerMultiStrike (no nested Echo)
+                self._ozzy_on_hit_followups(from_echo=True)
+        return False
 
     def _schedule_next_hunter_attack(self) -> None:
         interval = self.stats.atk_interval
@@ -269,20 +376,46 @@ class HuntEngine:
         """Returns True if hunter died for good."""
         assert self.enemy is not None
         e = self.enemy
-        evade = self.stats.evade_chance + 0.02 * self.hunter.evade_stacks
-        if self.hunter.evade_stacks > 0:
+        # Boss enrage stacks on boss attacks (not on hunter hits).
+        if e.is_boss and primary:
+            e.enrage(1)
+        # Trickster charge = free full evade (consume one stack)
+        if self.hunter.evade_stacks >= 1:
             self.hunter.evade_stacks -= 1
-        if self.rng.succeeds(min(0.9, evade)):
+            self._reschedule_enemy(primary)
+            return False
+        if self.rng.succeeds(min(0.9, self.stats.evade_chance)):
             self._reschedule_enemy(primary)
             return False
         dmg = e.atk_power
-        if self.rng.succeeds(e.crit_chance):
+        was_crit = self.rng.succeeds(e.crit_chance)
+        if was_crit:
             dmg *= e.crit_power
-            # Weakspot reduces crit damage taken
             dmg *= max(0.2, 1.0 - 0.11 * self.stats.weakspot)
-        dmg *= 1.0 - self.stats.dmg_reduction
-        # Atlas boss ATK speed note already in enemy interval via enrage
+            # Dance of Dashes: on taking a crit → 15%×lvl chance for +1 evade charge
+            if (
+                self.hunter_id == "ozzy"
+                and self.stats.dance_of_dashes > 0
+                and self.rng.succeeds(0.15 * self.stats.dance_of_dashes)
+            ):
+                self.hunter.evade_stacks += 1
+        dr = self.stats.dmg_reduction
+        # Blessing of the Scarab: extra incoming DR 1%×lvl
+        if self.hunter_id == "ozzy" and self.stats.blessing_scarab > 0:
+            dr = min(0.99, dr + 0.01 * self.stats.blessing_scarab)
+        dmg *= 1.0 - dr
         self.hunter.hp -= dmg
+        # Helltouch Barrier: reflect 8%×lvl of damage taken (boss ÷10)
+        if self.hunter_id == "borge" and self.stats.helltouch > 0 and dmg > 0:
+            frac = 0.08 * self.stats.helltouch
+            if e.is_boss:
+                frac *= 0.1
+            reflect = dmg * frac
+            if reflect > 0:
+                e.hp -= reflect
+                if e.hp <= 0:
+                    self._on_enemy_killed()
+                    return False
         self._reschedule_enemy(primary)
         if self.hunter.hp <= 0:
             return self._on_hunter_down()
@@ -304,7 +437,17 @@ class HuntEngine:
         if self.hunter.revives_left > 0:
             self.hunter.revives_left -= 1
             self.revives_used += 1
-            self.hunter.hp = self.hunter.max_hp
+            # Death Is My Companion: revive at 80% Max HP
+            self.hunter.hp = self.hunter.max_hp * 0.8
+            # Cycle of Death / Deal with Death apply per revive used
+            cyc = self.stats.cycle_of_death
+            if cyc > 0:
+                self.stats.crit_chance = min(0.95, self.stats.crit_chance + 0.023 * cyc)
+                self.stats.crit_power += 0.02 * cyc
+            deal = self.stats.deal_with_death
+            if deal > 0:
+                self.stats.atk_power *= 1.0 + 0.02 * deal
+                self.stats.dmg_reduction = min(0.9, self.stats.dmg_reduction + 0.016 * deal)
             return False
         if self.enemy.is_boss and self.enemy.max_hp > 0:
             self.boss_hp_at_death = max(0.0, min(100.0, 100.0 * self.enemy.hp / self.enemy.max_hp))
@@ -322,6 +465,16 @@ class HuntEngine:
         cleared_boss = e.is_boss
         if cleared_boss:
             self.bosses_killed += 1
+        # Unfair Advantage: on kill, effect-chance → heal 2% MaxHP × level
+        if self.stats.unfair > 0 and self.rng.succeeds(self.stats.effect_chance):
+            heal = self.hunter.max_hp * 0.02 * self.stats.unfair
+            self.hunter.hp = min(self.hunter.max_hp, self.hunter.hp + heal)
+            # Vectid Elixir: after Unfair → +15%×lvl regen for 5 ticks (refresh)
+            if self.hunter_id == "ozzy" and self.stats.vectid_elixir > 0:
+                mult = 1.0 + 0.15 * self.stats.vectid_elixir
+                if self.hunter.vectid_ticks <= 0:
+                    self.stats.hp_regen *= mult
+                self.hunter.vectid_ticks = 5
         self._clear_enemy_actions()
         # OfflineHunt: 10 kills per normal stage; bosses (stage % 100 == 0) clear in 1.
         advanced = self.hunt_stage.advance()

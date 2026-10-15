@@ -99,6 +99,8 @@ class HunterHandler(SimpleHTTPRequestHandler):
                     "offline_sim": True,
                     "hunters": ["borge", "ozzy"],
                     "stats_engine": "hunt_statistics",
+                    "default_max_time": 86_400,
+                    "sim_mtime": _sim_mtime_token(),
                     "note": "WASM still served as static web/wasm/release.wasm",
                 },
             )

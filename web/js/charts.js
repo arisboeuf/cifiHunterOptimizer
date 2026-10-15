@@ -72,6 +72,18 @@ function axesFrame(ctx, w, h, pad, xLabel, yLabel) {
   ctx.restore();
 }
 
+/** Corner tag so plots show which combat engine produced the data. */
+function drawEngineTag(ctx, w, pad, engineLabel) {
+  if (!engineLabel) return;
+  ctx.save();
+  ctx.font = "600 11px system-ui, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = COLORS.muted;
+  ctx.fillText(engineLabel, w - pad.r, 4);
+  ctx.restore();
+}
+
 /** Discrete stage ticks (bar charts). Aim for many labels. */
 function drawXTicksDiscrete(ctx, w, h, pad, minX, maxX, span) {
   const plotW = w - pad.l - pad.r;
@@ -157,7 +169,11 @@ export function drawEmpty(canvas) {
   emptyMessage(canvas);
 }
 
-export function drawBarChart(canvas, counts, { color = COLORS.accent, labelY = "Frequency" } = {}) {
+export function drawBarChart(
+  canvas,
+  counts,
+  { color = COLORS.accent, labelY = "Frequency", engineLabel = "" } = {},
+) {
   const entries = Object.entries(counts || {}).map(([k, v]) => [Number(k), Number(v)]);
   if (!entries.length) return emptyMessage(canvas);
   const { ctx, w, h, pad } = setup(canvas);
@@ -181,9 +197,10 @@ export function drawBarChart(canvas, counts, { color = COLORS.accent, labelY = "
     ctx.fillRect(px, h - pad.b - ph, barW, ph);
   }
   drawXTicksDiscrete(ctx, w, h, pad, minX, maxX, span);
+  drawEngineTag(ctx, w, pad, engineLabel);
 }
 
-export function drawOddsChart(canvas, odds) {
+export function drawOddsChart(canvas, odds, { engineLabel = "" } = {}) {
   const entries = Object.entries(odds || {}).map(([k, v]) => [Number(k), Number(v) * 100]);
   if (!entries.length) return emptyMessage(canvas);
   const { ctx, w, h, pad } = setup(canvas);
@@ -231,9 +248,10 @@ export function drawOddsChart(canvas, odds) {
   ctx.fillStyle = COLORS.accentFill;
   ctx.fill();
   drawXTicksContinuous(ctx, w, h, pad, minX, maxX);
+  drawEngineTag(ctx, w, pad, engineLabel);
 }
 
-export function drawReviveChart(canvas, first, second) {
+export function drawReviveChart(canvas, first, second, { engineLabel = "" } = {}) {
   const stages = [...new Set([...Object.keys(first || {}), ...Object.keys(second || {})].map(Number))].sort(
     (a, b) => a - b,
   );
@@ -262,4 +280,5 @@ export function drawReviveChart(canvas, first, second) {
     ctx.fillRect(px, h - pad.b - h1 - h2, barW, h2);
   });
   drawXTicksDiscrete(ctx, w, h, pad, minX, maxX, span);
+  drawEngineTag(ctx, w, pad, engineLabel);
 }

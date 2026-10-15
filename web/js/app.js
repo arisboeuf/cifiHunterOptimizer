@@ -9,17 +9,19 @@ import {
   probeOfflineApi,
   probeRustSim,
   storageKeyFor,
-} from "./hunters/index.js?v=engine12";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine12";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine12";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine12";
-import { initGemsModule } from "./gems/ui.js?v=engine12";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine12";
+} from "./hunters/index.js?v=engine14";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine14";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine14";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine14";
+import { initGemsModule } from "./gems/ui.js?v=engine14";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine14";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
 const ENGINE_STORAGE_KEY = "cifi_combat_engine_v1";
 const MODULE_IDS = new Set(["hunters", "gems", "mechs"]);
+/** Flip to true to re-enable Python / Rust/WASM in the Engine dropdown. */
+const OWN_ENGINES_ENABLED = false;
 
 const state = {
   hunterId: DEFAULT_HUNTER_ID,
@@ -642,6 +644,7 @@ function clearResultUi() {
   $("#sAvg").textContent = "—";
   $("#sMax").textContent = "—";
   renderMatsPerHour(null);
+  syncResultEngineBadge();
 }
 
 const RESET_LABELS = ["Reset Stats etc", "Sure?", "Really?"];
@@ -724,18 +727,60 @@ function switchHunter(hunterId) {
 function engineModeLabel(mode = state.engineMode) {
   if (mode === "offline") return "Python";
   if (mode === "rust") return "Rust/WASM";
-  return "WASM";
+  return "WASM (cifi-tools)";
+}
+
+/** Normalize engine tags from results / toggles → wasm | offline | rust */
+function normalizeEngineId(raw) {
+  const s = String(raw || "").toLowerCase();
+  if (s === "offline" || s === "python" || s.includes("offline") || s.includes("python")) {
+    return "offline";
+  }
+  if (s === "rust" || s.includes("rust")) return "rust";
+  return "wasm";
+}
+
+function resultEngineLabel(res) {
+  return engineModeLabel(normalizeEngineId(res?.engine));
+}
+
+function syncResultEngineBadge() {
+  const el = $("#resultEngineBadge");
+  if (!el) return;
+  const res = state.lastResult;
+  if (!res) {
+    el.textContent = "No results yet";
+    el.removeAttribute("data-engine");
+    el.classList.remove("is-stale");
+    return;
+  }
+  const resultId = normalizeEngineId(res.engine);
+  const selectedId = normalizeEngineId(state.engineMode);
+  const label = engineModeLabel(resultId);
+  el.dataset.engine = resultId;
+  if (resultId !== selectedId) {
+    el.classList.add("is-stale");
+    el.textContent = `Plot: ${label} · selected ${engineModeLabel(selectedId)} — Run Simulation to refresh`;
+  } else {
+    el.classList.remove("is-stale");
+    el.textContent = `Plot: ${label}`;
+  }
 }
 
 function syncEngineUi() {
+  const field = $("#engineModeField");
+  if (field) field.hidden = !OWN_ENGINES_ENABLED;
   const sel = $("#engineMode");
-  if (sel) sel.value = state.engineMode;
+  if (sel) {
+    sel.value = OWN_ENGINES_ENABLED ? state.engineMode : "wasm";
+    sel.disabled = !OWN_ENGINES_ENABLED;
+  }
   const note = $("#hunterNote");
   if (!note) return;
   const h = hunter();
-  if (state.engineMode === "offline") {
+  if (OWN_ENGINES_ENABLED && state.engineMode === "offline") {
     note.innerHTML = `Combat via <strong>OfflineHunt</strong> for <em>Run Simulation</em> (Python HuntStatistics + fight loop). Push/Finder/Next-Best always use cifi-tools WASM. Active: <strong>${h.name}</strong>.`;
-  } else if (state.engineMode === "rust") {
+  } else if (OWN_ENGINES_ENABLED && state.engineMode === "rust") {
     note.innerHTML = `Combat via our <strong>Rust/WASM</strong> OfflineHunt port for <em>Run Simulation</em>. Push/Finder/Next-Best always use cifi-tools WASM. Active: <strong>${h.name}</strong>.`;
   } else {
     note.innerHTML = `Combat via <code>release.wasm</code> (same engine as
@@ -744,9 +789,9 @@ function syncEngineUi() {
   }
   const sub = $("#appSubtitle");
   if (sub && state.module === "hunters") {
-    if (state.engineMode === "offline") {
+    if (OWN_ENGINES_ENABLED && state.engineMode === "offline") {
       sub.textContent = "Compare builds — OfflineHunt Python sim (extraction port)";
-    } else if (state.engineMode === "rust") {
+    } else if (OWN_ENGINES_ENABLED && state.engineMode === "rust") {
       sub.textContent = "Compare builds — own Rust/WASM OfflineHunt port";
     } else {
       sub.textContent = "Compare builds and optimize your performance — same WASM engine as cifi-tools";
@@ -771,8 +816,12 @@ function searchEngine() {
 
 function applyEngineMode(mode, { silent = false } = {}) {
   let want = "wasm";
-  if (mode === "offline") want = "offline";
-  else if (mode === "rust") want = "rust";
+  if (OWN_ENGINES_ENABLED) {
+    if (mode === "offline") want = "offline";
+    else if (mode === "rust") want = "rust";
+  } else if (!silent && (mode === "offline" || mode === "rust")) {
+    $("#status").textContent = "Python and Rust/WASM are temporarily disabled — using WASM (cifi-tools)";
+  }
 
   if (want === "offline") {
     if (state.hunterId === "knox") {
@@ -830,6 +879,7 @@ function applyEngineMode(mode, { silent = false } = {}) {
     /* ignore */
   }
   syncEngineUi();
+  syncResultEngineBadge();
   syncActionButtons();
 }
 
@@ -973,8 +1023,10 @@ function showResult(res) {
   $("#sMax").textContent = res.maxStage.toFixed(1);
   renderMatsPerHour(res);
   renderBuildStats(res.buildStats);
+  syncResultEngineBadge();
   redrawCharts();
-  $("#status").textContent = `Done — ${res.n} runs (${res.engine}) · ${hunter().name}`;
+  const engName = resultEngineLabel(res);
+  $("#status").textContent = `Done — ${res.n} runs (${engName}) · ${hunter().name}`;
   $("#progressBar").style.width = "100%";
 }
 
@@ -984,11 +1036,13 @@ function redrawCharts() {
     drawEmpty($("#chartDist"));
     drawEmpty($("#chartOdds"));
     drawEmpty($("#chartRev"));
+    syncResultEngineBadge();
     return;
   }
-  drawBarChart($("#chartDist"), res.stageCounts);
-  drawOddsChart($("#chartOdds"), res.stageOdds);
-  drawReviveChart($("#chartRev"), res.firstRevive, res.secondRevive);
+  const engineLabel = resultEngineLabel(res);
+  drawBarChart($("#chartDist"), res.stageCounts, { engineLabel });
+  drawOddsChart($("#chartOdds"), res.stageOdds, { engineLabel });
+  drawReviveChart($("#chartRev"), res.firstRevive, res.secondRevive, { engineLabel });
 }
 
 async function runSim() {
@@ -1038,7 +1092,8 @@ async function runSim() {
     }
     const res = hunter().wasmToSimResult(wasmRes, n);
     // Prefer real engine tag (avoid stale cached wasmToSimResult hardcoding "wasm")
-    res.engine = wasmRes.engine || state.engine?.label || res.engine || engLabel;
+    // Keep a stable tag for the plot badge (wasm | offline | rust).
+    res.engine = engLabel || wasmRes.engine || state.engine?.label || res.engine || "wasm";
     showResult(res);
   } catch (err) {
     console.error(err);
@@ -1177,14 +1232,21 @@ async function init() {
   });
   window.addEventListener("resize", () => redrawCharts());
 
-  state.offlineApiOk = await probeOfflineApi();
-  state.rustSimOk = await probeRustSim();
+  if (OWN_ENGINES_ENABLED) {
+    state.offlineApiOk = await probeOfflineApi();
+    state.rustSimOk = await probeRustSim();
+  } else {
+    state.offlineApiOk = false;
+    state.rustSimOk = false;
+  }
   let preferred = "wasm";
-  try {
-    const stored = localStorage.getItem(ENGINE_STORAGE_KEY);
-    if (stored === "offline" || stored === "wasm" || stored === "rust") preferred = stored;
-  } catch {
-    /* ignore */
+  if (OWN_ENGINES_ENABLED) {
+    try {
+      const stored = localStorage.getItem(ENGINE_STORAGE_KEY);
+      if (stored === "offline" || stored === "wasm" || stored === "rust") preferred = stored;
+    } catch {
+      /* ignore */
+    }
   }
 
   try {
@@ -1192,8 +1254,10 @@ async function init() {
     applyEngineMode(preferred, { silent: true });
     const eng = engineModeLabel();
     const notes = [];
-    if (!state.offlineApiOk) notes.push("Python API offline (use launch.py)");
-    if (!state.rustSimOk) notes.push("Rust/WASM missing");
+    if (OWN_ENGINES_ENABLED) {
+      if (!state.offlineApiOk) notes.push("Python API offline (use launch.py)");
+      if (!state.rustSimOk) notes.push("Rust/WASM missing");
+    }
     const apiNote = notes.length ? ` · ${notes.join(" · ")}` : "";
     $("#status").textContent = saved
       ? `Restored session · ${eng} ready${apiNote}`

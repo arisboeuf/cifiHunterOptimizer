@@ -762,6 +762,38 @@ body[data-module="mechs"] .app-header p {
   font-weight: 700;
 }
 
+.result-engine-badge {
+  margin: 0.45rem 0 0;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted, #94a3b8);
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.result-engine-badge[data-engine="wasm"] {
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.35);
+}
+
+.result-engine-badge[data-engine="offline"] {
+  color: #86efac;
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.result-engine-badge[data-engine="rust"] {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.result-engine-badge.is-stale {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
 .chart-box {
   background: var(--card);
   border: 1px solid var(--border);

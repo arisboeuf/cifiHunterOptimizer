@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CIFI Farm</title>
     <meta name="description" content="CIFI hunter simulator & Ouroboros gem progression — WASM combat, stage distribution, live GU costs." />
-    <link rel="stylesheet" href="./css/app.css?v=engine1" />
+    <link rel="stylesheet" href="./css/app.css?v=engine14" />
   </head>
   <body data-hunter="borge" data-module="hunters">
     <header class="app-header">
@@ -38,15 +38,16 @@
           <label for="reps">Sims</label>
           <input id="reps" type="number" min="1" max="50000" value="6000" style="width: 5.5rem" />
         </div>
-        <div class="field">
+        <!-- Own engines (Python / Rust) temporarily disabled — only cifi-tools WASM. -->
+        <div class="field" id="engineModeField" hidden>
           <label for="engineMode">Engine</label>
           <select
             id="engineMode"
-            title="WASM = cifi-tools binary. Python = OfflineHunt via launch.py. Rust/WASM = our sim in the browser."
+            title="Temporarily WASM-only. Python and Rust/WASM are disabled."
           >
             <option value="wasm">WASM (cifi-tools)</option>
-            <option value="offline">Python</option>
-            <option value="rust">Rust/WASM</option>
+            <option value="offline" disabled>Python (disabled)</option>
+            <option value="rust" disabled>Rust/WASM (disabled)</option>
           </select>
         </div>
         <button type="button" class="btn btn-primary" id="btnTalents">Talents &amp; Attributes…</button>
@@ -137,7 +138,9 @@
             <button class="tab" role="tab" data-rtab="bstats" aria-selected="false">Build Stats</button>
           </div>
 
-          <div style="padding-top: 0.65rem">
+          <p id="resultEngineBadge" class="result-engine-badge" aria-live="polite">No results yet</p>
+
+          <div style="padding-top: 0.35rem">
             <div class="chart-box" data-rpanel="dist"><canvas id="chartDist"></canvas></div>
             <div class="chart-box" data-rpanel="odds" hidden><canvas id="chartOdds"></canvas></div>
             <div class="chart-box" data-rpanel="rev" hidden><canvas id="chartRev"></canvas></div>
@@ -257,6 +260,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=engine12"></script>
+    <script type="module" src="./js/app.js?v=engine14"></script>
   </body>
 </html>

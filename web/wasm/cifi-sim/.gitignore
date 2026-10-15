@@ -1,0 +1,2 @@
+# Keep committed WASM artifacts; ignore npm noise if regenerated locally.
+node_modules/

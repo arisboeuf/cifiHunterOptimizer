@@ -40,9 +40,13 @@
         </div>
         <div class="field">
           <label for="engineMode">Engine</label>
-          <select id="engineMode" title="WASM = cifi-tools binary. Offline = Python OfflineHunt port via launch.py">
+          <select
+            id="engineMode"
+            title="WASM = cifi-tools binary. Python = OfflineHunt via launch.py. Rust/WASM = our sim in the browser."
+          >
             <option value="wasm">WASM (cifi-tools)</option>
-            <option value="offline">Offline (Python sim)</option>
+            <option value="offline">Python</option>
+            <option value="rust">Rust/WASM</option>
           </select>
         </div>
         <button type="button" class="btn btn-primary" id="btnTalents">Talents &amp; Attributes…</button>
@@ -253,6 +257,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=engine6"></script>
+    <script type="module" src="./js/app.js?v=engine12"></script>
   </body>
 </html>

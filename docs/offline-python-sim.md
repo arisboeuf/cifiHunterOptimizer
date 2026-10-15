@@ -6,8 +6,10 @@ Related:
 
 - Port checklist: [`sim/STATUS.md`](../sim/STATUS.md)
 - WASM bridge (what we did *not* reverse from the binary): [`docs/wasm-combat.md`](wasm-combat.md)
+- External reference (ObeliskFarm: TS MC in Web Workers): [`docs/obeliskfarm-mc.md`](obeliskfarm-mc.md)
 - Extraction package: `docs/data/CIFI-Hunter-Extraction-0.7.3.42/` (local; large)
-- UI: engine toggle **WASM** vs **Offline (Python)** — Push / Finder / Next-Best stay on WASM for wall-clock speed
+- UI: engine toggle **WASM (cifi-tools)** / **Python** / **Rust/WASM** — Push / Finder / Next-Best stay on cifi-tools WASM for now
+- Fast own-engine path: [`rust-sim/`](../rust-sim/) (same OfflineHunt logic, browser WASM) — see [`rust-sim/README.md`](../rust-sim/README.md)
 
 ---
 
@@ -19,7 +21,7 @@ Run the same *kind* of hunt Monte Carlo as cifi-tools (stages, time, loot/min, b
 2. Finals and combat rules grounded in **extraction 0.7.3.42**, not guessed heuristics.
 3. The **same saved build JSON** as the web UI (stats, talents, attrs, inscryptions, relics, gems, mods).
 
-WASM remains the **oracle** for parity checks and the **fast path** for the optimizer funnel.
+cifi-tools WASM remains the **oracle** for parity checks and the **fast path** for the optimizer funnel. The Rust port (`rust-sim/`) is the intended long-term own-engine for Run Simulation (and later search) once it tracks Python distributions.
 
 ---
 

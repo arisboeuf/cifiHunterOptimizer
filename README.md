@@ -95,6 +95,8 @@ HTTP required — ES modules + WASM do not work via `file://`.
 | `.github/workflows/` | Pages deploy |
 | `docs/mechanics.md` | Crit / Multistrike / Charge (per hunter) |
 | `docs/wasm-combat.md` | WASM provenance, bridge vs engine, mechanics Q&A limits |
+| `docs/offline-python-sim.md` | Offline Python Hunt port vs WASM |
+| `docs/obeliskfarm-mc.md` | External note: ObeliskFarm TS Monte Carlo + Web Workers |
 | `docs/boss-screen.md` | First Bosskill Finder screens, factorial limits, Boss HP %, stage/loot funnel notes |
 | `docs/monster_stats/` | Enemy / boss CSV documentation |
 | `scripts/export_monster_stats.py` | Regenerate those CSVs |

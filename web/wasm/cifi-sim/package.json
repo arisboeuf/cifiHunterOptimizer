@@ -1,0 +1,16 @@
+{
+  "name": "cifi-sim",
+  "type": "module",
+  "description": "OfflineHunt Monte Carlo simulator (Rust port of sim/)",
+  "version": "0.1.0",
+  "files": [
+    "cifi_sim_bg.wasm",
+    "cifi_sim.js",
+    "cifi_sim.d.ts"
+  ],
+  "main": "cifi_sim.js",
+  "types": "cifi_sim.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

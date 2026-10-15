@@ -7,13 +7,14 @@ import {
   getHunter,
   loadSharedWasm,
   probeOfflineApi,
+  probeRustSim,
   storageKeyFor,
-} from "./hunters/index.js?v=engine11";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine10";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine10";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine10";
-import { initGemsModule } from "./gems/ui.js?v=engine10";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine10";
+} from "./hunters/index.js?v=engine12";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine12";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine12";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine12";
+import { initGemsModule } from "./gems/ui.js?v=engine12";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine12";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
@@ -28,8 +29,9 @@ const state = {
   build: null,
   wasmExports: null,
   engine: null,
-  engineMode: "wasm", // "wasm" | "offline"
+  engineMode: "wasm", // "wasm" | "offline" | "rust"
   offlineApiOk: false,
+  rustSimOk: false,
   running: false,
   optimizing: false,
   nextBestRunning: false,
@@ -714,7 +716,15 @@ function switchHunter(hunterId) {
   refreshBudget();
   saveState();
   applyEngineMode(state.engineMode, { silent: true });
-  $("#status").textContent = `${h.name} ready · ${state.engineMode === "offline" ? "offline" : "WASM"}`;
+  const modeLabel =
+    state.engineMode === "offline" ? "Python" : state.engineMode === "rust" ? "Rust/WASM" : "WASM";
+  $("#status").textContent = `${h.name} ready · ${modeLabel}`;
+}
+
+function engineModeLabel(mode = state.engineMode) {
+  if (mode === "offline") return "Python";
+  if (mode === "rust") return "Rust/WASM";
+  return "WASM";
 }
 
 function syncEngineUi() {
@@ -724,7 +734,9 @@ function syncEngineUi() {
   if (!note) return;
   const h = hunter();
   if (state.engineMode === "offline") {
-    note.innerHTML = `Combat via <strong>OfflineHunt</strong> for <em>Run Simulation</em> (Python HuntStatistics + fight loop). Push/Finder/Next-Best always use fast WASM. Active: <strong>${h.name}</strong>.`;
+    note.innerHTML = `Combat via <strong>OfflineHunt</strong> for <em>Run Simulation</em> (Python HuntStatistics + fight loop). Push/Finder/Next-Best always use cifi-tools WASM. Active: <strong>${h.name}</strong>.`;
+  } else if (state.engineMode === "rust") {
+    note.innerHTML = `Combat via our <strong>Rust/WASM</strong> OfflineHunt port for <em>Run Simulation</em>. Push/Finder/Next-Best always use cifi-tools WASM. Active: <strong>${h.name}</strong>.`;
   } else {
     note.innerHTML = `Combat via <code>release.wasm</code> (same engine as
       <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).
@@ -732,16 +744,19 @@ function syncEngineUi() {
   }
   const sub = $("#appSubtitle");
   if (sub && state.module === "hunters") {
-    sub.textContent =
-      state.engineMode === "offline"
-        ? "Compare builds — OfflineHunt Python sim (extraction port)"
-        : "Compare builds and optimize your performance — same WASM engine as cifi-tools";
+    if (state.engineMode === "offline") {
+      sub.textContent = "Compare builds — OfflineHunt Python sim (extraction port)";
+    } else if (state.engineMode === "rust") {
+      sub.textContent = "Compare builds — own Rust/WASM OfflineHunt port";
+    } else {
+      sub.textContent = "Compare builds and optimize your performance — same WASM engine as cifi-tools";
+    }
   }
 }
 
 /**
- * Optimizer / Next-Best run thousands of evals. Offline = HTTP + Python per build → unusable.
- * Always use in-process WASM for search; Offline stays for Run Simulation only.
+ * Optimizer / Next-Best run thousands of evals.
+ * Always use cifi-tools WASM for search; Python / Rust stay for Run Simulation only (v1).
  */
 function searchEngine() {
   if (state.wasmExports) {
@@ -755,21 +770,39 @@ function searchEngine() {
 }
 
 function applyEngineMode(mode, { silent = false } = {}) {
-  const want = mode === "offline" ? "offline" : "wasm";
+  let want = "wasm";
+  if (mode === "offline") want = "offline";
+  else if (mode === "rust") want = "rust";
+
   if (want === "offline") {
     if (state.hunterId === "knox") {
       if (!silent) {
-        $("#status").textContent = "Offline sim: Knox not supported yet — staying on WASM";
+        $("#status").textContent = "Python sim: Knox not supported yet — staying on WASM";
       }
       state.engineMode = "wasm";
     } else if (!state.offlineApiOk) {
       if (!silent) {
         $("#status").textContent =
-          "Offline API not available — start with launch.py (not a plain static server)";
+          "Python API not available — start with launch.py (not a plain static server)";
       }
       state.engineMode = "wasm";
     } else {
       state.engineMode = "offline";
+    }
+  } else if (want === "rust") {
+    if (state.hunterId === "knox") {
+      if (!silent) {
+        $("#status").textContent = "Rust/WASM sim: Knox not supported yet — staying on WASM";
+      }
+      state.engineMode = "wasm";
+    } else if (!state.rustSimOk) {
+      if (!silent) {
+        $("#status").textContent =
+          "Rust/WASM sim not available — rebuild rust-sim or pick another engine";
+      }
+      state.engineMode = "wasm";
+    } else {
+      state.engineMode = "rust";
     }
   } else {
     state.engineMode = "wasm";
@@ -778,6 +811,8 @@ function applyEngineMode(mode, { silent = false } = {}) {
   try {
     if (state.engineMode === "offline") {
       state.engine = engineFor(hunter(), state.wasmExports, "offline");
+    } else if (state.engineMode === "rust") {
+      state.engine = engineFor(hunter(), state.wasmExports, "rust");
     } else if (state.wasmExports) {
       state.engine = engineFor(hunter(), state.wasmExports, "wasm");
     } else {
@@ -965,19 +1000,22 @@ async function runSim() {
   }
   let n = Math.max(1, Number($("#reps").value) || 1);
   const offline = state.engineMode === "offline" || state.engine?.label === "offline";
-  // Offline is much slower than WASM; keep Run usable.
+  const rust = state.engineMode === "rust" || state.engine?.label === "rust";
+  // Python is much slower than WASM; keep Run usable. Rust has no 500 cap.
   if (offline && n > 500) {
-    $("#status").textContent = `Offline caps Sims at 500 for Run Simulation (was ${n}). Use WASM for large batches.`;
+    $("#status").textContent = `Python caps Sims at 500 for Run Simulation (was ${n}). Use WASM or Rust/WASM for large batches.`;
     n = 500;
     $("#reps").value = "500";
   }
   state.running = true;
   syncActionButtons();
   $("#progressBar").style.width = "15%";
-  const engLabel = offline ? "offline" : "wasm";
+  const engLabel = offline ? "offline" : rust ? "rust" : "wasm";
   $("#status").textContent = offline
-    ? `Running ${n} sims (offline Python · ${hunter().name}) — please wait…`
-    : `Running ${n} sims (wasm · ${hunter().name})…`;
+    ? `Running ${n} sims (Python · ${hunter().name}) — please wait…`
+    : rust
+      ? `Running ${n} sims (Rust/WASM · ${hunter().name})…`
+      : `Running ${n} sims (wasm · ${hunter().name})…`;
   saveState();
 
   let pulse = null;
@@ -1135,16 +1173,16 @@ async function init() {
   });
   $("#engineMode")?.addEventListener("change", (e) => {
     applyEngineMode(e.target.value);
-    const label = state.engineMode === "offline" ? "OfflineHunt" : "WASM";
-    $("#status").textContent = `Engine: ${label}`;
+    $("#status").textContent = `Engine: ${engineModeLabel()}`;
   });
   window.addEventListener("resize", () => redrawCharts());
 
   state.offlineApiOk = await probeOfflineApi();
+  state.rustSimOk = await probeRustSim();
   let preferred = "wasm";
   try {
     const stored = localStorage.getItem(ENGINE_STORAGE_KEY);
-    if (stored === "offline" || stored === "wasm") preferred = stored;
+    if (stored === "offline" || stored === "wasm" || stored === "rust") preferred = stored;
   } catch {
     /* ignore */
   }
@@ -1152,8 +1190,11 @@ async function init() {
   try {
     state.wasmExports = await loadSharedWasm("./wasm/release.wasm");
     applyEngineMode(preferred, { silent: true });
-    const eng = state.engineMode === "offline" ? "OfflineHunt" : "WASM";
-    const apiNote = state.offlineApiOk ? "" : " · offline API offline (use launch.py)";
+    const eng = engineModeLabel();
+    const notes = [];
+    if (!state.offlineApiOk) notes.push("Python API offline (use launch.py)");
+    if (!state.rustSimOk) notes.push("Rust/WASM missing");
+    const apiNote = notes.length ? ` · ${notes.join(" · ")}` : "";
     $("#status").textContent = saved
       ? `Restored session · ${eng} ready${apiNote}`
       : `${eng} ready — edit build and Run Simulation${apiNote}`;

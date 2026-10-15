@@ -31,6 +31,7 @@ python launch.py
 
 - [How we built the Offline Python sim vs WASM](../docs/offline-python-sim.md)
 - [Port status matrix](STATUS.md)
+- [ObeliskFarm MC reference (external TS + Workers pattern)](../docs/obeliskfarm-mc.md)
 
 ## Build JSON
 

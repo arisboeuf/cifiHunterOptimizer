@@ -12,3 +12,6 @@ __pycache__/
 logs/
 *.log
 _site/
+
+# Rust
+rust-sim/target/

@@ -2,7 +2,7 @@
 """Start Hunter Sim locally: serves ./web and OfflineHunt API (/api/sim).
 
 Run in Cursor: open this file → Run.
-Engine toggle in the UI: WASM (cifi-tools) or Offline (Python sim/).
+Engine toggle in the UI: WASM (cifi-tools), Python (sim/), or Rust/WASM (rust-sim/).
 """
 
 from __future__ import annotations
@@ -213,7 +213,10 @@ def main() -> int:
     print("  Hunter Sim", flush=True)
     print(f"  Serving: {WEB}", flush=True)
     print(f"  Open:    {url}", flush=True)
-    print("  Engines: WASM (web/wasm) + Offline API /api/sim (Borge/Ozzy)", flush=True)
+    print(
+        "  Engines: cifi-tools WASM + Python /api/sim + Rust/WASM (web/wasm/cifi-sim)",
+        flush=True,
+    )
     if port != args.port:
         print(f"  (port {args.port} busy → using {port})", flush=True)
     print("  Stop:    Ctrl+C", flush=True)

@@ -12,9 +12,10 @@ import * as knoxAttrs from "./knox/attr-rules.js";
 import { WasmKnoxEngine, wasmToSimResult as knoxWasmToSim } from "./knox/wasm-engine.js?v=engine5";
 
 import { loadWasmExports } from "./wasm-shared.js?v=engine6";
-import { OfflineHuntEngine, probeOfflineApi } from "./offline-engine.js?v=engine11";
+import { OfflineHuntEngine, probeOfflineApi } from "./offline-engine.js?v=engine12";
+import { RustHuntEngine, probeRustSim } from "./rust-engine.js?v=engine12";
 
-export { OfflineHuntEngine, probeOfflineApi };
+export { OfflineHuntEngine, probeOfflineApi, RustHuntEngine, probeRustSim };
 
 function emptySection(keys, fill = 0) {
   return Object.fromEntries(keys.map((k) => [k, fill]));
@@ -247,7 +248,7 @@ export async function loadSharedWasm(wasmUrl = "./wasm/release.wasm") {
 }
 
 /**
- * @param {"wasm"|"offline"} mode
+ * @param {"wasm"|"offline"|"rust"} mode
  */
 export function engineFor(hunter, wasmExports, mode = "wasm") {
   if (mode === "offline") {
@@ -257,6 +258,14 @@ export function engineFor(hunter, wasmExports, mode = "wasm") {
     // Python HuntStatistics owns finals; wasmExports unused for Offline.
     const eng = OfflineHuntEngine.forHunter(hunter.id, null);
     eng.label = "offline";
+    return eng;
+  }
+  if (mode === "rust") {
+    if (hunter.id === "knox") {
+      throw new Error("Rust/WASM sim does not support Knox yet — switch to WASM or pick Borge/Ozzy.");
+    }
+    const eng = RustHuntEngine.forHunter(hunter.id);
+    eng.label = "rust";
     return eng;
   }
   const eng = hunter.Engine.fromExports(wasmExports);

@@ -454,7 +454,7 @@ export async function optimizeBuild(baseConfig, engine, hunter, optIn = {}, hook
     if (!v.ok) return null;
     await yieldToUi();
     if (isCancelled()) return null;
-    const wasmRes = engine.evaluate(v.config, Math.max(1, Number(n) || 1));
+    const wasmRes = await Promise.resolve(engine.evaluate(v.config, Math.max(1, Number(n) || 1)));
     return wasmToSimResult(wasmRes, n);
   };
 
@@ -961,20 +961,50 @@ function borgeAttributeRows(budget) {
   return rows;
 }
 
+/** Runs past the boss, and runs that at least reached it. */
+function bossStageReach(sim, bossStage) {
+  const counts = sim?.stageCounts || {};
+  let clears = 0;
+  let reached = 0;
+  let n = 0;
+  for (const [stageRaw, countRaw] of Object.entries(counts)) {
+    const stage = Number(stageRaw);
+    const c = Number(countRaw);
+    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
+    n += c;
+    if (stage >= bossStage - 0.05) reached += c;
+    if (stage > bossStage) clears += c;
+  }
+  if (n <= 0) n = Math.max(1, Number(sim?.n) || FIRST_BOSS_CONFIRM_SIMS);
+  return { clears, reached, n };
+}
+
 /**
- * Remaining boss HP in percent. Lower is closer to a kill.
- * Past the boss is a real 0%. Never reaching it is 100%.
- * On the boss, only a positive WASM percent counts — 0 there is an artifact
- * (same getter as never-reached / already-past), so it is ignored as 100%.
+ * Closeness to killing the boss, as a 0–100 score (lower is better).
+ * Named like remaining HP for the finder charts.
+ *
+ * - Any clears: (1 - clearRate) × 100 (so 1/50 clears ≈ 98, full clears = 0).
+ * - Positive WASM HP while on the boss: that percent.
+ * - On the boss with WASM 0 (artifact): score from how many runs reached the boss (~20–60).
+ * - Never reached: score from max stage (~60–100).
  */
 export function bossHpRemaining(sim, bossStage) {
   const hp = Number(sim.bossHpPercent);
   const avg = Number(sim.avgStage) || 0;
   const max = Number(sim.maxStage) || avg;
-  if (max > bossStage + 0.05) return 0;
-  if (max < bossStage - 0.05) return 100;
-  if (Number.isFinite(hp) && hp > 0) return hp;
-  return 100;
+  const { clears, reached, n } = bossStageReach(sim, bossStage);
+  const clearRate = clears / n;
+  if (clearRate > 0) return (1 - clearRate) * 100;
+
+  if (max < bossStage - 0.05) {
+    const t = Math.max(0, Math.min(1, max / Math.max(1, bossStage)));
+    return 100 - 40 * t;
+  }
+
+  if (Number.isFinite(hp) && hp > 0) return Math.min(100, hp);
+
+  const reachRate = reached / n;
+  return 60 - 40 * reachRate;
 }
 
 function screen2Plan(ranked) {
@@ -1342,19 +1372,9 @@ function bossesPerDayOf(sim, bossStage) {
   return scoreOf(sim, "bosses", [bossStage]).bossesPerDay;
 }
 
-/** Runs that ended past the boss. Those count as 0% remaining boss HP. */
+/** Runs that ended past the boss. */
 function clearRunsOf(sim, bossStage) {
-  const counts = sim?.stageCounts || {};
-  let clears = 0;
-  let n = 0;
-  for (const [stageRaw, countRaw] of Object.entries(counts)) {
-    const stage = Number(stageRaw);
-    const c = Number(countRaw);
-    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
-    n += c;
-    if (stage > bossStage) clears += c;
-  }
-  if (n <= 0) n = Math.max(1, Number(sim?.n) || FIRST_BOSS_CONFIRM_SIMS);
+  const { clears, n } = bossStageReach(sim, bossStage);
   return { clears, n };
 }
 
@@ -1433,7 +1453,7 @@ async function evaluateBossConfirm(row, base, engine, hunter, bossStage, sims) {
   const validated = validateBudgets(cfg, hunter);
   const use = validated.ok ? validated.config : cfg;
   await yieldToUi();
-  const sim = hunter.wasmToSimResult(engine.evaluate(use, sims), sims);
+  const sim = hunter.wasmToSimResult(await Promise.resolve(engine.evaluate(use, sims)), sims);
   const { clears, n } = clearRunsOf(sim, bossStage);
   return {
     talents: { ...use.talents },
@@ -1708,7 +1728,10 @@ async function simulateBossScreen({
     }
     await yieldToUi();
     if (isCancelled()) return { cancelled: true };
-    const sim = wasmToSimResult(engine.evaluate(validated.config, FIRST_BOSS_SCREEN_SIMS), FIRST_BOSS_SCREEN_SIMS);
+    const sim = wasmToSimResult(
+      await Promise.resolve(engine.evaluate(validated.config, FIRST_BOSS_SCREEN_SIMS)),
+      FIRST_BOSS_SCREEN_SIMS,
+    );
     const bossHp = bossHpRemaining(sim, bossStage);
     const sample = {
       bossHp,
@@ -3379,7 +3402,7 @@ async function simulatePushScreen({
     }
     await yieldToUi();
     if (isCancelled()) return { cancelled: true };
-    const sim = wasmToSimResult(engine.evaluate(validated.config, sims), sims);
+    const sim = wasmToSimResult(await Promise.resolve(engine.evaluate(validated.config, sims)), sims);
     const score = scoreOf(sim, objective, bossStages);
     const sample = {
       score,
@@ -3572,7 +3595,10 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
   if (!current.ok) throw new Error(current.msg || "Invalid build");
   if (isCancelled()) return { cancelled: true };
   await yieldToUi();
-  const baselineEval = hunter.wasmToSimResult(engine.evaluate(current.config, nConfirm), nConfirm);
+  const baselineEval = hunter.wasmToSimResult(
+    await Promise.resolve(engine.evaluate(current.config, nConfirm)),
+    nConfirm,
+  );
   const baselineScore = scoreOf(baselineEval, objective, bossStages);
   let winnerEval = null;
   let winnerScore = null;
@@ -3584,7 +3610,10 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
     const winnerOk = validateBudgets(winnerCfg, hunter);
     if (winnerOk.ok && !isCancelled()) {
       await yieldToUi();
-      winnerEval = hunter.wasmToSimResult(engine.evaluate(winnerOk.config, nConfirm), nConfirm);
+      winnerEval = hunter.wasmToSimResult(
+        await Promise.resolve(engine.evaluate(winnerOk.config, nConfirm)),
+        nConfirm,
+      );
       winnerScore = scoreOf(winnerEval, objective, bossStages);
       winnerConfig = winnerOk.config;
     }
@@ -3659,7 +3688,7 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
   await yieldToUi();
   if (isCancelled()) return { cancelled: true, baselineScore: null, results: [] };
 
-  const baseWasm = engine.evaluate(baselineCfg, n);
+  const baseWasm = await Promise.resolve(engine.evaluate(baselineCfg, n));
   const baselineEval = wasmToSimResult(baseWasm, n);
   const baselineScore = scoreOf(baselineEval);
   done = 1;
@@ -3696,7 +3725,7 @@ async function marginalPlusOneGains(baseConfig, engine, hunter, optIn, hooks, sw
     await yieldToUi();
     if (isCancelled()) return { cancelled: true, baselineScore, results };
 
-    const wasmRes = engine.evaluate(cfg, n);
+    const wasmRes = await Promise.resolve(engine.evaluate(cfg, n));
     const res = wasmToSimResult(wasmRes, n);
     const sc = scoreOf(res);
     const better = sc.avgStage > baselineScore.avgStage;

@@ -82,7 +82,7 @@ export function wasmToSimResult(wasmRes, repetitions) {
     buildStats: wasmRes.buildStats,
     mats: { mat1: wasmRes.mat1, mat2: wasmRes.mat2, mat3: wasmRes.mat3 },
     xp: wasmRes.xp,
-    engine: "wasm",
+    engine: wasmRes.engine || "wasm",
   };
 }
 

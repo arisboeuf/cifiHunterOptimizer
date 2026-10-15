@@ -241,6 +241,7 @@ body[data-module="mechs"] .app-header p {
   letter-spacing: 0.04em;
 }
 
+.field select,
 .field input[type="text"],
 .field input[type="number"],
 .spin input {
@@ -258,6 +259,7 @@ body[data-module="mechs"] .app-header p {
   border-radius: 0;
 }
 
+.field select:focus,
 .field input:focus,
 .spin input:focus {
   outline: 2px solid var(--accent-soft);

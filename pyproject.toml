@@ -1,0 +1,13 @@
+[project]
+name = "cifi-offline-hunt-sim"
+version = "0.1.0"
+description = "Extraction-based OfflineHunt Monte-Carlo simulator (Borge + Ozzy)"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/sim"]
+pythonpath = ["."]

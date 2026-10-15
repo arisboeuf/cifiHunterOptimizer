@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CIFI Farm</title>
     <meta name="description" content="CIFI hunter simulator & Ouroboros gem progression — WASM combat, stage distribution, live GU costs." />
-    <link rel="stylesheet" href="./css/app.css?v=refine1" />
+    <link rel="stylesheet" href="./css/app.css?v=engine1" />
   </head>
   <body data-hunter="borge" data-module="hunters">
     <header class="app-header">
@@ -37,6 +37,13 @@
         <div class="field">
           <label for="reps">Sims</label>
           <input id="reps" type="number" min="1" max="50000" value="6000" style="width: 5.5rem" />
+        </div>
+        <div class="field">
+          <label for="engineMode">Engine</label>
+          <select id="engineMode" title="WASM = cifi-tools binary. Offline = Python OfflineHunt port via launch.py">
+            <option value="wasm">WASM (cifi-tools)</option>
+            <option value="offline">Offline (Python sim)</option>
+          </select>
         </div>
         <button type="button" class="btn btn-primary" id="btnTalents">Talents &amp; Attributes…</button>
         <button type="button" class="btn" id="btnImport">Import</button>
@@ -116,7 +123,7 @@
             <div class="metric"><div class="k">Ø Stage (Range)</div><div class="v" id="mStage">—</div></div>
             <div class="metric"><div class="k">Ø Time (Runs/d)</div><div class="v" id="mTime">—</div></div>
             <div class="metric" title="Share of runs that clear the first selected boss (100 / 200 / 300)."><div class="k">Boss Kill %</div><div class="v" id="mBoss">—</div></div>
-            <div class="metric" title="Remaining boss HP for the first selected boss. Past the boss is 0%. Never reaching it, or a WASM 0 while still on the boss, is 100%."><div class="k">Boss HP</div><div class="v" id="mBossHp">—</div></div>
+            <div class="metric" title="Closeness to killing the first selected boss (lower is better). Clears pull it toward 0%. Positive WASM remaining HP is used when available. Otherwise stage reach is used — a WASM 0% on the boss is not trusted."><div class="k">Boss HP</div><div class="v" id="mBossHp">—</div></div>
           </div>
 
           <div class="tabs" role="tablist" aria-label="Results">
@@ -160,8 +167,8 @@
 
       <p class="status" id="status">Initializing WASM…</p>
       <p class="footer-note" id="hunterNote">
-        Combat via <code>release.wasm</code> (same engine as
-        <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).
+        Combat via <code>release.wasm</code> or OfflineHunt (<code>sim/</code> via
+        <code>launch.py</code>). Toggle <strong>Engine</strong> in the toolbar.
         Active: <strong>Borge</strong>. Builds persist per hunter in this browser.
       </p>
       </div>
@@ -246,6 +253,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=bosshpui"></script>
+    <script type="module" src="./js/app.js?v=engine6"></script>
   </body>
 </html>

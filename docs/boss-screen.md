@@ -35,12 +35,12 @@ Stats, relics, gems, inscryptions, and the Gaiden card stay on the saved hunter.
 
 Every screening row is simulated **50** times. The score is **remaining boss HP** for the first checked boss, not bosses/day. Lower is closer to a kill. The later phases are the [second screen](#second-screen), the [refinement](#refinement), and the 500-sim confirm.
 
-The WASM value (`getLastBossHpPercent`) is already in percent, and it is only filled in when the hunter dies on that boss. It is 0 in two opposite cases: the run never reaches the boss, and the run is already past it. The screen splits those:
+The finder score is a **closeness** value from 0–100 (lower is better), shown as Boss HP:
 
-- Stage still below the boss: 100% (not there yet).
+- Any clears past the boss: `(1 - clearRate) × 100` (so rare clears still beat no clears).
 - Died on the boss with a positive WASM percent: that percent.
-- Died on the boss with WASM 0%: treated as 100% (artifact — the getter also returns 0 when the boss was never reached or is already past).
-- Stage past the boss: 0% (the boss is dead).
+- Died on the boss with WASM 0%: not trusted (the getter also returns 0 when the boss was never reached or is already past). Score uses how many runs reached the boss instead (~20–60).
+- Never reached the boss: score from max stage (~60–100).
 
 The report is a bar chart, largest drop first. A factor's bar is how many points of boss HP its best tested level removes compared with that skill at 0. Presence Of A God and Soul Of Ares are fillers, so they are not bars. A factor that cannot change at this budget is named under the chart as staying at 0. At level 26 that is Atlas, Weakspot, and Born For Battle: the lower path must already hold 75 points, and the skill itself costs more than the 3 points left in a 78-point budget.
 
@@ -148,7 +148,7 @@ The chart can only talk about levels that were put in the matrix on purpose. It 
 On [cifi-tools Borge](https://cifi-tools.com/borge) the two boss readouts are different:
 
 - **Boss Kill %** is the share of runs that kill the boss. Same quantity as this app's Boss Kill % (`bossKillRate`). Bosses/day is that clear rate times runs per day. A clear is a run that ends past the boss stage.
-- **Boss HP %** is remaining boss health for the first selected boss. Lower means the failed runs got closer. Past the boss is 0%. Never reaching it, or a WASM 0% while still on the boss, is 100%. The First Bosskill Finder ranks on this number. The main metric cards show Boss Kill % and Boss HP for every hunter.
+- **Boss HP** on the metric cards and in the finder is the closeness score above (lower is better), not a raw WASM average when that average is an artifact 0. The First Bosskill Finder ranks on it. The main metric cards show Boss Kill % and Boss HP for every hunter.
 
 ## Gaiden card
 

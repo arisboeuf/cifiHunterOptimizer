@@ -1,0 +1,61 @@
+{
+  "build_name": "Lvl 14 Example",
+  "meta": {
+    "hunter": "Borge",
+    "level": 14
+  },
+  "stats": {
+    "hp": 109,
+    "power": 86,
+    "regen": 52,
+    "damage_reduction": 19,
+    "evade_chance": 20,
+    "effect_chance": 19,
+    "special_chance": 29,
+    "special_damage": 25,
+    "speed": 14,
+    "highest_stage_reached": 46
+  },
+  "talents": {
+    "death_is_my_companion": 2,
+    "life_of_the_hunt": 5,
+    "unfair_advantage": 4,
+    "impeccable_impacts": 1,
+    "omen_of_defeat": 0,
+    "call_me_lucky_loot": 1,
+    "presence_of_god": 1,
+    "fires_of_war": 0
+  },
+  "attributes": {
+    "soul_of_ares": 1,
+    "essence_of_ylith": 3,
+    "spartan_lineage": 1,
+    "timeless_mastery": 5,
+    "born_for_battle": 0,
+    "soul_of_athena": 0,
+    "book_of_baal": 1,
+    "superior_sensors": 6,
+    "atlas_protocol": 0,
+    "soul_of_the_minotaur": 0,
+    "helltouch_barrier": 1,
+    "explosive_punches": 0,
+    "weakspot_analysis": 0,
+    "soul_of_hermes": 0,
+    "lifedrain_inhalers": 2
+  },
+  "mods": {
+    "trample": false,
+    "gaiden": false
+  },
+  "combat": {
+    "max_hp": 341.77389999999997,
+    "atk_power": 54.98976,
+    "hp_regen": 2.27994,
+    "dmg_reduction": 0.2886,
+    "evade_chance": 0.174,
+    "effect_chance": 0.20700000000000002,
+    "crit_chance": 0.1022,
+    "crit_power": 1.55,
+    "atk_interval": 4.58
+  }
+}

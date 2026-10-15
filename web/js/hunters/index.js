@@ -1,17 +1,20 @@
 /** Hunter registry — order: Borge → Ozzy → Knox. */
 import * as borgeCosts from "./borge/costs.js";
 import * as borgeAttrs from "./borge/attr-rules.js";
-import { WasmBorgeEngine, wasmToSimResult as borgeWasmToSim } from "./borge/wasm-engine.js";
+import { WasmBorgeEngine, wasmToSimResult as borgeWasmToSim } from "./borge/wasm-engine.js?v=engine5";
 
 import * as ozzyCosts from "./ozzy/costs.js";
 import * as ozzyAttrs from "./ozzy/attr-rules.js";
-import { WasmOzzyEngine, wasmToSimResult as ozzyWasmToSim } from "./ozzy/wasm-engine.js";
+import { WasmOzzyEngine, wasmToSimResult as ozzyWasmToSim } from "./ozzy/wasm-engine.js?v=engine5";
 
 import * as knoxCosts from "./knox/costs.js";
 import * as knoxAttrs from "./knox/attr-rules.js";
-import { WasmKnoxEngine, wasmToSimResult as knoxWasmToSim } from "./knox/wasm-engine.js";
+import { WasmKnoxEngine, wasmToSimResult as knoxWasmToSim } from "./knox/wasm-engine.js?v=engine5";
 
-import { loadWasmExports } from "./wasm-shared.js";
+import { loadWasmExports } from "./wasm-shared.js?v=engine6";
+import { OfflineHuntEngine, probeOfflineApi } from "./offline-engine.js?v=engine9";
+
+export { OfflineHuntEngine, probeOfflineApi };
 
 function emptySection(keys, fill = 0) {
   return Object.fromEntries(keys.map((k) => [k, fill]));
@@ -243,6 +246,25 @@ export async function loadSharedWasm(wasmUrl = "./wasm/release.wasm") {
   return loadWasmExports(wasmUrl);
 }
 
-export function engineFor(hunter, wasmExports) {
-  return hunter.Engine.fromExports(wasmExports);
+/**
+ * @param {"wasm"|"offline"} mode
+ */
+export function engineFor(hunter, wasmExports, mode = "wasm") {
+  if (mode === "offline") {
+    if (hunter.id === "knox") {
+      throw new Error("Offline sim does not support Knox yet — switch to WASM or pick Borge/Ozzy.");
+    }
+    // Python HuntStatistics owns finals; wasmExports unused for Offline.
+    const eng = OfflineHuntEngine.forHunter(hunter.id, null);
+    eng.label = "offline";
+    return eng;
+  }
+  const eng = hunter.Engine.fromExports(wasmExports);
+  eng.label = "wasm";
+  return eng;
+}
+
+/** Await sync WASM or async Offline evaluate. */
+export async function evaluateBuild(engine, config, iterations) {
+  return Promise.resolve(engine.evaluate(config, iterations));
 }

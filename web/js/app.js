@@ -3,18 +3,21 @@ import {
   HUNTER_ORDER,
   HUNTERS,
   engineFor,
+  evaluateBuild,
   getHunter,
   loadSharedWasm,
+  probeOfflineApi,
   storageKeyFor,
-} from "./hunters/index.js";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=bosshpui";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js";
-import { initGemsModule } from "./gems/ui.js";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js";
+} from "./hunters/index.js?v=engine9";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine9";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine9";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine9";
+import { initGemsModule } from "./gems/ui.js?v=engine9";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine9";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
+const ENGINE_STORAGE_KEY = "cifi_combat_engine_v1";
 const MODULE_IDS = new Set(["hunters", "gems", "mechs"]);
 
 const state = {
@@ -25,6 +28,8 @@ const state = {
   build: null,
   wasmExports: null,
   engine: null,
+  engineMode: "wasm", // "wasm" | "offline"
+  offlineApiOk: false,
   running: false,
   optimizing: false,
   nextBestRunning: false,
@@ -615,8 +620,7 @@ function applyHunterTheme() {
   $$(".hunter-tab").forEach((btn) => {
     btn.setAttribute("aria-selected", String(btn.dataset.hunter === state.hunterId));
   });
-  const note = $("#hunterNote");
-  if (note) note.innerHTML = `Active: <strong>${h.name}</strong>. Builds persist per hunter in this browser.`;
+  syncEngineUi();
   syncMatsRowLabels();
 }
 
@@ -704,14 +708,94 @@ function switchHunter(hunterId) {
     const tmEl = $("#optForceTimeless");
     if (tmEl) tmEl.checked = true;
   }
-  if (state.wasmExports) state.engine = engineFor(h, state.wasmExports);
   clearResultUi();
-
   applyHunterTheme();
   buildLeftLists();
   refreshBudget();
   saveState();
-  $("#status").textContent = `${h.name} ready`;
+  applyEngineMode(state.engineMode, { silent: true });
+  $("#status").textContent = `${h.name} ready · ${state.engineMode === "offline" ? "offline" : "WASM"}`;
+}
+
+function syncEngineUi() {
+  const sel = $("#engineMode");
+  if (sel) sel.value = state.engineMode;
+  const note = $("#hunterNote");
+  if (!note) return;
+  const h = hunter();
+  if (state.engineMode === "offline") {
+    note.innerHTML = `Combat via <strong>OfflineHunt</strong> for <em>Run Simulation</em> (same saved build → WASM finals, then Python fight). Push/Finder/Next-Best always use fast WASM. Active: <strong>${h.name}</strong>.`;
+  } else {
+    note.innerHTML = `Combat via <code>release.wasm</code> (same engine as
+      <a href="https://cifi-tools.com/borge" rel="noopener" target="_blank">cifi-tools</a>).
+      Active: <strong>${h.name}</strong>. Builds persist per hunter in this browser.`;
+  }
+  const sub = $("#appSubtitle");
+  if (sub && state.module === "hunters") {
+    sub.textContent =
+      state.engineMode === "offline"
+        ? "Compare builds — OfflineHunt Python sim (extraction port)"
+        : "Compare builds and optimize your performance — same WASM engine as cifi-tools";
+  }
+}
+
+/**
+ * Optimizer / Next-Best run thousands of evals. Offline = HTTP + Python per build → unusable.
+ * Always use in-process WASM for search; Offline stays for Run Simulation only.
+ */
+function searchEngine() {
+  if (state.wasmExports) {
+    try {
+      return engineFor(hunter(), state.wasmExports, "wasm");
+    } catch {
+      /* fall through */
+    }
+  }
+  return state.engine;
+}
+
+function applyEngineMode(mode, { silent = false } = {}) {
+  const want = mode === "offline" ? "offline" : "wasm";
+  if (want === "offline") {
+    if (state.hunterId === "knox") {
+      if (!silent) {
+        $("#status").textContent = "Offline sim: Knox not supported yet — staying on WASM";
+      }
+      state.engineMode = "wasm";
+    } else if (!state.offlineApiOk) {
+      if (!silent) {
+        $("#status").textContent =
+          "Offline API not available — start with launch.py (not a plain static server)";
+      }
+      state.engineMode = "wasm";
+    } else {
+      state.engineMode = "offline";
+    }
+  } else {
+    state.engineMode = "wasm";
+  }
+
+  try {
+    if (state.engineMode === "offline") {
+      state.engine = engineFor(hunter(), state.wasmExports, "offline");
+    } else if (state.wasmExports) {
+      state.engine = engineFor(hunter(), state.wasmExports, "wasm");
+    } else {
+      state.engine = null;
+    }
+  } catch (err) {
+    state.engineMode = "wasm";
+    state.engine = state.wasmExports ? engineFor(hunter(), state.wasmExports, "wasm") : null;
+    if (!silent) $("#status").textContent = err.message || String(err);
+  }
+
+  try {
+    localStorage.setItem(ENGINE_STORAGE_KEY, state.engineMode);
+  } catch {
+    /* ignore */
+  }
+  syncEngineUi();
+  syncActionButtons();
 }
 
 function setupHunterTabs() {
@@ -774,9 +858,7 @@ function switchModule(moduleId) {
     }
   } else {
     if (title) title.textContent = "Hunter Sim";
-    if (sub) {
-      sub.textContent = "Compare builds and optimize your performance — same WASM engine as cifi-tools";
-    }
+    syncEngineUi();
   }
 
   try {
@@ -881,24 +963,51 @@ async function runSim() {
     $("#status").textContent = `Invalid build: ${v.msg}`;
     return;
   }
-  const n = Math.max(1, Number($("#reps").value) || 1);
+  let n = Math.max(1, Number($("#reps").value) || 1);
+  const offline = state.engineMode === "offline" || state.engine?.label === "offline";
+  // Offline is much slower than WASM; keep Run usable.
+  if (offline && n > 500) {
+    $("#status").textContent = `Offline caps Sims at 500 for Run Simulation (was ${n}). Use WASM for large batches.`;
+    n = 500;
+    $("#reps").value = "500";
+  }
   state.running = true;
   syncActionButtons();
   $("#progressBar").style.width = "15%";
-  $("#status").textContent = `Running ${n} sims (wasm · ${hunter().name})…`;
+  const engLabel = offline ? "offline" : "wasm";
+  $("#status").textContent = offline
+    ? `Running ${n} sims (offline Python · ${hunter().name}) — please wait…`
+    : `Running ${n} sims (wasm · ${hunter().name})…`;
   saveState();
 
+  let pulse = null;
   try {
     await new Promise((r) => setTimeout(r, 30));
-    $("#progressBar").style.width = "55%";
-    const wasmRes = state.engine.evaluate(v.config, n);
+    $("#progressBar").style.width = "40%";
+    if (offline) {
+      let p = 40;
+      pulse = setInterval(() => {
+        p = Math.min(90, p + 2);
+        $("#progressBar").style.width = `${p}%`;
+      }, 400);
+    } else {
+      $("#progressBar").style.width = "55%";
+    }
+    const wasmRes = await evaluateBuild(state.engine, v.config, n);
+    if (pulse) {
+      clearInterval(pulse);
+      pulse = null;
+    }
     const res = hunter().wasmToSimResult(wasmRes, n);
+    // Prefer real engine tag (avoid stale cached wasmToSimResult hardcoding "wasm")
+    res.engine = wasmRes.engine || state.engine?.label || res.engine || engLabel;
     showResult(res);
   } catch (err) {
     console.error(err);
     $("#status").textContent = `Sim error: ${err.message || err}`;
     $("#progressBar").style.width = "0%";
   } finally {
+    if (pulse) clearInterval(pulse);
     state.running = false;
     syncActionButtons();
   }
@@ -1024,14 +1133,30 @@ async function init() {
     state.optCancel = true;
     $("#optStatus").textContent = "Cancelling…";
   });
+  $("#engineMode")?.addEventListener("change", (e) => {
+    applyEngineMode(e.target.value);
+    const label = state.engineMode === "offline" ? "OfflineHunt" : "WASM";
+    $("#status").textContent = `Engine: ${label}`;
+  });
   window.addEventListener("resize", () => redrawCharts());
+
+  state.offlineApiOk = await probeOfflineApi();
+  let preferred = "wasm";
+  try {
+    const stored = localStorage.getItem(ENGINE_STORAGE_KEY);
+    if (stored === "offline" || stored === "wasm") preferred = stored;
+  } catch {
+    /* ignore */
+  }
 
   try {
     state.wasmExports = await loadSharedWasm("./wasm/release.wasm");
-    state.engine = engineFor(hunter(), state.wasmExports);
+    applyEngineMode(preferred, { silent: true });
+    const eng = state.engineMode === "offline" ? "OfflineHunt" : "WASM";
+    const apiNote = state.offlineApiOk ? "" : " · offline API offline (use launch.py)";
     $("#status").textContent = saved
-      ? "Restored Borge session · WASM ready"
-      : "WASM ready — edit build and Run Simulation";
+      ? `Restored session · ${eng} ready${apiNote}`
+      : `${eng} ready — edit build and Run Simulation${apiNote}`;
     syncActionButtons();
   } catch (err) {
     console.error(err);
@@ -1410,7 +1535,7 @@ async function runMarginalNextBest({ kind, clearDeltas, runSweep, applyResult, b
   try {
     const result = await runSweep(
       state.build,
-      state.engine,
+      searchEngine(),
       hunter(),
       { n },
       {
@@ -1762,7 +1887,7 @@ function factorScreenBlock(screen, labels, result) {
     ? `${screen2LockNote(screen, labels)} Other skills that beat off are stepped. Same score, ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`
     : screen.kind === "refine"
       ? `${bossRefineNote(result, labels)} Bosses/day is recorded and does not change these locks.`
-      : `Bars are boss HP removed versus off, largest drop first. Lower boss HP is closer to the kill. Never reaching boss ${result.bossStage} counts as 100%. Getting past it counts as 0%. A WASM 0% while still on the boss is ignored as 100%. ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`;
+      : `Bars are closeness to the kill versus off, largest drop first. Lower is better. Clears pull the score toward 0%. Never reaching boss ${result.bossStage} stays high. A WASM 0% while still on the boss uses how many runs reached it instead. ${result.sims} sims per build. ${leftover} Bosses/day is recorded and does not change these locks.`;
   const fixed = screen.kind === "screen1"
     ? (screen.fixed || []).filter((factor) => Number(factor.level) === 0)
     : [];
@@ -1805,7 +1930,7 @@ function bossConfirmTable(result) {
     ...confirms.map((row, index) => rowHtml(row, `Candidate ${index + 1}`)),
   ].join("");
   return `<h3 class="factor-screen-title">500-sim confirm</h3>
-    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage}. Only those count as 0% remaining boss HP. A WASM 0% while still on the boss is ignored. Screening used ${result.sims} sims.</p>
+    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage}. Boss HP is a closeness score (lower better): clear rate, then real remaining HP when WASM reports it, else how many runs reached the boss. Screening used ${result.sims} sims.</p>
     <table class="boss-find-table">
       <thead><tr><th>Build</th><th>Clears</th><th>Boss HP</th><th>Bosses/day</th></tr></thead>
       <tbody>${body}</tbody>
@@ -1930,7 +2055,7 @@ async function runFirstBossFinder() {
   try {
     const result = await findFirstBossKill(
       state.build,
-      state.engine,
+      searchEngine(),
       hunter(),
       {
         bossStages,
@@ -1988,7 +2113,7 @@ async function runFirstBossFinder() {
       onBuildChanged();
       const h = hunter();
       const confirmSims = Number(result.confirmSims) || 500;
-      const sim = h.wasmToSimResult(state.engine.evaluate(state.build, confirmSims), confirmSims);
+      const sim = h.wasmToSimResult(await evaluateBuild(state.engine, state.build, confirmSims), confirmSims);
       showResult(sim);
       $("#optStatus").textContent =
         `Applied · ${pickClears} clears (was ${baseClears}) · boss ${result.bossStage}`;
@@ -2050,7 +2175,7 @@ async function runOptimize(objective = "stage") {
   try {
     const result = await findPushBuild(
       state.build,
-      state.engine,
+      searchEngine(),
       hunter(),
       { objective: mode, bossStages },
       {

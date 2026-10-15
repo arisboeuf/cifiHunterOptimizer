@@ -222,6 +222,8 @@ export class WasmOzzyEngine {
       maxStage: Number(this.ex.getLastOzzyMaxStage()),
       bossHpPercent: Number(this.ex.getLastOzzyBossHpPercent()),
       bossKillRate: Number(this.ex.getLastOzzyBossKillRate()),
+      bossHpWorst: Number(this.ex.getLastOzzyBossHpWorst?.() ?? NaN),
+      bossHpBest: Number(this.ex.getLastOzzyBossHpBest?.() ?? NaN),
       mat1: Number(this.ex.getLastOzzyMat1()),
       mat2: Number(this.ex.getLastOzzyMat2()),
       mat3: Number(this.ex.getLastOzzyMat3()),

@@ -225,6 +225,8 @@ export class WasmKnoxEngine {
       maxStage: Number(this.ex.getLastKnoxMaxStage()),
       bossHpPercent: Number(this.ex.getLastKnoxBossHpPercent()),
       bossKillRate: Number(this.ex.getLastKnoxBossKillRate()),
+      bossHpWorst: Number(this.ex.getLastKnoxBossHpWorst?.() ?? NaN),
+      bossHpBest: Number(this.ex.getLastKnoxBossHpBest?.() ?? NaN),
       mat1: Number(this.ex.getLastKnoxMat1()),
       mat2: Number(this.ex.getLastKnoxMat2()),
       mat3: Number(this.ex.getLastKnoxMat3()),

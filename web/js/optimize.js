@@ -1614,6 +1614,8 @@ async function evaluateBossConfirm(row, base, engine, hunter, bossStage, sims) {
     n,
     bossesPerDay: bossesPerDayOf(sim, bossStage),
     bossHp: bossHpRemaining(sim, bossStage),
+    bossHpWorst: Number(sim.bossHpWorst),
+    bossHpBest: Number(sim.bossHpBest),
     avgStage: Number(sim.avgStage) || 0,
     bossKillRate: Number(sim.bossKillRate) || 0,
   };
@@ -1718,6 +1720,8 @@ function asChampion(sample) {
   if (!sample?.talents || !sample?.attributes) return null;
   return {
     bossHp: sample.bossHp,
+    bossHpWorst: sample.bossHpWorst,
+    bossHpBest: sample.bossHpBest,
     avgStage: sample.avgStage || 0,
     talents: { ...sample.talents },
     attributes: { ...sample.attributes },
@@ -1729,6 +1733,8 @@ function asChampion(sample) {
 function publishFunnel(screen, incumbent) {
   const own = Number.isFinite(screen?.bossHp) ? {
     bossHp: screen.bossHp,
+    bossHpWorst: screen.bossHpWorst,
+    bossHpBest: screen.bossHpBest,
     avgStage: screen.avgStage,
     talents: screen.talents,
     attributes: screen.attributes,
@@ -1737,6 +1743,8 @@ function publishFunnel(screen, incumbent) {
   return {
     ...screen,
     bossHp: chosen ? chosen.bossHp : null,
+    bossHpWorst: chosen ? chosen.bossHpWorst : null,
+    bossHpBest: chosen ? chosen.bossHpBest : null,
     avgStage: chosen ? chosen.avgStage : null,
     talents: chosen ? chosen.talents : null,
     attributes: chosen ? chosen.attributes : null,
@@ -1906,6 +1914,8 @@ async function simulateBossScreen({
     const bossHp = bossHpRemaining(sim, bossStage);
     const sample = {
       bossHp,
+      bossHpWorst: Number(sim.bossHpWorst),
+      bossHpBest: Number(sim.bossHpBest),
       bossesPerDay: bossesPerDayOf(sim, bossStage),
       avgStage: Number(sim.avgStage) || 0,
       talents: { ...row.talents },
@@ -1940,6 +1950,8 @@ function packScreen(title, kind, run, ranked, extra = {}) {
     kind,
     rows: run.samples.length,
     bossHp: run.best ? run.best.bossHp : null,
+    bossHpWorst: run.best ? run.best.bossHpWorst : null,
+    bossHpBest: run.best ? run.best.bossHpBest : null,
     bossesPerDay: run.bestFarm ? run.bestFarm.bossesPerDay : null,
     avgStage: run.best ? run.best.avgStage : null,
     talents: run.best ? run.best.talents : null,
@@ -2520,6 +2532,8 @@ async function findProfileBossKill(baseConfig, engine, hunter, optIn, hooks, rea
     attributePoints: caps.attributes,
     bossStage,
     bossHp: winner.bossHp,
+    bossHpWorst: winner.bossHpWorst,
+    bossHpBest: winner.bossHpBest,
     avgStage: winner.avgStage,
     talents: winner.talents,
     attributes: winner.attributes,
@@ -2692,6 +2706,8 @@ export async function findFirstBossKill(baseConfig, engine, hunter, optIn = {}, 
     attributePoints: caps.attributes,
     bossStage,
     bossHp: winner.bossHp,
+    bossHpWorst: winner.bossHpWorst,
+    bossHpBest: winner.bossHpBest,
     avgStage: winner.avgStage,
     talents: winner.talents,
     attributes: winner.attributes,

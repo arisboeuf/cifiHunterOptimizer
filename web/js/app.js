@@ -9,12 +9,12 @@ import {
   probeOfflineApi,
   probeRustSim,
   storageKeyFor,
-} from "./hunters/index.js?v=engine15";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine15";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine15";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine15";
-import { initGemsModule } from "./gems/ui.js?v=engine15";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine15";
+} from "./hunters/index.js?v=engine16";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine16";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine16";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine16";
+import { initGemsModule } from "./gems/ui.js?v=engine16";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine16";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
@@ -1015,7 +1015,15 @@ function showResult(res) {
     if (bossStage == null) {
       bossHpEl.textContent = "—";
     } else {
-      bossHpEl.textContent = `${bossHpRemaining(res, bossStage).toFixed(1)}%`;
+      const closeness = bossHpRemaining(res, bossStage).toFixed(1);
+      const bounds = bossHpRunBounds(res);
+      if (bounds && (bounds.worst != null || bounds.best != null)) {
+        const w = bounds.worst != null ? Number(bounds.worst).toFixed(1) : "—";
+        const b = bounds.best != null ? Number(bounds.best).toFixed(1) : "—";
+        bossHpEl.textContent = `${closeness}% · worst ${w}% / best ${b}%`;
+      } else {
+        bossHpEl.textContent = `${closeness}%`;
+      }
     }
   }
   $("#sMin").textContent = res.minStage.toFixed(1);
@@ -2045,11 +2053,44 @@ function factorScreenBlock(screen, labels, result) {
     : "";
   return `<h3 class="factor-screen-title">${escapeReportText(screen.title || "Screen")}</h3>
     <p class="boss-find-lead">${screen.rows} builds · best ${bossHpText} boss HP${dayText}</p>
+    ${bossHpRunStatsHtml(screen, result.bossStage, "Screen winner")}
     ${keptLine}
     ${summary}
     <div class="factor-plot" role="img" aria-label="${escapeReportText(screen.title || "Screen")} skills ranked by boss HP removed versus off">${factorPlotMarkup(factors, labels)}</div>
     <p class="boss-find-note">${escapeReportText(note)}${fixedText ? ` ${escapeReportText(fixedText.trim())}` : ""}</p>
     ${screen.kind === "refine" ? `${refineStepBlock(screen, labels)}${bossHpCompare(result.screens)}${winningBuildBlock(screen, labels, costs)}${pairSection(screen.pairs || [], labels, "Refinement pairs")}` : ""}`;
+}
+
+/** WASM per-batch min/max remaining boss HP (percent). Null when missing. */
+function bossHpRunBounds(row) {
+  if (!row) return null;
+  const worst = Number(row.bossHpWorst);
+  const best = Number(row.bossHpBest);
+  const killRate = Number(row.bossKillRate) || Number(row.clearRate) || 0;
+  const hasWorst = Number.isFinite(worst) && worst >= 0;
+  const hasBest = Number.isFinite(best) && best >= 0;
+  if (!hasWorst && !hasBest && !(killRate > 0)) return null;
+  return {
+    worst: hasWorst ? worst : killRate > 0 ? 0 : null,
+    best: killRate > 0 ? 0 : hasBest ? best : null,
+    killed: killRate > 0,
+  };
+}
+
+function bossHpRunStatsHtml(row, bossStage, title = null) {
+  const bounds = bossHpRunBounds(row);
+  if (!bounds) return "";
+  const stage = bossStage != null ? `Boss ${bossStage}` : "Boss";
+  const head = title ? `${escapeReportText(title)} · ${stage}` : stage;
+  const worst =
+    bounds.worst != null ? `${Number(bounds.worst).toFixed(1)}% HP left` : "—";
+  const best =
+    bounds.best != null ? `${Number(bounds.best).toFixed(1)}% HP left` : "—";
+  return `<div class="boss-hp-runs">
+    <div class="boss-hp-runs-title">${head}</div>
+    <div class="boss-hp-runs-row"><span class="k">Worst run</span><span class="v">${worst}</span></div>
+    <div class="boss-hp-runs-row"><span class="k">Best run</span><span class="v">${best}</span></div>
+  </div>`;
 }
 
 function bossConfirmTable(result) {
@@ -2064,16 +2105,23 @@ function bossConfirmTable(result) {
     const hp = Number(row.bossHp);
     const day = Number(row.bossesPerDay) || 0;
     const pick = result.pick && row === result.pick ? " ★" : "";
-    return `<tr><th>${escapeReportText(label)}${pick}</th><td>${clears}/${total}</td><td>${Number.isFinite(hp) ? `${hp.toFixed(1)}%` : "—"}</td><td>${day.toFixed(2)}</td></tr>`;
+    const bounds = bossHpRunBounds(row);
+    const range = bounds
+      ? `${bounds.worst != null ? Number(bounds.worst).toFixed(1) : "—"} / ${bounds.best != null ? Number(bounds.best).toFixed(1) : "—"}`
+      : "—";
+    return `<tr><th>${escapeReportText(label)}${pick}</th><td>${clears}/${total}</td><td>${Number.isFinite(hp) ? `${hp.toFixed(1)}%` : "—"}</td><td>${range}</td><td>${day.toFixed(2)}</td></tr>`;
   };
   const body = [
     rowHtml(base, "Current"),
     ...confirms.map((row, index) => rowHtml(row, `Candidate ${index + 1}`)),
   ].join("");
+  const pickStats = bossHpRunStatsHtml(result.pick || result, result.bossStage, result.pick ? "Confirm pick" : "Screen winner");
+  const baseStats = bossHpRunStatsHtml(base, result.bossStage, "Current");
   return `<h3 class="factor-screen-title">500-sim confirm</h3>
-    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage}. Boss HP is a closeness score (lower better): clear rate, then real remaining HP when WASM reports it, else how many runs reached the boss. Screening used ${result.sims} sims.</p>
+    <p class="boss-find-lead">Clears are runs that ended past boss ${result.bossStage}. Boss HP is a closeness score (lower better): clear rate, then real remaining HP when WASM reports it, else how many runs reached the boss. Worst/Best run are raw remaining HP left on the boss across the confirm batch. Screening used ${result.sims} sims.</p>
+    <div class="boss-hp-runs-grid">${baseStats}${pickStats}</div>
     <table class="boss-find-table">
-      <thead><tr><th>Build</th><th>Clears</th><th>Boss HP</th><th>Bosses/day</th></tr></thead>
+      <thead><tr><th>Build</th><th>Clears</th><th>Boss HP</th><th>Worst / Best</th><th>Bosses/day</th></tr></thead>
       <tbody>${body}</tbody>
     </table>`;
 }

@@ -117,27 +117,177 @@ function scoreOf(res, objective = "stage", bossStages = []) {
   };
 }
 
+/** Rank key used inside a score (bosses may temporarily rank by remaining boss HP). */
+function rankOf(score) {
+  if (score?.rankBy === "bossHp") return "bossHp";
+  return normalizeObjective(score?.objective);
+}
+
 /**
- * Raw numeric compare. No significance test while combat is WASM.
- * See docs/wasm-combat.md.
+ * Raw numeric compare for funnel screening (no significance test).
+ * Confirm/apply uses {@link confirmBeatsNoise}. See docs/wasm-combat.md.
  * Stage: higher Ø stage, then loot. Loot: higher loot/min, then Ø stage.
  * Bosses: higher bosses/day, then loot, then Ø stage.
+ * Boss HP cold-start: lower remaining boss HP, then Ø stage, then loot.
  */
 function scoreGt(a, b) {
   if (!a) return false;
   if (!b) return true;
-  const objective = normalizeObjective(a.objective ?? b.objective);
-  if (objective === "bosses") {
+  const rank = rankOf(a) || rankOf(b);
+  if (rank === "bossHp") {
+    const ha = Number.isFinite(a.bossHp) ? a.bossHp : 100;
+    const hb = Number.isFinite(b.bossHp) ? b.bossHp : 100;
+    if (ha !== hb) return ha < hb;
+    if (a.avgStage !== b.avgStage) return a.avgStage > b.avgStage;
+    return a.lootScore > b.lootScore;
+  }
+  if (rank === "bosses") {
     if (a.bossesPerDay !== b.bossesPerDay) return a.bossesPerDay > b.bossesPerDay;
     if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
     return a.avgStage > b.avgStage;
   }
-  if (objective === "loot") {
+  if (rank === "loot") {
     if (a.lootScore !== b.lootScore) return a.lootScore > b.lootScore;
     return a.avgStage > b.avgStage;
   }
   if (a.avgStage !== b.avgStage) return a.avgStage > b.avgStage;
   return a.lootScore > b.lootScore;
+}
+
+/** One-sided ~95% z for confirm/apply noise gates. */
+const CONFIRM_Z = 1.64;
+/** Minimum absolute gain on top of the SE gate (same units as the metric). */
+const CONFIRM_MIN_GAIN = {
+  stage: 0.25,
+  loot: 1.0,
+  bosses: 0.15,
+  bossHp: 1.0,
+  clearRate: 0.01,
+};
+
+function histogramMeanVar(counts) {
+  let n = 0;
+  let sum = 0;
+  let sumsq = 0;
+  for (const [stageRaw, countRaw] of Object.entries(counts || {})) {
+    const stage = Number(stageRaw);
+    const c = Number(countRaw);
+    if (!Number.isFinite(stage) || !Number.isFinite(c) || c <= 0) continue;
+    n += c;
+    sum += stage * c;
+    sumsq += stage * stage * c;
+  }
+  if (n <= 0) return { n: 0, mean: 0, variance: 0 };
+  const mean = sum / n;
+  return { n, mean, variance: Math.max(0, sumsq / n - mean * mean) };
+}
+
+function stageMeanSe(res) {
+  const { n, mean, variance } = histogramMeanVar(res?.stageCounts);
+  if (n < 2) {
+    return { mean: Number(res?.avgStage) || mean || 0, se: 1, n: Math.max(1, n) };
+  }
+  return { mean, se: Math.sqrt(variance / n), n };
+}
+
+function lootMeanSe(res) {
+  const mean = Number(res?.lootScore) || 0;
+  const n = Math.max(1, Number(res?.n) || 1);
+  // Same order as cifi-toolkit's loot SE proxy.
+  const se = Math.max(0.5, 0.6 * Math.abs(mean)) / Math.sqrt(n);
+  return { mean, se, n };
+}
+
+function bossesPerDayMeanSe(res, bossStages) {
+  const bossStats = bossClearStatsFromCounts(res, bossStages);
+  const runsPerDay = Number(res?.runsPerDay) || 0;
+  const mean = bossStats.mean * runsPerDay;
+  const n = Math.max(1, bossStats.n);
+  const p = Math.max(0, bossStats.mean);
+  const bosses = normalizeBossStages(bossStages);
+  const seRate =
+    bosses.length <= 1
+      ? Math.sqrt(Math.max(0, Math.min(1, p)) * (1 - Math.max(0, Math.min(1, p))) / n)
+      : Math.sqrt(Math.max(p, 0) / n);
+  return { mean, se: seRate * runsPerDay, n };
+}
+
+function bossHpMeanSe(res, bossStage) {
+  const mean = bossHpRemaining(res, bossStage);
+  const { clears, n } = bossStageReach(res, bossStage);
+  const nn = Math.max(1, n);
+  const p = clears / nn;
+  if (p > 0) return { mean, se: 100 * Math.sqrt(p * (1 - p) / nn), n: nn };
+  return { mean, se: 5 / Math.sqrt(nn), n: nn };
+}
+
+/**
+ * Confirm/apply: winner must beat baseline by more than simulation noise.
+ * @returns {{ ok: boolean, gain: number, se: number, need: number, z: number, rank: string }}
+ */
+function confirmBeatsNoise(winnerRes, baselineRes, objective, bossStages = [], rankBy = null) {
+  const rank = rankBy === "bossHp" ? "bossHp" : normalizeObjective(objective);
+  let winner;
+  let baseline;
+  let minGain;
+  let higherIsBetter = true;
+  if (rank === "loot") {
+    winner = lootMeanSe(winnerRes);
+    baseline = lootMeanSe(baselineRes);
+    minGain = CONFIRM_MIN_GAIN.loot;
+  } else if (rank === "bosses") {
+    winner = bossesPerDayMeanSe(winnerRes, bossStages);
+    baseline = bossesPerDayMeanSe(baselineRes, bossStages);
+    minGain = CONFIRM_MIN_GAIN.bosses;
+  } else if (rank === "bossHp") {
+    const boss = normalizeBossStages(bossStages)[0] || 100;
+    winner = bossHpMeanSe(winnerRes, boss);
+    baseline = bossHpMeanSe(baselineRes, boss);
+    minGain = CONFIRM_MIN_GAIN.bossHp;
+    higherIsBetter = false;
+  } else {
+    winner = stageMeanSe(winnerRes);
+    baseline = stageMeanSe(baselineRes);
+    minGain = CONFIRM_MIN_GAIN.stage;
+  }
+  const gain = higherIsBetter ? winner.mean - baseline.mean : baseline.mean - winner.mean;
+  const se = Math.sqrt(winner.se * winner.se + baseline.se * baseline.se);
+  const need = Math.max(minGain, CONFIRM_Z * se);
+  return { ok: gain > need, gain, se, need, z: CONFIRM_Z, rank };
+}
+
+/** Clear-rate confirm for First Bosskill Finder (independent binomial batches). */
+function clearRateBeatsNoise(pick, baseline) {
+  if (!pick || !baseline) return { ok: false, gain: 0, se: 0, need: CONFIRM_MIN_GAIN.clearRate, z: CONFIRM_Z };
+  const nA = Math.max(1, Number(baseline.n) || Number(baseline.sims) || 1);
+  const nB = Math.max(1, Number(pick.n) || Number(pick.sims) || 1);
+  const pA = Math.max(0, Math.min(1, Number(baseline.clearRate) || 0));
+  const pB = Math.max(0, Math.min(1, Number(pick.clearRate) || 0));
+  const gain = pB - pA;
+  const se = Math.sqrt((pA * (1 - pA)) / nA + (pB * (1 - pB)) / nB);
+  const need = Math.max(CONFIRM_MIN_GAIN.clearRate, CONFIRM_Z * se);
+  return { ok: gain > need, gain, se, need, z: CONFIRM_Z, rank: "clearRate" };
+}
+
+/** True when a bosses/day screen still has essentially no clears. */
+function bossesScreenIsCold(samples) {
+  if (!samples?.length) return true;
+  return !samples.some((s) => (Number(s.bossesPerDay) || 0) > 1e-12);
+}
+
+/** Stamp rankBy on every sample score; recompute best under that rank. */
+function applyBossRankMode(samples, rankBy) {
+  for (const sample of samples) {
+    sample.rankBy = rankBy;
+    sample.score = {
+      ...sample.score,
+      rankBy,
+      bossHp: Number.isFinite(sample.bossHp) ? sample.bossHp : sample.score?.bossHp,
+    };
+  }
+  let best = null;
+  for (const sample of samples) best = betterPush(best, sample);
+  return best;
 }
 
 function mulberry32(seed) {
@@ -1525,9 +1675,27 @@ async function attachBossFarm(payload, runs, base, engine, hunter, bossStage, ho
 
   confirm.sort((a, b) => (betterConfirm(a, b) === b ? 1 : -1));
   const pick = confirm[0] || null;
-  const pickBeatsBaseline = !!(pick && betterConfirm(baselineConfirm, pick) === pick);
   const pickIsNew = !!(pick && buildKey(pick) !== buildKey(baselineConfirm));
-  const confirmImproved = pickBeatsBaseline && pickIsNew;
+  const rawBeats = !!(pick && betterConfirm(baselineConfirm, pick) === pick);
+  let noise = { ok: false, gain: 0, se: 0, need: 0, z: CONFIRM_Z, rank: "clearRate" };
+  if (pick && pickIsNew && rawBeats) {
+    const clearDiff = (Number(pick.clearRuns) || 0) - (Number(baselineConfirm.clearRuns) || 0);
+    if (clearDiff !== 0) {
+      noise = clearRateBeatsNoise(pick, baselineConfirm);
+    } else {
+      // Same clears: require a bosses/day lift above the minimum gate.
+      const dayGain = (Number(pick.bossesPerDay) || 0) - (Number(baselineConfirm.bossesPerDay) || 0);
+      noise = {
+        ok: dayGain > CONFIRM_MIN_GAIN.bosses,
+        gain: dayGain,
+        se: 0,
+        need: CONFIRM_MIN_GAIN.bosses,
+        z: CONFIRM_Z,
+        rank: "bosses",
+      };
+    }
+  }
+  const confirmImproved = !!(pickIsNew && rawBeats && noise.ok);
   const baselineBossesPerDay = Number(baselineConfirm.bossesPerDay) || 0;
 
   return {
@@ -1540,6 +1708,9 @@ async function attachBossFarm(payload, runs, base, engine, hunter, bossStage, ho
     baselineConfirm,
     pick,
     confirmImproved,
+    rawImproved: !!(pickIsNew && rawBeats),
+    noiseBlocked: !!(pickIsNew && rawBeats && !noise.ok),
+    noise,
   };
 }
 
@@ -3123,24 +3294,39 @@ function fitPushOpen(plan, ranked, talentBudget, attrBudget, isLegal, cap) {
 }
 
 function metricOf(score) {
-  const objective = score?.objective || "stage";
-  if (objective === "bosses") return { key: "boss", value: Number(score.bossesPerDay) || 0, unit: "bosses/day", digits: 2 };
-  if (objective === "loot") return { key: "loot", value: Number(score.lootScore) || 0, unit: "loot/min", digits: 1 };
+  const rank = rankOf(score);
+  if (rank === "bossHp") {
+    return {
+      key: "hp",
+      value: Number.isFinite(score.bossHp) ? score.bossHp : 100,
+      unit: "boss HP",
+      digits: 1,
+    };
+  }
+  if (rank === "bosses") return { key: "boss", value: Number(score.bossesPerDay) || 0, unit: "bosses/day", digits: 2 };
+  if (rank === "loot") return { key: "loot", value: Number(score.lootScore) || 0, unit: "loot/min", digits: 1 };
   return { key: "stage", value: Number(score.avgStage) || 0, unit: "stage", digits: 2 };
 }
 
 function decidingDelta(best, base) {
-  const objective = best?.objective || base?.objective || "stage";
-  if (objective === "bosses" && best.bossesPerDay !== base.bossesPerDay) {
+  const rank = rankOf(best) || rankOf(base) || "stage";
+  if (rank === "bossHp") {
+    const bestHp = Number.isFinite(best.bossHp) ? best.bossHp : 100;
+    const baseHp = Number.isFinite(base.bossHp) ? base.bossHp : 100;
+    if (bestHp !== baseHp) {
+      return { key: "hp", unit: "boss HP", digits: 1, delta: baseHp - bestHp };
+    }
+  }
+  if (rank === "bosses" && best.bossesPerDay !== base.bossesPerDay) {
     return { key: "boss", unit: "bosses/day", digits: 2, delta: best.bossesPerDay - base.bossesPerDay };
   }
-  if (objective === "loot" && best.lootScore !== base.lootScore) {
+  if (rank === "loot" && best.lootScore !== base.lootScore) {
     return { key: "loot", unit: "loot/min", digits: 1, delta: best.lootScore - base.lootScore };
   }
-  if (objective === "stage" && best.avgStage !== base.avgStage) {
+  if (rank === "stage" && best.avgStage !== base.avgStage) {
     return { key: "stage", unit: "stage", digits: 2, delta: best.avgStage - base.avgStage };
   }
-  if (best.lootScore !== base.lootScore && objective !== "stage") {
+  if (best.lootScore !== base.lootScore && rank !== "stage" && rank !== "bossHp") {
     return { key: "loot", unit: "loot/min", digits: 1, delta: best.lootScore - base.lootScore };
   }
   if (best.avgStage !== base.avgStage) {
@@ -3152,7 +3338,8 @@ function decidingDelta(best, base) {
   return { key: "stage", unit: "stage", digits: 2, delta: 0 };
 }
 
-function pushFactorLifts(samples, objective) {
+function pushFactorLifts(samples, objective, rankBy = null) {
+  const rank = rankBy === "bossHp" ? "bossHp" : normalizeObjective(objective);
   const factors = [];
   const fixed = [];
   for (const spec of pushP.factors) {
@@ -3163,18 +3350,21 @@ function pushFactorLifts(samples, objective) {
       if (!group) {
         group = {
           n: 0,
-          sum: { stage: 0, loot: 0, boss: 0 },
-          sumsq: { stage: 0, loot: 0, boss: 0 },
+          sum: { stage: 0, loot: 0, boss: 0, hp: 0 },
+          sumsq: { stage: 0, loot: 0, boss: 0, hp: 0 },
         };
         groups.set(level, group);
       }
+      const hp = Number.isFinite(sample.bossHp) ? sample.bossHp : 100;
       group.n += 1;
       group.sum.stage += sample.avgStage;
       group.sum.loot += sample.lootScore;
       group.sum.boss += sample.bossesPerDay;
+      group.sum.hp += hp;
       group.sumsq.stage += sample.avgStage * sample.avgStage;
       group.sumsq.loot += sample.lootScore * sample.lootScore;
       group.sumsq.boss += sample.bossesPerDay * sample.bossesPerDay;
+      group.sumsq.hp += hp * hp;
     }
     if (groups.size < 2) {
       fixed.push({ key: spec.key, kind: spec.kind, level: [...groups.keys()][0] || 0 });
@@ -3184,7 +3374,9 @@ function pushFactorLifts(samples, objective) {
       avgStage: group.sum.stage / group.n,
       lootScore: group.sum.loot / group.n,
       bossesPerDay: group.sum.boss / group.n,
+      bossHp: group.sum.hp / group.n,
       objective,
+      rankBy: rank === "bossHp" ? "bossHp" : undefined,
     });
     let baseLevel = 0;
     let baseGroup = groups.get(0);
@@ -3235,7 +3427,7 @@ function pushFactorLifts(samples, objective) {
     if (a.clear !== b.clear) return a.clear ? -1 : 1;
     return b.lift - a.lift || a.key.localeCompare(b.key);
   });
-  return { factors, fixed };
+  return { factors, fixed, rankBy: rank };
 }
 
 function betterPush(current, next) {
@@ -3245,6 +3437,27 @@ function betterPush(current, next) {
   return current;
 }
 
+function alignPushRank(sample, rankBy) {
+  if (!sample) return null;
+  if (!rankBy) return sample;
+  const bossHp = Number.isFinite(sample.bossHp) ? sample.bossHp : sample.score?.bossHp;
+  return {
+    ...sample,
+    rankBy,
+    bossHp,
+    score: {
+      ...(sample.score || {
+        avgStage: sample.avgStage,
+        lootScore: sample.lootScore,
+        bossesPerDay: sample.bossesPerDay,
+        objective: "bosses",
+      }),
+      rankBy,
+      bossHp,
+    },
+  };
+}
+
 function asPushChampion(sample) {
   if (!sample?.talents || !sample?.attributes || !sample.score) return null;
   return {
@@ -3252,6 +3465,8 @@ function asPushChampion(sample) {
     avgStage: sample.avgStage,
     lootScore: sample.lootScore,
     bossesPerDay: sample.bossesPerDay,
+    bossHp: sample.bossHp,
+    rankBy: sample.rankBy || sample.score?.rankBy,
     talents: { ...sample.talents },
     attributes: { ...sample.attributes },
     points: { ...(sample.points || {}), ...sample.talents, ...sample.attributes },
@@ -3259,25 +3474,31 @@ function asPushChampion(sample) {
 }
 
 function publishPush(screen, incumbent) {
-  const own = screen?.score ? {
+  const rank = screen?.rankBy || screen?.score?.rankBy || incumbent?.rankBy || null;
+  const own = screen?.score ? alignPushRank({
     score: screen.score,
     avgStage: screen.avgStage,
     lootScore: screen.lootScore,
     bossesPerDay: screen.bossesPerDay,
+    bossHp: screen.bossHp,
+    rankBy: screen.rankBy || screen.score?.rankBy,
     talents: screen.talents,
     attributes: screen.attributes,
-  } : null;
-  const chosen = betterPush(incumbent, own);
+  }, rank) : null;
+  const floor = alignPushRank(incumbent, rank);
+  const chosen = betterPush(floor, own);
   return {
     ...screen,
     score: chosen ? chosen.score : null,
     avgStage: chosen ? chosen.avgStage : null,
     lootScore: chosen ? chosen.lootScore : null,
     bossesPerDay: chosen ? chosen.bossesPerDay : null,
+    bossHp: chosen ? chosen.bossHp : null,
+    rankBy: chosen ? chosen.rankBy || chosen.score?.rankBy : rank,
     talents: chosen ? chosen.talents : null,
     attributes: chosen ? chosen.attributes : null,
     ownScore: screen?.score || null,
-    kept: !!(incumbent && chosen === incumbent),
+    kept: !!(floor && chosen === floor),
   };
 }
 
@@ -3377,6 +3598,8 @@ async function simulatePushScreen({
   let best = null;
   const total = rows.length;
   let done = 0;
+  const primaryBoss = normalizeBossStages(bossStages)[0] || 100;
+  const trackBossHp = objective === "bosses";
   for (const row of rows) {
     if (isCancelled()) return { cancelled: true };
     const cfg = structuredClone(base);
@@ -3397,6 +3620,7 @@ async function simulatePushScreen({
         stage: shown?.avgStage ?? null,
         loot: shown?.lootScore ?? null,
         bossesPerDay: shown?.bossesPerDay ?? null,
+        bossHp: shown?.bossHp ?? null,
       });
       continue;
     }
@@ -3404,16 +3628,20 @@ async function simulatePushScreen({
     if (isCancelled()) return { cancelled: true };
     const sim = wasmToSimResult(await Promise.resolve(engine.evaluate(validated.config, sims)), sims);
     const score = scoreOf(sim, objective, bossStages);
+    const bossHp = trackBossHp ? bossHpRemaining(sim, primaryBoss) : null;
+    if (trackBossHp) score.bossHp = bossHp;
     const sample = {
       score,
       avgStage: score.avgStage,
       lootScore: score.lootScore,
       bossesPerDay: score.bossesPerDay,
+      bossHp,
       talents: { ...row.talents },
       attributes: { ...row.attributes },
       points: { ...row.talents, ...row.attributes },
     };
     samples.push(sample);
+    // Tentative best by bosses/day until the screen finishes and cold-start is applied.
     best = betterPush(best, sample);
     const next = betterPush(floor, best);
     onProgress({
@@ -3427,9 +3655,15 @@ async function simulatePushScreen({
       stage: next.avgStage,
       loot: next.lootScore,
       bossesPerDay: next.bossesPerDay,
+      bossHp: next.bossHp ?? null,
     });
   }
-  return { cancelled: false, samples, best };
+  let rankBy = normalizeObjective(objective);
+  if (trackBossHp) {
+    rankBy = bossesScreenIsCold(samples) ? "bossHp" : "bosses";
+    best = applyBossRankMode(samples, rankBy);
+  }
+  return { cancelled: false, samples, best, rankBy };
 }
 
 function packPushScreen(title, kind, run, ranked, extra = {}) {
@@ -3442,8 +3676,8 @@ function packPushScreen(title, kind, run, ranked, extra = {}) {
     avgStage: best ? best.avgStage : null,
     lootScore: best ? best.lootScore : null,
     bossesPerDay: best ? best.bossesPerDay : null,
-    talents: best ? best.talents : null,
-    attributes: best ? best.attributes : null,
+    bossHp: best ? best.bossHp : null,
+    rankBy: run.rankBy || ranked.rankBy || best?.rankBy || null,
     factors: ranked.factors,
     fixed: ranked.fixed,
     ...extra,
@@ -3492,7 +3726,7 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
   if (!firstRun.samples.length) {
     throw new Error(`No valid screening rows at level ${level}.`);
   }
-  const ranked1 = pushFactorLifts(firstRun.samples, objective);
+  const ranked1 = pushFactorLifts(firstRun.samples, objective, firstRun.rankBy);
   const screen1 = packPushScreen("Screen 1", "screen1", firstRun, ranked1, {
     ownScore: firstRun.best?.score || null,
     kept: false,
@@ -3514,6 +3748,7 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
       fixed: [],
       locks: plan.lockList,
       topKey: plan.topKey,
+      rankBy: firstRun.rankBy,
     }, champion);
   } else {
     const secondRun = await simulatePushScreen({
@@ -3524,7 +3759,7 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
       floor: champion,
     });
     if (secondRun.cancelled) return { cancelled: true };
-    const ranked2 = pushFactorLifts(secondRun.samples, objective);
+    const ranked2 = pushFactorLifts(secondRun.samples, objective, secondRun.rankBy);
     screen2 = publishPush(packPushScreen("Screen 2", "screen2", secondRun, ranked2, {
       locks: plan.lockList,
       topKey: plan.topKey,
@@ -3541,6 +3776,8 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
     avgStage: null,
     lootScore: null,
     bossesPerDay: null,
+    bossHp: null,
+    rankBy: null,
     talents: null,
     attributes: null,
     factors: [],
@@ -3567,7 +3804,7 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
         floor: champion,
       });
       if (refineRun.cancelled) return { cancelled: true };
-      const rankedRefine = pushFactorLifts(refineRun.samples, objective);
+      const rankedRefine = pushFactorLifts(refineRun.samples, objective, refineRun.rankBy);
       refine = publishPush(packPushScreen("Refinement", "refine", refineRun, rankedRefine, {
         locks: refinePlan.lockList,
         openList: refinePlan.openList,
@@ -3590,6 +3827,7 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
     stage: champion?.avgStage ?? null,
     loot: champion?.lootScore ?? null,
     bossesPerDay: champion?.bossesPerDay ?? null,
+    bossHp: champion?.bossHp ?? null,
   });
   const current = validateBudgets(base, hunter);
   if (!current.ok) throw new Error(current.msg || "Invalid build");
@@ -3599,7 +3837,14 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
     await Promise.resolve(engine.evaluate(current.config, nConfirm)),
     nConfirm,
   );
+  const confirmRank =
+    objective === "bosses" && champion?.rankBy === "bossHp" ? "bossHp" : objective;
   const baselineScore = scoreOf(baselineEval, objective, bossStages);
+  if (objective === "bosses") {
+    const primaryBoss = bossStages[0] || 100;
+    baselineScore.bossHp = bossHpRemaining(baselineEval, primaryBoss);
+    baselineScore.rankBy = confirmRank === "bossHp" ? "bossHp" : "bosses";
+  }
   let winnerEval = null;
   let winnerScore = null;
   let winnerConfig = null;
@@ -3615,11 +3860,20 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
         nConfirm,
       );
       winnerScore = scoreOf(winnerEval, objective, bossStages);
+      if (objective === "bosses") {
+        const primaryBoss = bossStages[0] || 100;
+        winnerScore.bossHp = bossHpRemaining(winnerEval, primaryBoss);
+        winnerScore.rankBy = confirmRank === "bossHp" ? "bossHp" : "bosses";
+      }
       winnerConfig = winnerOk.config;
     }
   }
   if (isCancelled()) return { cancelled: true };
-  const improved = !!(winnerScore && scoreGt(winnerScore, baselineScore));
+  const rawImproved = !!(winnerScore && scoreGt(winnerScore, baselineScore));
+  const noise = winnerEval
+    ? confirmBeatsNoise(winnerEval, baselineEval, objective, bossStages, confirmRank)
+    : { ok: false, gain: 0, se: 0, need: 0, z: CONFIRM_Z, rank: confirmRank };
+  const improved = !!(rawImproved && noise.ok);
   const bestScore = improved ? winnerScore : baselineScore;
   const bestEval = improved ? winnerEval : baselineEval;
   const bestConfig = improved ? winnerConfig : current.config;
@@ -3646,6 +3900,10 @@ export async function findPushBuild(baseConfig, engine, hunter, optIn = {}, hook
     baselineScore,
     baselineEval,
     improved,
+    rawImproved,
+    noiseBlocked: !!(rawImproved && !noise.ok),
+    noise,
+    confirmRank,
     evals: rowCount + 2,
     loops: 1,
     nSearch: sims,

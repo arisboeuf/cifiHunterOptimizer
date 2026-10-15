@@ -43,15 +43,13 @@ Prefer: documented tips + external wiki/community, then confirm with WASM runs w
 
 **Boss Kill % vs Boss HP %**, why the First Bosskill Finder is a budgeted screen rather than a Resolution V factorial, and how the stage, loot, and bosses/day buttons use that funnel: see [docs/boss-screen.md](boss-screen.md).
 
-## Optimizer compares are raw numbers
+## Optimizer compares: raw screens, noisy confirm
 
-While combat runs through `release.wasm`, the optimizer and Next-Best-Opti rank builds by the raw objective. There is no significance test.
+While combat runs through `release.wasm`:
 
-- **Push Average Stage:** higher average stage wins. Loot breaks an exact tie.
-- **Push Material/XP:** higher loot/min wins. Average stage breaks an exact tie.
-- **Maximize Boss/day:** higher bosses/day wins, then loot, then average stage.
-- **Next-Best-Opti:** a +1 counts when its average stage is higher than the baseline. The label shows that raw delta.
+- **Funnel screens** (Push Average Stage / Material/XP / Bosses/day, First Bosskill Finder) still rank builds by the **raw** objective so small designed-grid gaps are not erased mid-search.
+- **Confirm / Apply** requires the winner to beat the current hunter by more than **simulation noise** (one-sided ~95% SE gate plus a small minimum gain). Push confirms use the stage histogram, loot SE proxy, or bosses/day clear-rate SE; the First Bosskill Finder gates on clear-rate difference at 500 sims. A raw-mean win that fails the gate is reported as within noise and is not offered to apply.
+- **Maximize Boss/day cold-start:** while a screen has no clears, that screen ranks and locks on remaining **boss HP** (lower better). Once any row clears, later scoring on that screen uses bosses/day again.
+- **Next-Best-Opti:** still raw average-stage delta only (no SE gate).
 
-WASM returns a stage histogram and means for a batch of runs, not a sample this tool treats as a formal test. A z-test on that histogram used to hide small gaps (for example 100.01 vs 100.00) as noise. That test is removed on purpose for as long as this WASM engine is the combat backend.
-
-Put a statistical compare back only if a future engine exposes per-run outcomes and we decide a noise filter is worth using again.
+WASM returns a stage histogram and means for a batch of runs. The confirm gate estimates SE from that histogram (or a loot proxy), similar in spirit to cifi-toolkit’s noise filter, without using their local-search walk. See [cifi-toolkit-optimiser.md](cifi-toolkit-optimiser.md) and [boss-screen.md](boss-screen.md).

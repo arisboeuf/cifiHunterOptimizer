@@ -209,7 +209,11 @@ The funnel is the right shape for loot, and it replaced the walk that locked Tim
 
 ### Maximize Boss/day
 
-Bosses/day is clears times runs per day. It is closer to this finder than average stage is, but the score is a kill, not remaining HP. Until some rows actually get past the boss, almost every row is 0 and there is nothing to lock. Boss HP is the screen to run while the boss still lives. Bosses/day is the score to switch to after kills start. This matrix is not that switch. Call Me Lucky Loot and Timeless Mastery are still free factors on that screen, the same as on stage and Material/XP.
+Bosses/day is clears times runs per day. It is closer to this finder than average stage is, but the score is a kill, not remaining HP. Until some rows actually get past the boss, almost every row is 0 and there is nothing to lock.
+
+**Cold-start (shipped):** each bosses/day screen checks its own samples. If none cleared the selected boss, that screen ranks and locks on remaining **boss HP** (same closeness score as the First Bosskill Finder). When any row clears, that screen uses bosses/day. Later screens re-check independently, so a cold screen 1 can still become a warm screen 2. Call Me Lucky Loot and Timeless Mastery stay free factors.
+
+**Confirm noise gate:** the 4,000-sim compare only offers Apply when the gain beats an SE×z threshold (and a small minimum). A raw-mean win inside the noise is shown in the report and not applied. First Bosskill Finder’s 500-sim confirm uses the same idea on clear rate.
 
 ### Wired
 
@@ -218,3 +222,7 @@ Borge, Ozzy, and Knox call `findPushBuild` from the three push buttons. The Firs
 ## Not done yet
 
 Borge's refinement only steps the cheap Atlas-chain levels. Ozzy steps Wings, Extermination, and Soul of Snek. Knox steps Searious Efficiency, Passive Charge Tank, and King of Torpedos. The finder does not walk the build up to the next hunter level, and it does not try every untested level of the skills screen 2 already ranked.
+
+## Related: cifi-toolkit optimiser
+
+[cifi-toolkit](https://www.cifi-toolkit.com/borge) ships a separate **Generate** (from scratch) and **Optimise build** (from an existing card) dialog with Boss Kill and Loot objectives. That is a time-boxed, multi-core local search with a noise gate, not this funnel. Comparison: [cifi-toolkit-optimiser.md](cifi-toolkit-optimiser.md).

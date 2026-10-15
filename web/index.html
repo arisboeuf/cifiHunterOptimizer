@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CIFI Farm</title>
     <meta name="description" content="CIFI hunter simulator & Ouroboros gem progression — WASM combat, stage distribution, live GU costs." />
-    <link rel="stylesheet" href="./css/app.css?v=engine14" />
+    <link rel="stylesheet" href="./css/app.css?v=engine15" />
   </head>
   <body data-hunter="borge" data-module="hunters">
     <header class="app-header">
@@ -191,7 +191,7 @@
           <div class="opt-row">
             <button type="button" class="btn btn-primary" id="btnOptimize" title="Screen 1, screen 2, then a short refinement. Call Me Lucky Loot and Timeless Mastery stay free factors.">Push Average Stage</button>
             <button type="button" class="btn btn-primary" id="btnOptimizeLoot" title="Same funnel as Push Average Stage, scored by loot per minute. Lucky Loot and Timeless stay free factors.">Push Material/XP</button>
-            <button type="button" class="btn btn-primary" id="btnOptimizeBoss" title="Same funnel, scored by bosses per day. Lucky Loot and Timeless stay free factors.">Maximize Boss/day</button>
+            <button type="button" class="btn btn-primary" id="btnOptimizeBoss" title="Same funnel, scored by bosses per day. While a screen has no clears, ranks remaining boss HP instead. Confirm must beat simulation noise. Lucky Loot and Timeless stay free factors.">Maximize Boss/day</button>
             <button
               type="button"
               class="btn btn-primary"
@@ -231,7 +231,7 @@
           </div>
           <div class="progress opt-progress" aria-hidden="true"><span id="optProgressBar"></span></div>
           <p class="opt-status" id="optStatus">
-            Push Average Stage, Push Material/XP, and Maximize Boss/day run three screens at the current level for Borge, Ozzy, and Knox. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover points go to that hunter's filler skills. The compare step resimulates the winner and your current build at 4000 sims. Apply writes the talents and attributes when that confirm is better. Uncheck Show finder report to hide the charts; a better build still asks whether to apply it. First Bosskill Finder is separate and runs for Borge, Ozzy, and Knox: 50 sims per build, ranked by remaining boss HP. Bosses/day is recorded and does not change the locks. A final 500-sim confirm retests up to six candidates plus the current hunter and can apply the build with the most clears past the boss. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery are not used by these screens. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
+            Push Average Stage, Push Material/XP, and Maximize Boss/day run three screens at the current level for Borge, Ozzy, and Knox. Screen 1 is a coarse grid, screen 2 locks a clear gain and steps the rest, then a short refinement holds that build. Call Me Lucky Loot and Timeless Mastery are free factors. Leftover points go to that hunter's filler skills. The compare step resimulates the winner and your current build at 4000 sims. Apply only when that confirm beats the baseline by more than simulation noise (SE gate). Maximize Boss/day ranks by remaining boss HP while a screen has no clears, then switches to bosses/day once clears appear. Uncheck Show finder report to hide the charts; a better build still asks whether to apply it. First Bosskill Finder is separate and runs for Borge, Ozzy, and Knox: 50 sims per build, ranked by remaining boss HP. Bosses/day is recorded and does not change the locks. A final 500-sim confirm retests up to six candidates plus the current hunter and can apply only when the clear-rate gain beats noise. Timeless Mastery and Call Me Lucky Loot stay at 0 there. Iterations and Prioritize Timeless Mastery are not used by these screens. Only one optimize at a time. The Sims field applies only to manual runs / Next-Best.
           </p>
         </div>
         <div class="tabs" role="tablist">
@@ -260,6 +260,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/app.js?v=engine14"></script>
+    <script type="module" src="./js/app.js?v=engine15"></script>
   </body>
 </html>

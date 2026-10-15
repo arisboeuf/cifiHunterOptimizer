@@ -9,12 +9,12 @@ import {
   probeOfflineApi,
   probeRustSim,
   storageKeyFor,
-} from "./hunters/index.js?v=engine14";
-import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine14";
-import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine14";
-import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine14";
-import { initGemsModule } from "./gems/ui.js?v=engine14";
-import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine14";
+} from "./hunters/index.js?v=engine15";
+import { downloadJson, formatDuration, validateBudgets, discardOverBudgetSpend } from "./build.js?v=engine15";
+import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionGains, marginalRelicGemGains, marginalStatGains, normalizeBossStages } from "./optimize.js?v=engine15";
+import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine15";
+import { initGemsModule } from "./gems/ui.js?v=engine15";
+import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine15";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
@@ -1337,8 +1337,17 @@ function pushLockNote(screen, labels) {
   return parts.join(" ");
 }
 
+function pushScreenRank(screen, objective) {
+  if (objective === "bosses" && screen?.rankBy === "bossHp") return "bossHp";
+  return objective;
+}
+
 function pushMetricText(screen, objective) {
   if (!screen) return "—";
+  if (pushScreenRank(screen, objective) === "bossHp") {
+    const value = Number(screen.bossHp);
+    return Number.isFinite(value) ? `${value.toFixed(1)} boss HP` : "—";
+  }
   if (objective === "bosses") {
     const value = Number(screen.bossesPerDay);
     return Number.isFinite(value) ? `${value.toFixed(2)} bosses/day` : "—";
@@ -1353,6 +1362,7 @@ function pushMetricText(screen, objective) {
 
 function pushPhaseValue(screen, objective) {
   if (!screen) return null;
+  if (pushScreenRank(screen, objective) === "bossHp") return Number(screen.bossHp);
   if (objective === "bosses") return Number(screen.bossesPerDay);
   if (objective === "loot") return Number(screen.lootScore);
   return Number(screen.avgStage);
@@ -1362,13 +1372,20 @@ function pushCompare(screens, objective) {
   const rows = (screens || []).filter((screen) => Number.isFinite(pushPhaseValue(screen, objective)) && screen.rows);
   if (rows.length < 2) return "";
   const first = pushPhaseValue(rows[0], objective);
-  const best = Math.max(...rows.map((screen) => pushPhaseValue(screen, objective)));
+  const values = rows.map((screen) => pushPhaseValue(screen, objective));
+  const hpMode = rows.some((screen) => pushScreenRank(screen, objective) === "bossHp");
+  const best = hpMode ? Math.min(...values) : Math.max(...values);
+  const span = hpMode
+    ? Math.max(0.0001, Math.max(...values) - best)
+    : Math.max(0.0001, best);
   const body = rows.map((screen) => {
     const value = pushPhaseValue(screen, objective);
-    const delta = value - first;
+    const delta = hpMode ? first - value : value - first;
     const shown = delta > 0.0001 ? `+${delta.toFixed(2)}` : delta < -0.0001 ? delta.toFixed(2) : "0";
     const cls = delta > 0.0001 ? "is-up" : delta < -0.0001 ? "is-down" : "";
-    const width = best > 0 ? Math.max(0, value) / best * 100 : 0;
+    const width = hpMode
+      ? Math.max(0, (Math.max(...values) - value) / span) * 100
+      : Math.max(0, value) / span * 100;
     const deltaCell = screen === rows[0] ? "<td>—</td>" : `<td class="${cls}">${shown}</td>`;
     return `<tr>
       <th>${escapeReportText(screen.title || "Screen")}</th>
@@ -1508,8 +1525,17 @@ async function showOptReport({ mode, modeLabel, result, bossStages, showPlots = 
     })
     .join("");
 
+  const noiseBlocked = !!result.noiseBlocked;
+  const confirmRank = result.confirmRank || mode;
+  const baseHp = Number(baseSc.bossHp);
+  const bestHp = Number(bestSc.bossHp);
+  const dHp =
+    Number.isFinite(baseHp) && Number.isFinite(bestHp) ? fmtOptDelta(baseHp, bestHp, 1) : { text: "—", cls: "" };
+
   let primaryLine;
-  if (mode === "bosses") {
+  if (mode === "bosses" && confirmRank === "bossHp") {
+    primaryLine = `Boss HP ${Number.isFinite(bestHp) ? bestHp.toFixed(1) : "—"} (was ${Number.isFinite(baseHp) ? baseHp.toFixed(1) : "—"}, ${dHp.text}) · cold-start (no clears yet) · targets ${(bossStages || []).join(", ") || "—"}`;
+  } else if (mode === "bosses") {
     primaryLine = `Bosses/day ${bestBosses.toFixed(1)} (was ${baseBosses.toFixed(1)}, ${dBosses.text}) · targets ${(bossStages || []).join(", ") || "—"}`;
   } else if (mode === "loot") {
     primaryLine = `Loot ${bestLoot.toFixed(1)} (was ${baseLoot.toFixed(1)}, ${dLoot.text})`;
@@ -1517,13 +1543,19 @@ async function showOptReport({ mode, modeLabel, result, bossStages, showPlots = 
     primaryLine = `Ø Stage ${bestStage.toFixed(1)} (was ${baseStage.toFixed(1)}, ${dStage.text})`;
   }
 
+  const noise = result.noise;
+  const noiseLine = noiseBlocked && noise
+    ? `<p class="opt-report-meta">Funnel winner looked better by raw mean (gain ${Number(noise.gain).toFixed(2)}), but that is within simulation noise (need &gt; ${Number(noise.need).toFixed(2)}, SE ${Number(noise.se).toFixed(2)}). Not offered to apply.</p>`
+    : "";
+
   $("#optConfirmTitle").textContent = improved ? `${modeLabel} — improvement found` : `${modeLabel} — report`;
   body.classList.remove("is-boss-find");
   body.innerHTML = `
     <p class="opt-report-summary">
-      <strong>${improved ? "Improved vs baseline" : "No improvement"}</strong><br />
+      <strong>${improved ? "Improved vs baseline" : noiseBlocked ? "Within simulation noise" : "No improvement"}</strong><br />
       ${primaryLine}
     </p>
+    ${noiseLine}
     <div class="opt-report-grid">
       <span class="h">Metric</span><span class="h">Baseline</span><span class="h">Best</span>
       <span class="k">Ø Stage</span>${optReportCell(baseStage.toFixed(1))}${optReportCell(
@@ -1589,10 +1621,14 @@ async function showOptReport({ mode, modeLabel, result, bossStages, showPlots = 
   });
 }
 
-function formatOptProgressExtra({ objective, stage, loot, bossesPerDay }) {
+function formatOptProgressExtra({ objective, stage, loot, bossesPerDay, bossHp }) {
   if (objective === "bosses") {
     const parts = [];
-    if (bossesPerDay != null) parts.push(`best ${Number(bossesPerDay).toFixed(1)} bosses/d`);
+    if (bossHp != null && (bossesPerDay == null || Number(bossesPerDay) <= 1e-12)) {
+      parts.push(`best ${Number(bossHp).toFixed(1)} boss HP`);
+    } else if (bossesPerDay != null) {
+      parts.push(`best ${Number(bossesPerDay).toFixed(1)} bosses/d`);
+    }
     if (stage != null) parts.push(`Ø ${Number(stage).toFixed(1)}`);
     if (loot != null) parts.push(`loot ${Number(loot).toFixed(1)}`);
     return parts.length ? ` · ${parts.join(" · ")}` : "";
@@ -2061,9 +2097,12 @@ function factorScreenReport(result) {
   const baseClears = result.baselineConfirm
     ? `${Number(result.baselineConfirm.clearRuns) || 0}/${Number(result.baselineConfirm.sims) || result.confirmSims || 500}`
     : "—";
+  const noise = result.noise;
   const verdict = result.confirmImproved
-    ? "That confirm winner can be applied. Skills were still locked by remaining boss HP during the screens."
-    : "Confirm did not beat the current hunter, so nothing is written. Skills were ranked by remaining boss HP.";
+    ? "That confirm winner can be applied. Skills were still locked by remaining boss HP during the screens. Apply requires a clear-rate gain above simulation noise."
+    : result.noiseBlocked
+      ? `Confirm looked better by raw clears, but the gain is within simulation noise (need &gt; ${(Number(noise?.need) * 100).toFixed(1)}% clear rate). Nothing is written.`
+      : "Confirm did not beat the current hunter, so nothing is written. Skills were ranked by remaining boss HP.";
   return `
     <p class="boss-find-lead">Level ${result.level} · boss ${result.bossStage} · ${result.talentPoints} talent points · ${result.attributePoints} attribute points</p>
     ${bossConfirmTable(result)}
@@ -2326,6 +2365,9 @@ async function runOptimize(objective = "stage") {
         : mode === "loot"
           ? `loot ${bestLoot} (current ${baseLoot})`
           : `Ø ${bestAvg} (current ${baseAvg})`;
+    const noiseLine = result.noiseBlocked
+      ? `within noise (gain ${Number(result.noise?.gain || 0).toFixed(2)}, need ${Number(result.noise?.need || 0).toFixed(2)})`
+      : noImproveLine;
 
     const effort = `${result.rows} builds · ${result.sims} sims`;
     const showPlots = $("#optShowBossReport")?.checked !== false;
@@ -2333,9 +2375,11 @@ async function runOptimize(objective = "stage") {
     $("#optProgressBar").style.width = "100%";
     $("#optStatus").textContent = result.improved
       ? `Done · ${improvedLine} · ${effort} — ${showPlots ? "report open" : "apply open"}`
-      : `Done · no improvement · ${noImproveLine} · ${effort}${showPlots ? " — report open" : ""}`;
+      : result.noiseBlocked
+        ? `Done · ${noiseLine} · ${effort}${showPlots ? " — report open" : ""}`
+        : `Done · no improvement · ${noImproveLine} · ${effort}${showPlots ? " — report open" : ""}`;
 
-    const apply = result.improved || showPlots
+    const apply = result.improved || showPlots || result.noiseBlocked
       ? await showOptReport({ mode, modeLabel, result, bossStages, showPlots })
       : false;
 
@@ -2363,6 +2407,13 @@ async function runOptimize(objective = "stage") {
       $("#optStatus").textContent =
         `Discarded · suggested ${discardSuggest} · ${effort}`;
       $("#status").textContent = `${modeLabel}: suggestion discarded (${discardSuggest})`;
+    } else if (result.noiseBlocked) {
+      $("#optStatus").textContent =
+        `Within noise · ${noiseLine} · ${effort}`;
+      $("#status").textContent = showPlots
+        ? `${modeLabel}: within simulation noise · see report`
+        : `${modeLabel}: within simulation noise · ${noiseLine}`;
+      if (result.baselineEval) showResult(result.baselineEval);
     } else {
       $("#optStatus").textContent =
         `No improvement · ${noImproveLine} · ${effort}`;

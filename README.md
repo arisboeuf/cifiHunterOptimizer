@@ -24,13 +24,13 @@ This project is **not** a from-scratch combat simulator. The fight math and bala
 
 If a run stages, dies, and loots correctly, that is **their** engine. We only call it from the browser.
 
-See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use, and **[docs/boss-screen.md](docs/boss-screen.md)** for the First Bosskill Finder and for the stage, loot, and bosses/day funnel.
+See **[docs/mechanics.md](docs/mechanics.md)** for Crit / Multistrike / Charge, **[docs/wasm-combat.md](docs/wasm-combat.md)** for WASM provenance, bridge limits, and why optimizer compares are raw numbers (no significance test) while this WASM engine is in use, **[docs/boss-screen.md](docs/boss-screen.md)** for the First Bosskill Finder and for the stage, loot, and bosses/day funnel, and **[docs/cifi-toolkit-optimiser.md](docs/cifi-toolkit-optimiser.md)** for how [cifi-toolkit](https://www.cifi-toolkit.com/borge) Generate / Optimise (Boss Kill · Loot) differs from those pushers.
 
 ### Built in this project
 
 | Item | What it does |
 | --- | --- |
-| **Talent / attribute optimizer** | Screen funnel for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss among 100/200/300). Call Me Lucky Loot and Timeless Mastery are free factors. A better 4,000-sim confirm asks to apply. **First Bosskill Finder** ranks remaining boss HP, records bosses/day without using it to lock skills, then confirms a few candidates at 500 sims and can apply the one with the most clears. Prioritize Timeless Mastery and Iterations are not used |
+| **Talent / attribute optimizer** | Screen funnel for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss among 100/200/300). Call Me Lucky Loot and Timeless Mastery are free factors. Confirm/Apply only when the 4,000-sim gain beats simulation noise. Bosses/day screens with no clears rank on boss HP until clears appear. **First Bosskill Finder** ranks remaining boss HP, then confirms at 500 sims with a clear-rate noise gate. Prioritize Timeless Mastery and Iterations are not used |
 | **Next-Best-Opti** | Marginal +1 sweep over combat stats (auto after talent apply), or on-demand for inscryptions / relics+gems; Δ Ø-stage labels next to each row |
 | Web UI | Hunter tabs (Borge → Ozzy → Knox), per-hunter themes, build editor, charts (stage distribution / odds / revives), budget bar, import/export, hide-maxed filter |
 | Hunter modules | `web/js/hunters/{borge,ozzy,knox}/` plus shared WASM helpers |
@@ -47,7 +47,7 @@ The optimizer is the main added value beyond “run the same sim once”: it sea
 - Simulate Borge, Ozzy, Knox with the cifi-tools WASM combat engine
 - Edit stats, inscryptions, relics/gems, talents, and attributes (tree rules enforced)
 - Run N Monte-Carlo sims; see loot score, stage range, time, boss kill %, charts
-- Optimize talent/attribute spend for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss; only one optimize at a time). **First Bosskill Finder** ranks remaining boss HP and leaves the build unchanged
+- Optimize talent/attribute spend for Borge, Ozzy, and Knox: **Push Average Stage**, **Push Material/XP** (loot/min), or **Maximize Boss/day** (first checked boss; HP cold-start when no clears; only one optimize at a time). Confirm/Apply is noise-gated. **First Bosskill Finder** ranks remaining boss HP; apply needs a clear-rate gain above noise
 - **Next-Best-Opti**: for the current build, show Δ Ø-stage of investing +1 in each combat stat (also runs after applying a talent/attribute optimize). Separate on-demand buttons on Inscryptions and Relics/Gems tabs (never auto-chained).
 - Builds saved per hunter in the browser
 
@@ -98,6 +98,7 @@ HTTP required — ES modules + WASM do not work via `file://`.
 | `docs/offline-python-sim.md` | Offline Python Hunt port vs WASM |
 | `docs/obeliskfarm-mc.md` | External note: ObeliskFarm TS Monte Carlo + Web Workers |
 | `docs/boss-screen.md` | First Bosskill Finder screens, factorial limits, Boss HP %, stage/loot funnel notes |
+| `docs/cifi-toolkit-optimiser.md` | cifi-toolkit Generate / Optimise (Boss Kill · Loot) vs our pushers |
 | `docs/monster_stats/` | Enemy / boss CSV documentation |
 | `scripts/export_monster_stats.py` | Regenerate those CSVs |
 | `TODO.md` | Open work / ideas |

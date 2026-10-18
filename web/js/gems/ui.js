@@ -10,11 +10,13 @@ import {
   defaultProgress,
 } from "./data.js";
 import {
+  GU_COST_HORIZON,
   activeGuRows,
   allDisplayedCosts,
   findNextQuality,
   formatOO,
   heatClass,
+  nextThreeCosts,
 } from "./costs.js";
 
 let root = null;
@@ -24,6 +26,8 @@ let filter = "all";
 let planPicks = new Map();
 /** Already banked OO (subtracted from planned total). */
 let bankedOO = 0;
+/** Keep the long cost table open across status re-renders. */
+let guHorizonOpen = false;
 
 const GEM_RESET_LABELS = ["Reset to starter snapshot", "Sure?", "Really?"];
 let gemResetArmStep = 0;
@@ -403,6 +407,40 @@ function renderStatus() {
     );
   }
 
+  const horizonRows = [];
+  let lastHorizonGemQ = "";
+  for (const row of rows) {
+    const longNext = nextThreeCosts(row.def, row.current, GU_COST_HORIZON);
+    for (const step of longNext) {
+      validPlanIds.add(`gu:${row.gem}:${row.def.id}:Lv${step.level}`);
+    }
+    const key = `${row.gem} Q${row.quality}`;
+    const showGem = key !== lastHorizonGemQ;
+    lastHorizonGemQ = key;
+    const sameGemCount = rows.filter((r) => r.gem === row.gem && r.quality === row.quality).length;
+    const gemCell = showGem
+      ? `<td rowspan="${sameGemCount}"><b>${esc(row.gem)} Q${row.quality}</b></td>`
+      : "";
+    const stepCells = Array.from({ length: GU_COST_HORIZON }, (_, i) => {
+      const step = longNext[i];
+      if (!step) return `<td class="gem-horizon-step">—</td>`;
+      const pid = `gu:${row.gem}:${row.def.id}:Lv${step.level}`;
+      return `<td class="gem-horizon-step" title="Lv${step.level}">${ooTap(
+        step.cost,
+        peers,
+        pid,
+        i === 0 ? "is-next" : "",
+      )}</td>`;
+    });
+    const stack = row.def.stacking === "additive" ? "additive" : "multi";
+    horizonRows.push(`<tr>
+      ${gemCell}
+      <td class="gem-gu-name">${esc(row.def.name)}<sup class="gem-stack gem-stack-${stack}" title="${stack === "multi" ? "Multiplicative stacking" : "Additive stacking"}">${stack}</sup></td>
+      <td>${row.current}</td>
+      ${stepCells.join("")}
+    </tr>`);
+  }
+
   // Drop plan picks that are no longer on screen (levels moved on).
   for (const id of [...planPicks.keys()]) {
     if (!validPlanIds.has(id)) planPicks.delete(id);
@@ -490,17 +528,7 @@ function renderStatus() {
     });
   });
 
-  el.querySelectorAll(".oo-tap").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.planId;
-      const cost = Number(btn.dataset.planCost);
-      if (!id || !Number.isFinite(cost)) return;
-      if (planPicks.has(id)) planPicks.delete(id);
-      else planPicks.set(id, cost);
-      savePlan();
-      renderStatus();
-    });
-  });
+  bindPlanTaps(el);
 
   el.querySelector("#gemClearPlan")?.addEventListener("click", () => {
     planPicks = new Map();
@@ -532,6 +560,67 @@ function renderStatus() {
   }
 
   el.querySelector("#gemResetDefaults")?.addEventListener("click", onGemResetClick);
+
+  renderHorizonTable(horizonRows);
+}
+
+function bindPlanTaps(scope) {
+  scope?.querySelectorAll(".oo-tap").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.planId;
+      const cost = Number(btn.dataset.planCost);
+      if (!id || !Number.isFinite(cost)) return;
+      if (planPicks.has(id)) planPicks.delete(id);
+      else planPicks.set(id, cost);
+      savePlan();
+      renderStatus();
+    });
+  });
+}
+
+function renderHorizonTable(horizonRows) {
+  const mount = root?.querySelector("#gemHorizonMount");
+  if (!mount) return;
+
+  const prev = mount.querySelector("#gemCostHorizon");
+  if (prev) guHorizonOpen = prev.open;
+
+  const stepHeaders = Array.from(
+    { length: GU_COST_HORIZON },
+    (_, i) => `<th class="gem-horizon-step">${i === 0 ? "Next" : `+${i + 1}`}</th>`,
+  ).join("");
+
+  const body = horizonRows.length
+    ? horizonRows.join("")
+    : `<tr><td colspan="${3 + GU_COST_HORIZON}" class="gem-muted">Set at least one gem quality above to see active GU cost projections.</td></tr>`;
+
+  mount.innerHTML = `
+    <details class="gem-collapse" id="gemCostHorizon" ${guHorizonOpen ? "open" : ""}>
+      <summary>Next ${GU_COST_HORIZON} GU costs per active upgrade</summary>
+      <div class="gem-collapse-body">
+        <p class="gem-muted">Same SirRed early formulas as above — one column per upcoming single-level purchase. Tap OO amounts to add them to your Traversal plan.</p>
+        <div class="gem-table-wrap">
+          <table class="gem-table gem-horizon-table">
+            <thead>
+              <tr>
+                <th>Gem / Quality</th>
+                <th>GU</th>
+                <th>Current</th>
+                ${stepHeaders}
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  `;
+
+  const details = mount.querySelector("#gemCostHorizon");
+  details?.addEventListener("toggle", () => {
+    guHorizonOpen = !!details.open;
+  });
+  bindPlanTaps(mount);
 }
 
 function pruneUpgradesForQuality(gem) {
@@ -554,22 +643,35 @@ function shellHtml() {
     <section class="gem-section gem-status-section gem-status-top" id="gemStatus"></section>
     <div class="gem-toolbar" id="gemFilters" role="toolbar" aria-label="Filter gems"></div>
     <section class="gem-section">
-      <h3>Unlock map</h3>
-      <div class="gem-legend">
-        <span><i class="gem-dot accent"></i>OO purchase price</span>
-        <span><i class="gem-dot accent2"></i>Cross-gem gate</span>
-        <span><i class="gem-dot warn"></i>Mandatory GU step</span>
-      </div>
-      <div class="gem-map" id="gemMap"></div>
+      <details class="gem-collapse">
+        <summary>Unlock map</summary>
+        <div class="gem-collapse-body">
+          <div class="gem-legend">
+            <span><i class="gem-dot accent"></i>OO purchase price</span>
+            <span><i class="gem-dot accent2"></i>Cross-gem gate</span>
+            <span><i class="gem-dot warn"></i>Mandatory GU step</span>
+          </div>
+          <div class="gem-map" id="gemMap"></div>
+        </div>
+      </details>
     </section>
     <section class="gem-section">
-      <h3>Quality → what unlocks?</h3>
-      <div class="gem-cards" id="gemQualityCards"></div>
+      <details class="gem-collapse">
+        <summary>Quality → what unlocks?</summary>
+        <div class="gem-collapse-body">
+          <div class="gem-cards" id="gemQualityCards"></div>
+        </div>
+      </details>
     </section>
     <section class="gem-section">
-      <h3>Gem upgrades: effect + start costs</h3>
-      <div class="gem-cards" id="gemUpgradeCards"></div>
+      <details class="gem-collapse">
+        <summary>Gem upgrades: effect + start costs</summary>
+        <div class="gem-collapse-body">
+          <div class="gem-cards" id="gemUpgradeCards"></div>
+        </div>
+      </details>
     </section>
+    <section class="gem-section" id="gemHorizonMount" aria-label="Extended GU cost table"></section>
     <div class="gem-detail" id="gemDetail" hidden>
       <button type="button" class="gem-detail-close" id="gemDetailClose" aria-label="Close">×</button>
       <h3 id="gemDt"></h3>

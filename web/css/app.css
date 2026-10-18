@@ -1388,6 +1388,43 @@ body[data-module="mechs"] .app-header p {
   font-size: 1.15rem;
 }
 
+.gem-collapse {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 0.65rem 0.85rem 0.85rem;
+}
+
+.gem-collapse > summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1.05rem;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  user-select: none;
+}
+
+.gem-collapse > summary::-webkit-details-marker {
+  display: none;
+}
+
+.gem-collapse > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 0.85em;
+  transition: transform 0.12s ease;
+}
+
+.gem-collapse[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.gem-collapse-body {
+  margin-top: 0.75rem;
+}
+
 .gem-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1867,6 +1904,24 @@ button.oo-tap.is-planned {
 .gem-footnote {
   margin: 0.75rem 0 0;
   font-size: 0.85rem;
+}
+
+.gem-horizon-table {
+  min-width: 1600px;
+}
+
+.gem-horizon-table th.gem-horizon-step,
+.gem-horizon-table td.gem-horizon-step {
+  text-align: center;
+  white-space: nowrap;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.gem-horizon-table .oo-tap {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.35rem;
 }
 
 .gem-detail {

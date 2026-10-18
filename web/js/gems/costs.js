@@ -6,6 +6,9 @@ export function guCost(def, level) {
   return def.base * def.multi ** (level - 1);
 }
 
+/** Default horizon for the expandable “next N costs” table. */
+export const GU_COST_HORIZON = 30;
+
 /** Next `count` single-level purchase costs starting after `currentLevel`. */
 export function nextThreeCosts(def, currentLevel, count = 3) {
   const out = [];

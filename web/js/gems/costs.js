@@ -41,6 +41,21 @@ export function formatOO(value) {
   return `${trimNum(n, n >= 100 ? 1 : 4)} OO`;
 }
 
+/**
+ * Full OO amount without k/m/b rounding — used for plan totals ≥ 1k.
+ * German grouping (1.234,56), always 2 fraction digits. Below 1k falls back to formatOO.
+ */
+export function formatOOExact(value) {
+  if (value == null || Number.isNaN(value)) return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (Math.abs(n) < 1e3) return formatOO(n);
+  return `${n.toLocaleString("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} OO`;
+}
+
 function trimNum(n, maxDigits) {
   const s = Number(n).toFixed(maxDigits);
   return s.replace(/\.?0+$/, "");

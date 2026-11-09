@@ -15,6 +15,7 @@ import {
   allDisplayedCosts,
   findNextQuality,
   formatOO,
+  formatOOExact,
   heatClass,
   nextThreeCosts,
 } from "./costs.js";
@@ -459,9 +460,9 @@ function renderStatus() {
       <div class="gem-planned" aria-live="polite">
         <div class="gem-planned-main">
           <div class="label">Still needed for next Traversal</div>
-          <div class="value">${esc(formatOO(remaining))}${
+          <div class="value">${esc(formatOOExact(remaining))}${
             picks || bankedOO
-              ? ` <span class="gem-muted">· plan ${esc(formatOO(sum))}${bankedOO ? ` − banked ${esc(formatOO(bankedOO))}` : ""}${picks ? ` · ${picks} pick${picks === 1 ? "" : "s"}` : ""}</span>`
+              ? ` <span class="gem-muted">· plan ${esc(formatOOExact(sum))}${bankedOO ? ` − banked ${esc(formatOOExact(bankedOO))}` : ""}${picks ? ` · ${picks} pick${picks === 1 ? "" : "s"}` : ""}</span>`
               : ""
           }</div>
         </div>

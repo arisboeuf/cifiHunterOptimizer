@@ -23,6 +23,7 @@ export function nextThreeCosts(def, currentLevel, count = 3) {
 export function formatOO(value) {
   if (value == null || Number.isNaN(value)) return "—";
   const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
   const suffixes = [
     [1e15, "qa"],
@@ -33,12 +34,10 @@ export function formatOO(value) {
   ];
   for (const [div, suf] of suffixes) {
     if (abs >= div) {
-      const v = n / div;
-      const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
-      return `${trimNum(v, digits)}${suf} OO`;
+      return `${(n / div).toFixed(2)}${suf} OO`;
     }
   }
-  return `${trimNum(n, n >= 100 ? 1 : 4)} OO`;
+  return `${n.toFixed(2)} OO`;
 }
 
 /**
@@ -54,11 +53,6 @@ export function formatOOExact(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })} OO`;
-}
-
-function trimNum(n, maxDigits) {
-  const s = Number(n).toFixed(maxDigits);
-  return s.replace(/\.?0+$/, "");
 }
 
 /** Relative heatmap class for a cost among peers (current buy horizon). */

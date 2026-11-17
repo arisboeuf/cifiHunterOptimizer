@@ -89,6 +89,13 @@ class HunterHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def end_headers(self) -> None:
+        # Local Dev: avoid stale HTML/JS so new module tabs (e.g. TR) pick up immediately.
+        path = urlparse(self.path).path.lower()
+        if path.endswith((".html", ".js", ".css")) or path in ("", "/"):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/health":

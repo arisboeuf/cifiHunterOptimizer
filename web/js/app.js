@@ -15,11 +15,12 @@ import { bossHpRemaining, findFirstBossKill, findPushBuild, marginalInscryptionG
 import { drawBarChart, drawEmpty, drawOddsChart, drawReviveChart } from "./charts.js?v=engine17";
 import { initGemsModule } from "./gems/ui.js?v=engine17";
 import { initMechsModule, persistMechsState } from "./mechs/ui.js?v=engine17";
+import { initTrModule, persistTrState } from "./tr/ui.js?v=engine19";
 
 const LEGACY_STORAGE_KEYS = ["hunter_sim_web_state_v1", "borge_sim_web_state_v1"];
 const MODULE_STORAGE_KEY = "cifi_web_module_v1";
 const ENGINE_STORAGE_KEY = "cifi_combat_engine_v1";
-const MODULE_IDS = new Set(["hunters", "gems", "mechs"]);
+const MODULE_IDS = new Set(["hunters", "gems", "mechs", "tr"]);
 /** Flip to true to re-enable Python / Rust/WASM in the Engine dropdown. */
 const OWN_ENGINES_ENABLED = false;
 
@@ -28,6 +29,7 @@ const state = {
   module: "hunters",
   gemsReady: false,
   mechsReady: false,
+  trReady: false,
   build: null,
   wasmExports: null,
   engine: null,
@@ -901,9 +903,16 @@ function setupHunterTabs() {
 }
 
 function switchModule(moduleId) {
-  const id = MODULE_IDS.has(moduleId) ? moduleId : "hunters";
+  const requested = String(moduleId || "");
+  const id = MODULE_IDS.has(requested) ? requested : "hunters";
+  if (requested && requested !== id) {
+    console.warn(`[CIFI] Unknown module "${requested}", falling back to hunters. Hard-refresh if a new tab is missing.`);
+  }
   if (state.module === "mechs" && id !== "mechs" && state.mechsReady) {
     persistMechsState();
+  }
+  if (state.module === "tr" && id !== "tr" && state.trReady) {
+    persistTrState();
   }
   state.module = id;
   document.body.dataset.module = id;
@@ -911,9 +920,11 @@ function switchModule(moduleId) {
   const huntersEl = $("#moduleHunters");
   const gemsEl = $("#moduleGems");
   const mechsEl = $("#moduleMechs");
+  const trEl = $("#moduleTr");
   if (huntersEl) huntersEl.hidden = id !== "hunters";
   if (gemsEl) gemsEl.hidden = id !== "gems";
   if (mechsEl) mechsEl.hidden = id !== "mechs";
+  if (trEl) trEl.hidden = id !== "tr";
 
   $$("#moduleTabs .module-tab").forEach((btn) => {
     btn.setAttribute("aria-selected", String(btn.dataset.module === id));
@@ -940,6 +951,16 @@ function switchModule(moduleId) {
     if (!state.mechsReady && mechsEl) {
       initMechsModule(mechsEl);
       state.mechsReady = true;
+    }
+  } else if (id === "tr") {
+    if (title) title.textContent = "Traversal / Wyrmhole";
+    if (sub) {
+      sub.textContent =
+        "Estimate Wyrmhole Orb requirements for this Traversal and the next one if you TR now (TR12+ formula)";
+    }
+    if (!state.trReady && trEl) {
+      initTrModule(trEl);
+      state.trReady = true;
     }
   } else {
     if (title) title.textContent = "Hunter Sim";

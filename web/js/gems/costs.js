@@ -107,18 +107,14 @@ export function formatOOExact(value) {
 }
 
 /**
- * Relative heatmap class for a cost among global peers (all gems).
- * t is log-scaled; values outside the peer min/max clamp to the ends.
+ * Heatmap vs a fixed red ceiling (usually Next Gem Quality cost).
+ * Linear 0 → redMax; at/above redMax is full red (hm-5).
  */
-export function heatClass(cost, peers) {
-  const vals = peers.filter((c) => c > 0 && Number.isFinite(c));
-  if (!vals.length || !Number.isFinite(cost) || cost <= 0) return "hm-1";
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  if (max <= min) return "hm-1";
-  const clamped = Math.min(max, Math.max(min, cost));
-  const t = Math.log(clamped / min) / Math.log(max / min);
-  if (cost > max) return "hm-5";
+export function heatClass(cost, redMax) {
+  if (!Number.isFinite(cost) || cost <= 0) return "hm-1";
+  if (!Number.isFinite(redMax) || redMax <= 0) return "hm-1";
+  if (cost >= redMax) return "hm-5";
+  const t = cost / redMax;
   if (t < 0.2) return "hm-1";
   if (t < 0.4) return "hm-2";
   if (t < 0.6) return "hm-3";
@@ -172,41 +168,33 @@ export function activeGuRows(progress) {
 }
 
 /**
- * Global heatmap peers across every owned gem (not per-gem).
- * Includes next-3 GU costs + next quality (+ first GUs). Near-term unowned
- * nodes are included only up to 100× the GU/quality max so endgame nodes
- * do not flatten the scale — those still render as hm-5 via heatClass.
+ * Red reference for OO heatmap: Next Gem Quality cost when known.
+ * Fallback = max visible GU / near node cost across all gems.
  */
-export function allDisplayedCosts(groupsOrRows, nextQuality) {
+export function heatmapRedMax(groupsOrRows, nextQuality) {
+  if (nextQuality?.cost > 0 && Number.isFinite(nextQuality.cost)) {
+    return nextQuality.cost;
+  }
   const groups =
     Array.isArray(groupsOrRows) && groupsOrRows[0] && "guRows" in groupsOrRows[0]
       ? groupsOrRows
       : null;
   const rows = groups ? groups.flatMap((g) => g.guRows) : groupsOrRows || [];
-  const costs = [];
+  let max = 0;
   for (const row of rows) {
-    for (const step of row.next) {
-      if (step.cost > 0 && Number.isFinite(step.cost)) costs.push(step.cost);
+    for (const step of row.next || []) {
+      if (step.cost > max) max = step.cost;
     }
   }
-  if (nextQuality) {
-    if (nextQuality.cost > 0 && Number.isFinite(nextQuality.cost)) {
-      costs.push(nextQuality.cost);
-    }
-    for (const step of nextQuality.firstGuCosts || []) {
-      if (step.cost > 0 && Number.isFinite(step.cost)) costs.push(step.cost);
-    }
-  }
-  const guMax = costs.length ? Math.max(...costs) : 0;
-  const nodeCap = guMax > 0 ? guMax * 100 : Infinity;
   if (groups) {
     for (const g of groups) {
       for (const n of g.nodes || []) {
         if (n.owned) continue;
         if (n.cost == null || !Number.isFinite(n.cost) || n.cost <= 0) continue;
-        if (n.cost <= nodeCap) costs.push(n.cost);
+        if (n.cost > max) max = n.cost;
       }
     }
   }
-  return costs;
+  return max > 0 ? max : 1;
 }
+

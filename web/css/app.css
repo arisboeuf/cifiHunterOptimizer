@@ -1911,8 +1911,90 @@ button.oo-tap.is-planned {
   color: #cbd5e1;
 }
 
-.gem-node-row td {
+.gem-nodes-fold-row > td {
   background: rgba(167, 139, 250, 0.06);
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+}
+
+.gem-nodes-fold {
+  border: 0;
+  background: transparent;
+}
+
+.gem-nodes-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+}
+
+.gem-nodes-summary::-webkit-details-marker {
+  display: none;
+}
+
+.gem-nodes-summary::before {
+  content: "▸";
+  color: #a78bfa;
+  font-size: 0.85em;
+}
+
+.gem-nodes-fold[open] > .gem-nodes-summary::before {
+  content: "▾";
+}
+
+.gem-nodes-summary-label {
+  font-weight: 700;
+  color: #c4b5fd;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+
+.gem-nodes-preview {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.35rem;
+}
+
+.gem-nodes-preview-sep {
+  color: #64748b;
+  margin: 0 0.1rem;
+}
+
+.gem-nodes-fold-body {
+  margin-top: 0.55rem;
+}
+
+.gem-nodes-inner {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+}
+
+.gem-nodes-inner th {
+  text-align: left;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #334155;
+}
+
+.gem-nodes-inner td {
+  padding: 0.45rem 0.5rem;
+  border-top: 1px solid #334155;
+  vertical-align: middle;
+  font-size: 0.88rem;
+}
+
+.gem-node-row td {
+  background: transparent;
 }
 
 .gem-node-row.is-owned td {
@@ -1922,6 +2004,10 @@ button.oo-tap.is-planned {
 .gem-node-own.is-owned {
   border-color: #a78bfa;
   color: #e9d5ff;
+}
+
+.gem-node-cost-cell {
+  white-space: nowrap;
 }
 
 .gem-footnote {

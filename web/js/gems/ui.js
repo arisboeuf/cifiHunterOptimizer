@@ -544,7 +544,7 @@ function renderStatus() {
         <tbody>${tableRows.join("")}</tbody>
       </table>
     </div>
-    <p class="gem-muted gem-footnote">Heatmap is relative to your current buy horizon. GU costs use SirRed v0.018 early formulas (base × multi^(level−1)); high-level extra scaling is not modelled. Gem Node costs are fixed wiki values. Wiki: <a href="https://cifi.game-vault.net/wiki/Ouroboros_Gems_Collection" target="_blank" rel="noopener">Ouroboros Gems Collection</a>.</p>
+    <p class="gem-muted gem-footnote">OO heatmap is global across all gems (next GU steps + next quality + near-term nodes). Extreme endgame node prices stay red without flattening GU comparison. GU costs use SirRed v0.018 early formulas (base × multi^(level−1)); high-level extra scaling is not modelled. Gem Node costs are fixed wiki values. Wiki: <a href="https://cifi.game-vault.net/wiki/Ouroboros_Gems_Collection" target="_blank" rel="noopener">Ouroboros Gems Collection</a>.</p>
   `;
 
   el.querySelectorAll(".gem-q-edit [data-act]").forEach((btn) => {

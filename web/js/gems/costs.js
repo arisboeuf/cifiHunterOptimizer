@@ -106,14 +106,19 @@ export function formatOOExact(value) {
   })} OO`;
 }
 
-/** Relative heatmap class for a cost among peers (current buy horizon). */
+/**
+ * Relative heatmap class for a cost among global peers (all gems).
+ * t is log-scaled; values outside the peer min/max clamp to the ends.
+ */
 export function heatClass(cost, peers) {
   const vals = peers.filter((c) => c > 0 && Number.isFinite(c));
   if (!vals.length || !Number.isFinite(cost) || cost <= 0) return "hm-1";
   const min = Math.min(...vals);
   const max = Math.max(...vals);
   if (max <= min) return "hm-1";
-  const t = Math.log(cost / min) / Math.log(max / min);
+  const clamped = Math.min(max, Math.max(min, cost));
+  const t = Math.log(clamped / min) / Math.log(max / min);
+  if (cost > max) return "hm-5";
   if (t < 0.2) return "hm-1";
   if (t < 0.4) return "hm-2";
   if (t < 0.6) return "hm-3";
@@ -166,29 +171,42 @@ export function activeGuRows(progress) {
   return activeGemGroups(progress).flatMap((g) => g.guRows);
 }
 
-/** Peer costs for heatmap: next GU steps, unowned node costs, next quality. */
+/**
+ * Global heatmap peers across every owned gem (not per-gem).
+ * Includes next-3 GU costs + next quality (+ first GUs). Near-term unowned
+ * nodes are included only up to 100× the GU/quality max so endgame nodes
+ * do not flatten the scale — those still render as hm-5 via heatClass.
+ */
 export function allDisplayedCosts(groupsOrRows, nextQuality) {
-  const costs = [];
   const groups =
-    Array.isArray(groupsOrRows) && groupsOrRows[0]?.guRows != null
+    Array.isArray(groupsOrRows) && groupsOrRows[0] && "guRows" in groupsOrRows[0]
       ? groupsOrRows
       : null;
   const rows = groups ? groups.flatMap((g) => g.guRows) : groupsOrRows || [];
+  const costs = [];
   for (const row of rows) {
-    for (const step of row.next) costs.push(step.cost);
-  }
-  if (groups) {
-    for (const g of groups) {
-      for (const n of g.nodes || []) {
-        if (!n.owned && n.cost != null && Number.isFinite(n.cost) && n.cost > 0) {
-          costs.push(n.cost);
-        }
-      }
+    for (const step of row.next) {
+      if (step.cost > 0 && Number.isFinite(step.cost)) costs.push(step.cost);
     }
   }
   if (nextQuality) {
-    costs.push(nextQuality.cost);
-    for (const step of nextQuality.firstGuCosts || []) costs.push(step.cost);
+    if (nextQuality.cost > 0 && Number.isFinite(nextQuality.cost)) {
+      costs.push(nextQuality.cost);
+    }
+    for (const step of nextQuality.firstGuCosts || []) {
+      if (step.cost > 0 && Number.isFinite(step.cost)) costs.push(step.cost);
+    }
+  }
+  const guMax = costs.length ? Math.max(...costs) : 0;
+  const nodeCap = guMax > 0 ? guMax * 100 : Infinity;
+  if (groups) {
+    for (const g of groups) {
+      for (const n of g.nodes || []) {
+        if (n.owned) continue;
+        if (n.cost == null || !Number.isFinite(n.cost) || n.cost <= 0) continue;
+        if (n.cost <= nodeCap) costs.push(n.cost);
+      }
+    }
   }
   return costs;
 }

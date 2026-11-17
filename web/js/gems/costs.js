@@ -1,4 +1,10 @@
-import { GU_DEFS, QUALITY_CHAIN } from "./data.js";
+import {
+  GEM_NODES,
+  GEM_NODES_UNLOCK_EXODUS_Q,
+  GEM_ORDER,
+  GU_DEFS,
+  QUALITY_CHAIN,
+} from "./data.js";
 
 /** Cost of purchasing GU level `level` (1-based), using SirRed early formula. */
 export function guCost(def, level) {
@@ -26,6 +32,9 @@ export function formatOO(value) {
   if (!Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
   const suffixes = [
+    [1e24, "sp"],
+    [1e21, "sx"],
+    [1e18, "qu"],
     [1e15, "qa"],
     [1e12, "t"],
     [1e9, "b"],
@@ -38,6 +47,48 @@ export function formatOO(value) {
     }
   }
   return `${n.toFixed(2)} OO`;
+}
+
+export function gemNodesUnlocked(progress) {
+  return (progress.qualities?.Exodus || 0) >= GEM_NODES_UNLOCK_EXODUS_Q;
+}
+
+export function nodeOwned(progress, gem, nodeId) {
+  return !!progress.nodes?.[gem]?.[nodeId];
+}
+
+/**
+ * Planner groups: each owned gem with its active GUs and (if Exodus Q3+) gem nodes.
+ */
+export function activeGemGroups(progress) {
+  const nodesOn = gemNodesUnlocked(progress);
+  const groups = [];
+  for (const gem of GEM_ORDER) {
+    const q = progress.qualities[gem] || 0;
+    if (q <= 0) continue;
+    const guRows = [];
+    for (const def of GU_DEFS[gem] || []) {
+      if (def.fromQ > q) continue;
+      const current = progress.upgrades[gem]?.[def.id] ?? 0;
+      guRows.push({
+        gem,
+        quality: q,
+        def,
+        current,
+        next: nextThreeCosts(def, current, 3),
+      });
+    }
+    const nodes = nodesOn
+      ? (GEM_NODES[gem] || []).map((n) => ({
+          ...n,
+          gem,
+          owned: nodeOwned(progress, gem, n.id),
+        }))
+      : [];
+    if (!guRows.length && !nodes.length) continue;
+    groups.push({ gem, quality: q, guRows, nodes });
+  }
+  return groups;
 }
 
 /**
@@ -112,29 +163,28 @@ export function findNextQuality(progress) {
 
 /** Active GUs for the player's owned qualities. */
 export function activeGuRows(progress) {
-  const rows = [];
-  for (const [gem, defs] of Object.entries(GU_DEFS)) {
-    const q = progress.qualities[gem] || 0;
-    if (q <= 0) continue;
-    for (const def of defs) {
-      if (def.fromQ > q) continue;
-      const current = progress.upgrades[gem]?.[def.id] ?? 0;
-      rows.push({
-        gem,
-        quality: q,
-        def,
-        current,
-        next: nextThreeCosts(def, current, 3),
-      });
-    }
-  }
-  return rows;
+  return activeGemGroups(progress).flatMap((g) => g.guRows);
 }
 
-export function allDisplayedCosts(rows, nextQuality) {
+/** Peer costs for heatmap: next GU steps, unowned node costs, next quality. */
+export function allDisplayedCosts(groupsOrRows, nextQuality) {
   const costs = [];
+  const groups =
+    Array.isArray(groupsOrRows) && groupsOrRows[0]?.guRows != null
+      ? groupsOrRows
+      : null;
+  const rows = groups ? groups.flatMap((g) => g.guRows) : groupsOrRows || [];
   for (const row of rows) {
     for (const step of row.next) costs.push(step.cost);
+  }
+  if (groups) {
+    for (const g of groups) {
+      for (const n of g.nodes || []) {
+        if (!n.owned && n.cost != null && Number.isFinite(n.cost) && n.cost > 0) {
+          costs.push(n.cost);
+        }
+      }
+    }
   }
   if (nextQuality) {
     costs.push(nextQuality.cost);

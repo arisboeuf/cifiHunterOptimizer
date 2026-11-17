@@ -1901,6 +1901,29 @@ button.oo-tap.is-planned {
   color: #fbbf24;
 }
 
+.gem-stack-node {
+  color: #a78bfa;
+}
+
+.gem-nodes-banner {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.9rem;
+  color: #cbd5e1;
+}
+
+.gem-node-row td {
+  background: rgba(167, 139, 250, 0.06);
+}
+
+.gem-node-row.is-owned td {
+  opacity: 0.72;
+}
+
+.gem-node-own.is-owned {
+  border-color: #a78bfa;
+  color: #e9d5ff;
+}
+
 .gem-footnote {
   margin: 0.75rem 0 0;
   font-size: 0.85rem;

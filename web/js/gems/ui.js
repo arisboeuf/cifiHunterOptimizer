@@ -1,4 +1,5 @@
 import {
+  GEM_NODES_UNLOCK_EXODUS_Q,
   GEM_ORDER,
   GU_DEFS,
   PLAN_STORAGE_KEY,
@@ -11,11 +12,12 @@ import {
 } from "./data.js";
 import {
   GU_COST_HORIZON,
-  activeGuRows,
+  activeGemGroups,
   allDisplayedCosts,
   findNextQuality,
   formatOO,
   formatOOExact,
+  gemNodesUnlocked,
   heatClass,
   nextThreeCosts,
 } from "./costs.js";
@@ -153,6 +155,12 @@ function loadProgress() {
         Object.keys(base.upgrades).map((gem) => [
           gem,
           { ...base.upgrades[gem], ...(data.upgrades?.[gem] || {}) },
+        ]),
+      ),
+      nodes: Object.fromEntries(
+        GEM_ORDER.map((gem) => [
+          gem,
+          { ...(base.nodes[gem] || {}), ...(data.nodes?.[gem] || {}) },
         ]),
       ),
     };
@@ -315,9 +323,11 @@ function renderStatus() {
   }
   gemResetArmStep = 0;
 
-  const rows = activeGuRows(progress);
+  const groups = activeGemGroups(progress);
+  const rows = groups.flatMap((g) => g.guRows);
   const nextQ = findNextQuality(progress);
-  const peers = allDisplayedCosts(rows, nextQ);
+  const peers = allDisplayedCosts(groups, nextQ);
+  const nodesOn = gemNodesUnlocked(progress);
 
   const qualityEditors = GEM_ORDER.map((gem) => {
     const maxQ = Object.keys(QUALITY_COSTS[gem] || {}).length;
@@ -347,6 +357,8 @@ function renderStatus() {
       })
       .join("");
     const reqOk = !nextQ.blocked;
+    const unlocksNodes =
+      nextQ.gem === "Exodus" && nextQ.quality === GEM_NODES_UNLOCK_EXODUS_Q;
     nextHtml = `<div class="gem-next-quality" aria-label="Next unlockable gem quality">
       <div><div class="label">Next Gem Quality</div><div class="value">${esc(nextQ.gem)} Q${nextQ.quality}</div></div>
       <div><div class="label">Cost</div><div class="value">${ooTap(nextQ.cost, peers, qId)}</div></div>
@@ -360,6 +372,11 @@ function renderStatus() {
               ? `<div class="gem-muted">Unlocks ${esc(nextQ.unlocksLabel)}${nextQ.guEffect ? ` (${esc(nextQ.guEffect)})` : ""}.</div>`
               : ""
         }
+        ${
+          unlocksNodes
+            ? `<div class="gem-muted">Also unlocks Gem Nodes for every owned gem (one-time OO purchases).</div>`
+            : ""
+        }
       </div>
       <div>
         <div class="label">First 3 GU costs after purchase</div>
@@ -370,24 +387,23 @@ function renderStatus() {
   }
 
   const tableRows = [];
-  let lastGemQ = "";
-  for (const row of rows) {
-    const key = `${row.gem} Q${row.quality}`;
-    const showGem = key !== lastGemQ;
-    lastGemQ = key;
-    const sameGemCount = rows.filter((r) => r.gem === row.gem && r.quality === row.quality).length;
-    const gemCell = showGem
-      ? `<td rowspan="${sameGemCount}"><b>${esc(row.gem)} Q${row.quality}</b></td>`
-      : "";
-    const cells = [0, 1, 2].map((i) => {
-      const step = row.next[i];
-      if (!step) return `<td>—</td>`;
-      const pid = `gu:${row.gem}:${row.def.id}:Lv${step.level}`;
-      validPlanIds.add(pid);
-      return `<td>Lv${step.level} · ${ooTap(step.cost, peers, pid, i === 0 ? "is-next" : "")}</td>`;
-    });
-    const stack = row.def.stacking === "additive" ? "additive" : "multi";
-    tableRows.push(`<tr>
+  for (const group of groups) {
+    const rowspan = group.guRows.length + group.nodes.length;
+    let first = true;
+    for (const row of group.guRows) {
+      const gemCell = first
+        ? `<td rowspan="${rowspan}"><b>${esc(group.gem)} Q${group.quality}</b></td>`
+        : "";
+      first = false;
+      const cells = [0, 1, 2].map((i) => {
+        const step = row.next[i];
+        if (!step) return `<td>—</td>`;
+        const pid = `gu:${row.gem}:${row.def.id}:Lv${step.level}`;
+        validPlanIds.add(pid);
+        return `<td>Lv${step.level} · ${ooTap(step.cost, peers, pid, i === 0 ? "is-next" : "")}</td>`;
+      });
+      const stack = row.def.stacking === "additive" ? "additive" : "multi";
+      tableRows.push(`<tr>
       ${gemCell}
       <td class="gem-gu-name">${esc(row.def.name)}<sup class="gem-stack gem-stack-${stack}" title="${stack === "multi" ? "Multiplicative stacking" : "Additive stacking"}">${stack}</sup></td>
       <td class="gem-level-cell" data-gu-gem="${row.gem}" data-gu-id="${row.def.id}">
@@ -400,6 +416,35 @@ function renderStatus() {
       ${cells.join("")}
       <td>${esc(row.def.effect)}</td>
     </tr>`);
+    }
+
+    for (const node of group.nodes) {
+      const gemCell = first
+        ? `<td rowspan="${rowspan}"><b>${esc(group.gem)} Q${group.quality}</b></td>`
+        : "";
+      first = false;
+      const pid = `node:${node.gem}:${node.id}`;
+      let costCell = `<td colspan="3"><span class="gem-muted">${esc(node.note || "Free")}</span></td>`;
+      if (node.cost != null && Number.isFinite(node.cost)) {
+        if (node.owned) {
+          costCell = `<td colspan="3"><span class="gem-muted">Owned · ${esc(formatOO(node.cost))}</span></td>`;
+        } else {
+          validPlanIds.add(pid);
+          costCell = `<td colspan="3">Buy · ${ooTap(node.cost, peers, pid, "is-next")}</td>`;
+        }
+      } else if (node.owned) {
+        costCell = `<td colspan="3"><span class="gem-muted">Owned${node.note ? ` · ${esc(node.note)}` : ""}</span></td>`;
+      }
+      tableRows.push(`<tr class="gem-node-row${node.owned ? " is-owned" : ""}">
+      ${gemCell}
+      <td class="gem-gu-name">Node #${node.id}<sup class="gem-stack gem-stack-node" title="One-time gem node">node</sup></td>
+      <td class="gem-node-own-cell" data-node-gem="${node.gem}" data-node-id="${node.id}">
+        <button type="button" class="btn btn-sm gem-node-own${node.owned ? " is-owned" : ""}" aria-pressed="${node.owned}" title="${node.owned ? "Mark as not owned" : "Mark as owned"}">${node.owned ? "Owned" : "Own?"}</button>
+      </td>
+      ${costCell}
+      <td>${esc(node.effect)}</td>
+    </tr>`);
+    }
   }
 
   if (!tableRows.length) {
@@ -407,6 +452,10 @@ function renderStatus() {
       `<tr><td colspan="7" class="gem-muted">Set at least one gem quality above to see active GUs and next costs.</td></tr>`,
     );
   }
+
+  const nodesBanner = nodesOn
+    ? `<p class="gem-nodes-banner">Gem Nodes are unlocked (Exodus Q${GEM_NODES_UNLOCK_EXODUS_Q}+). Listed under each gem — tap OO to add to your Traversal plan, or mark Owned when bought.</p>`
+    : `<p class="gem-nodes-banner gem-muted">Gem Nodes unlock with <b>Exodus Q${GEM_NODES_UNLOCK_EXODUS_Q}</b> and appear under each owned gem for planning.</p>`;
 
   const horizonRows = [];
   let lastHorizonGemQ = "";
@@ -456,7 +505,7 @@ function renderStatus() {
   el.innerHTML = `
     <div class="gem-status-head">
       <h2>My current progress</h2>
-      <p class="gem-muted">Edit qualities and GU levels — next three single-level costs update live. Tap color-coded OO amounts to build your planned total for the next Traversal.</p>
+      <p class="gem-muted">Edit qualities, GU levels, and Gem Nodes — next costs update live. Tap color-coded OO amounts to build your planned total for the next Traversal.</p>
       <div class="gem-planned" aria-live="polite">
         <div class="gem-planned-main">
           <div class="label">Still needed for next Traversal</div>
@@ -478,23 +527,24 @@ function renderStatus() {
     </div>
     <div class="gem-q-grid">${qualityEditors}</div>
     ${nextHtml}
+    ${nodesBanner}
     <div class="gem-table-wrap">
       <table class="gem-table">
         <thead>
           <tr>
             <th>Gem / Quality</th>
-            <th>GU</th>
+            <th>GU / Node</th>
             <th>Current</th>
             <th>Next GU</th>
             <th>After</th>
             <th>3rd next</th>
-            <th>GU effect</th>
+            <th>Effect</th>
           </tr>
         </thead>
         <tbody>${tableRows.join("")}</tbody>
       </table>
     </div>
-    <p class="gem-muted gem-footnote">Heatmap is relative to your current buy horizon. GU costs use SirRed v0.018 early formulas (base × multi^(level−1)); high-level extra scaling is not modelled. Wiki: <a href="https://cifi.game-vault.net/wiki/Ouroboros_Gems_Collection" target="_blank" rel="noopener">Ouroboros Gems Collection</a>.</p>
+    <p class="gem-muted gem-footnote">Heatmap is relative to your current buy horizon. GU costs use SirRed v0.018 early formulas (base × multi^(level−1)); high-level extra scaling is not modelled. Gem Node costs are fixed wiki values. Wiki: <a href="https://cifi.game-vault.net/wiki/Ouroboros_Gems_Collection" target="_blank" rel="noopener">Ouroboros Gems Collection</a>.</p>
   `;
 
   el.querySelectorAll(".gem-q-edit [data-act]").forEach((btn) => {
@@ -525,6 +575,25 @@ function renderStatus() {
       if (!progress.upgrades[gem]) progress.upgrades[gem] = {};
       progress.upgrades[gem][id] = Math.max(0, Math.min(hi, cur + delta));
       saveProgress();
+      renderStatus();
+    });
+  });
+
+  el.querySelectorAll(".gem-node-own-cell .gem-node-own").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cell = btn.closest(".gem-node-own-cell");
+      const gem = cell?.dataset.nodeGem;
+      const id = Number(cell?.dataset.nodeId);
+      if (!gem || !Number.isFinite(id)) return;
+      if (!progress.nodes) progress.nodes = {};
+      if (!progress.nodes[gem]) progress.nodes[gem] = {};
+      const nowOwned = !progress.nodes[gem][id];
+      if (nowOwned) progress.nodes[gem][id] = true;
+      else delete progress.nodes[gem][id];
+      const planId = `node:${gem}:${id}`;
+      if (nowOwned) planPicks.delete(planId);
+      saveProgress();
+      savePlan();
       renderStatus();
     });
   });

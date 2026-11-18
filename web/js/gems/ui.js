@@ -13,6 +13,7 @@ import {
 import {
   GU_COST_HORIZON,
   activeGemGroups,
+  findNextQualities,
   findNextQuality,
   formatOO,
   formatOOExact,
@@ -29,6 +30,8 @@ let filter = "all";
 let planPicks = new Map();
 /** Already banked OO (subtracted from planned total). */
 let bankedOO = 0;
+/** Preferred next quality key (`Gem:Q#`) when several unlocks are available. */
+let preferredNextKey = "";
 /** Keep the long cost table open across status re-renders. */
 let guHorizonOpen = false;
 /** Gem keys whose node fold is expanded. */
@@ -72,6 +75,7 @@ function onGemResetClick() {
   disarmGemResetButton();
   progress = defaultProgress();
   planPicks = new Map();
+  preferredNextKey = "";
   saveProgress();
   savePlan();
   renderStatus();
@@ -80,12 +84,13 @@ function onGemResetClick() {
 function loadPlan() {
   try {
     const raw = localStorage.getItem(PLAN_STORAGE_KEY);
-    if (!raw) return { picks: new Map(), banked: 0 };
+    if (!raw) return { picks: new Map(), banked: 0, nextKey: "" };
     const data = JSON.parse(raw);
     const map = new Map();
     let banked = 0;
+    let nextKey = "";
     if (data && typeof data === "object") {
-      // New shape: { picks, banked } — old shape was id→cost map.
+      // New shape: { picks, banked, nextKey } — old shape was id→cost map.
       const picksObj =
         data.picks && typeof data.picks === "object" && !Array.isArray(data.picks)
           ? data.picks
@@ -93,16 +98,19 @@ function loadPlan() {
             ? data
             : {};
       for (const [id, cost] of Object.entries(picksObj)) {
-        if (id === "picks" || id === "banked") continue;
+        if (id === "picks" || id === "banked" || id === "nextKey") continue;
         const n = Number(cost);
         if (id && Number.isFinite(n) && n > 0) map.set(id, n);
       }
       const b = Number(data.banked);
       if (Number.isFinite(b) && b > 0) banked = b;
+      if (typeof data.nextKey === "string" && data.nextKey.includes(":Q")) {
+        nextKey = data.nextKey;
+      }
     }
-    return { picks: map, banked };
+    return { picks: map, banked, nextKey };
   } catch {
-    return { picks: new Map(), banked: 0 };
+    return { picks: new Map(), banked: 0, nextKey: "" };
   }
 }
 
@@ -110,7 +118,11 @@ function savePlan() {
   try {
     localStorage.setItem(
       PLAN_STORAGE_KEY,
-      JSON.stringify({ picks: Object.fromEntries(planPicks), banked: bankedOO }),
+      JSON.stringify({
+        picks: Object.fromEntries(planPicks),
+        banked: bankedOO,
+        nextKey: preferredNextKey || "",
+      }),
     );
   } catch {
     /* ignore */
@@ -366,7 +378,12 @@ function renderStatus() {
 
   const groups = activeGemGroups(progress);
   const rows = groups.flatMap((g) => g.guRows);
-  const nextQ = findNextQuality(progress);
+  const nextOptions = findNextQualities(progress);
+  const nextQ = findNextQuality(progress, preferredNextKey);
+  const prevNextKey = preferredNextKey;
+  if (nextQ?.key) preferredNextKey = nextQ.key;
+  else preferredNextKey = "";
+  if (preferredNextKey !== prevNextKey) savePlan();
   const redMax = heatmapRedMax(groups, nextQ);
   const nodesOn = gemNodesUnlocked(progress);
 
@@ -387,8 +404,11 @@ function renderStatus() {
 
   let nextHtml = `<div class="gem-next-quality"><div class="gem-muted">No further quality in the modelled early chain.</div></div>`;
   if (nextQ) {
+    // Keep every reachable quality purchasable in the plan while one is focused.
+    for (const opt of nextOptions) {
+      validPlanIds.add(`nq:${opt.gem}:Q${opt.quality}`);
+    }
     const qId = `nq:${nextQ.gem}:Q${nextQ.quality}`;
-    validPlanIds.add(qId);
     const guChips = (nextQ.firstGuCosts || [])
       .map((s, i) => {
         const pid = `nqgu:${nextQ.gem}:${nextQ.unlocksGu?.id || "gu"}:Lv${s.level}`;
@@ -400,8 +420,27 @@ function renderStatus() {
     const reqOk = !nextQ.blocked;
     const unlocksNodes =
       nextQ.gem === "Exodus" && nextQ.quality === GEM_NODES_UNLOCK_EXODUS_Q;
+    const titleHtml =
+      nextOptions.length > 1
+        ? `<label class="gem-next-pick">
+            <span class="label">Next Gem Quality</span>
+            <select id="gemNextQualityPick" aria-label="Choose next gem quality">
+              ${nextOptions
+                .map((opt) => {
+                  const selected = opt.key === nextQ.key ? " selected" : "";
+                  const block = opt.blocked ? " (blocked)" : "";
+                  return `<option value="${esc(opt.key)}"${selected}>${esc(opt.gem)} Q${opt.quality} · ${esc(formatOO(opt.cost))}${block}</option>`;
+                })
+                .join("")}
+            </select>
+          </label>`
+        : `<div><div class="label">Next Gem Quality</div><div class="value">${esc(nextQ.gem)} Q${nextQ.quality}</div></div>`;
+    const altNote =
+      nextOptions.length > 1
+        ? `<div class="gem-muted">${nextOptions.length} unlocks available — pick which one to plan next.</div>`
+        : "";
     nextHtml = `<div class="gem-next-quality" aria-label="Next unlockable gem quality">
-      <div><div class="label">Next Gem Quality</div><div class="value">${esc(nextQ.gem)} Q${nextQ.quality}</div></div>
+      ${titleHtml}
       <div><div class="label">Cost</div><div class="value">${ooTap(nextQ.cost, redMax, qId)}</div></div>
       <div>
         <div class="label">Requirement</div>
@@ -418,6 +457,7 @@ function renderStatus() {
             ? `<div class="gem-muted">Also unlocks Gem Nodes for every owned gem (one-time OO purchases).</div>`
             : ""
         }
+        ${altNote}
       </div>
       <div>
         <div class="label">First 3 GU costs after purchase</div>
@@ -699,6 +739,13 @@ function renderStatus() {
 
   el.querySelector("#gemResetDefaults")?.addEventListener("click", onGemResetClick);
 
+  el.querySelector("#gemNextQualityPick")?.addEventListener("change", (e) => {
+    const key = e.target?.value || "";
+    preferredNextKey = key;
+    savePlan();
+    renderStatus();
+  });
+
   renderHorizonTable(horizonRows);
 }
 
@@ -829,6 +876,7 @@ export function initGemsModule(container) {
   const plan = loadPlan();
   planPicks = plan.picks;
   bankedOO = plan.banked;
+  preferredNextKey = plan.nextKey || "";
   root.innerHTML = shellHtml();
   root.querySelector("#gemDetailClose")?.addEventListener("click", () => {
     root.querySelector("#gemDetail").hidden = true;

@@ -163,12 +163,14 @@ export const UNLOCK_MAP = [
 ];
 
 export const UNLOCK_FORK = [
+  { gem: "Exodus", title: "Exodus Q4", q: "Q4", cost: 2e5, branch: true, gateNote: "Gate: Exodus Q3", desc: "Unlocks MP Bonus (×4) and AP Bonus (×1.6) GUs; Knox progression path.", req: "Exodus Q3" },
   { gem: "Creation", title: "Creation Q2", q: "Q2", cost: 2e5, branch: true, gateNote: "Gate: Exodus Q3", desc: "Unlocks Hardware ×10 and Software ×50 per GU level.", req: "Exodus Q3" },
   { gem: "Power", title: "Power Q1", q: "Q1", cost: 150e6, branch: true, gateNote: "Gate: Exodus Q3", desc: "Unlocks ship-rank bonuses plus +8 Blueprints / +4 Innovation Cores per GU level.", req: "Exodus Q3" },
 ];
 
 /**
  * Ordered quality unlocks with prerequisites (for "next quality" detection).
+ * After Exodus Q3 several nodes share the same gate and are offered together.
  * `guGate` = mandatory GU that must be owned (id under gem).
  */
 export const QUALITY_CHAIN = [
@@ -182,8 +184,9 @@ export const QUALITY_CHAIN = [
   { gem: "Creation", quality: 1, cost: 555, req: { gem: "Attraction", quality: 2 }, unlocksGu: { gem: "Creation", id: "mech_cap" } },
   { gem: "Attraction", quality: 3, cost: 1e3, req: { gem: "Creation", quality: 1 }, unlocksGu: { gem: "Attraction", id: "catchup" } },
   { gem: "Exodus", quality: 3, cost: 5e3, req: { gem: "Attraction", quality: 3 } },
-  { gem: "Creation", quality: 2, cost: 2e5, req: { gem: "Exodus", quality: 3 } },
-  { gem: "Power", quality: 1, cost: 150e6, req: { gem: "Exodus", quality: 3 } },
+  { gem: "Exodus", quality: 4, cost: 2e5, req: { gem: "Exodus", quality: 3 }, unlocksGu: { gem: "Exodus", id: "mp" } },
+  { gem: "Creation", quality: 2, cost: 2e5, req: { gem: "Exodus", quality: 3 }, unlocksGu: { gem: "Creation", id: "hardware" } },
+  { gem: "Power", quality: 1, cost: 150e6, req: { gem: "Exodus", quality: 3 }, unlocksGu: { gem: "Power", id: "blueprints" } },
 ];
 
 /** Default personal progress (matches gem-progression/current_state.json). */

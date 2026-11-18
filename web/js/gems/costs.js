@@ -130,36 +130,69 @@ function guOwned(progress, gem, id, level) {
   return (progress.upgrades[gem]?.[id] || 0) >= level;
 }
 
+/** Stable id for a quality chain node (used by Next Quality dropdown / plan picks). */
+export function qualityOptionKey(node) {
+  if (!node?.gem || node.quality == null) return "";
+  return `${node.gem}:Q${node.quality}`;
+}
+
+function enrichNextQuality(node, blocked, blockReason) {
+  const guDef = node.unlocksGu
+    ? GU_DEFS[node.unlocksGu.gem]?.find((g) => g.id === node.unlocksGu.id)
+    : null;
+  const firstGu = !blocked && guDef ? nextThreeCosts(guDef, 0, 3) : [];
+  return {
+    ...node,
+    key: qualityOptionKey(node),
+    blocked: !!blocked,
+    blockReason: blockReason || null,
+    requirementMet: !blocked,
+    requirementLabel: node.req ? `${node.req.gem} Q${node.req.quality}` : "None",
+    unlocksLabel: guDef ? guDef.name : null,
+    guEffect: guDef ? guDef.effect : null,
+    firstGuCosts: firstGu,
+  };
+}
+
 /**
- * First quality in the planner chain that is not yet owned
- * but whose requirement (and optional GU gate) is met.
+ * All quality unlocks that are currently reachable (req met, not yet owned).
+ * After Exodus Q3 this includes Exodus Q4, Creation Q2, and Power Q1 together.
  */
-export function findNextQuality(progress) {
+export function findNextQualities(progress) {
+  const out = [];
   for (const node of QUALITY_CHAIN) {
     if (qualityOwned(progress, node.gem, node.quality)) continue;
     if (node.req && !qualityOwned(progress, node.req.gem, node.req.quality)) continue;
     if (node.guGate && !guOwned(progress, node.guGate.gem, node.guGate.id, node.guGate.level)) {
-      return {
-        ...node,
-        blocked: true,
-        blockReason: `${node.guGate.gem} ${node.guGate.id} Lv${node.guGate.level} required`,
-      };
+      out.push(
+        enrichNextQuality(
+          node,
+          true,
+          `${node.guGate.gem} ${node.guGate.id} Lv${node.guGate.level} required`,
+        ),
+      );
+      continue;
     }
-    const guDef = node.unlocksGu
-      ? GU_DEFS[node.unlocksGu.gem]?.find((g) => g.id === node.unlocksGu.id)
-      : null;
-    const firstGu = guDef ? nextThreeCosts(guDef, 0, 3) : [];
-    return {
-      ...node,
-      blocked: false,
-      requirementMet: true,
-      requirementLabel: node.req ? `${node.req.gem} Q${node.req.quality}` : "None",
-      unlocksLabel: guDef ? guDef.name : null,
-      guEffect: guDef ? guDef.effect : null,
-      firstGuCosts: firstGu,
-    };
+    out.push(enrichNextQuality(node, false, null));
   }
-  return null;
+  out.sort((a, b) => {
+    if (a.cost !== b.cost) return a.cost - b.cost;
+    return GEM_ORDER.indexOf(a.gem) - GEM_ORDER.indexOf(b.gem);
+  });
+  return out;
+}
+
+/**
+ * Preferred next quality from the reachable set (dropdown selection or cheapest).
+ */
+export function findNextQuality(progress, preferredKey = null) {
+  const options = findNextQualities(progress);
+  if (!options.length) return null;
+  if (preferredKey) {
+    const hit = options.find((n) => n.key === preferredKey);
+    if (hit) return hit;
+  }
+  return options[0];
 }
 
 /** Active GUs for the player's owned qualities. */

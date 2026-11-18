@@ -1724,6 +1724,32 @@ body[data-module="mechs"] .app-header p {
   font-size: 1.05rem;
 }
 
+.gem-next-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.gem-next-pick select {
+  width: 100%;
+  max-width: 18rem;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text, #e2e8f0);
+  background: #0b1220;
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+}
+
+.gem-next-pick select:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
 .gem-chips {
   display: flex;
   gap: 0.4rem;
